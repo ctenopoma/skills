@@ -47,7 +47,8 @@ python ~/.claude/skills/quarto-typst-pdf/scripts/qtpdf.py <サブコマンド>
 
 資料を見て次に当てはまるものがあれば、**聞かれなくても選択肢として出す**。
 
-- git 履歴がある → 「前の版からの変更箇所を改訂バーで示せます」
+- git 履歴がある → 「前の版からの変更箇所を示せます(線 / 文字色 / 両方)。
+  コミット履歴から改訂履歴ページも自動で作れます」
 - 仕様書・納品物らしい → 表紙(文書番号・版数・機密区分)を付けられます
 - レビュー段階らしい → DRAFT の透かしを入れられます
 - 素の文章に注意書きが埋もれている → Info / Warning の囲いに整えられます
@@ -130,9 +131,26 @@ qtpdf build . 仕様書.md --cover formal --version 1.2 --doc-number DOC-001 \
 # レビュー用に DRAFT の透かしを入れる
 qtpdf build --watermark DRAFT
 
-# git の2リビジョン間の変更を改訂バーで示す(追加=実線 / 変更=破線)
-qtpdf revise 仕様書.md --base HEAD~1 --design spec-sheet --style jis-jp
+# git の2リビジョン間の変更を明示する
+qtpdf revise 仕様書.md --base HEAD~1 --revision-mark bar     # 線(既定)
+qtpdf revise 仕様書.md --base HEAD~1 --revision-mark color   # 文字色
+qtpdf revise 仕様書.md --base HEAD~1 --revision-mark both    # 線+色
+
+# git 履歴から改訂履歴ページを自動生成(表紙の次・目次の前に入る)
+qtpdf revise 仕様書.md --base HEAD~1 --cover formal --revision-history
 ```
+
+**改訂の見せ方は必ず聞く。** 3通りあり、用途で選ぶものだから既定で押し切らない。
+
+| 指定 | 見え方 | 向く場面 |
+| --- | --- | --- |
+| `bar` | 左外側に縦線。追加=実線 / 変更=破線 | 白黒印刷でも残る。紙で回覧する校正 |
+| `color` | 文字色。追加=青 / 変更=赤 | 画面で見るとき。どこが変わったか一目で分かる |
+| `both` | 線と色の両方 | 画面と紙の両方で配る |
+
+`--revision-history` を付けると、git のコミット履歴から
+「版数 / 日付 / 改訂内容 / 作成」の表を自動で作る。版数はタグがあればタグ、
+無ければ短縮ハッシュ。**表紙 → 改訂履歴 → 目次 → 本文** の順に並ぶ。
 
 表紙の値は文書の frontmatter からも拾う(`title` / `subtitle` / `author` /
 `date` / `version` / `doc-number` / `classification`)。コマンドラインの指定が優先。

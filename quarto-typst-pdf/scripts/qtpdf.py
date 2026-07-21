@@ -638,6 +638,67 @@ def _theme_foreground(theme: Path) -> str:
     return _plist_global(theme, "foreground") or "E0E0E0"
 
 
+REVISION_MODES = ["bar", "color", "both"]
+
+HISTORY_TYP = """\
+// 改訂履歴。git の履歴から自動生成。表紙の次、目次の前に置く。
+#{{
+  set page(numbering: none)
+  heading(level: 1, outlined: false, numbering: none)[改訂履歴]
+  v(0.6em)
+  table(
+    columns: (auto, auto, 1fr, auto),
+    inset: (x: 8pt, y: 6pt),
+    stroke: 0.5pt + luma(120),
+    fill: (x, y) => if y == 0 {{ luma(235) }} else {{ none }},
+    table.header([版数], [日付], [改訂内容], [作成]),
+{rows}  )
+  pagebreak(weak: false)
+}}
+"""
+
+
+def build_history(root: Path, doc: Path, limit: int) -> Path | None:
+    """git の履歴から改訂履歴ページを作る。履歴が取れなければ何も作らない。"""
+    sys.path.insert(0, str(SKILL_DIR / "scripts"))
+    import revision
+
+    try:
+        rows = revision.history(doc, limit)
+    except SystemExit:
+        print("警告: git リポジトリではないため改訂履歴は付けません。")
+        return None
+    if not rows:
+        print("警告: git 履歴が取れないため改訂履歴は付けません。")
+        return None
+
+    body = "".join(
+        "    [{v}], [{d}], [{s}], [{a}],\n".format(
+            v=_typst_cell(r["version"]), d=_typst_cell(r["date"]),
+            s=_typst_cell(r["summary"]), a=_typst_cell(r["author"]))
+        for r in rows)
+
+    out = root / ".qtpdf-history.typ"
+    out.write_text(HISTORY_TYP.format(rows=body), encoding="utf-8", newline="\n")
+    print(f"改訂履歴: {len(rows)} 件を git 履歴から生成")
+    return out
+
+
+def _typst_cell(value: str) -> str:
+    """Typst のコンテンツに埋めても壊れないようにする。"""
+    return re.sub(r"([\\#$\[\]@*_`])", r"\\\1", str(value))
+
+
+def build_revision_mode(root: Path, mode: str) -> Path:
+    """改訂箇所の見せ方(線 / 色 / 両方)を差し替える。"""
+    out = root / ".qtpdf-revision-mode.typ"
+    out.write_text(
+        "// 改訂箇所の見せ方を差し替える(assets/revision.typ の既定を上書き)\n"
+        f'#let revision-mark = make-revision-mark("{mode}")\n',
+        encoding="utf-8", newline="\n")
+    return out
+
+
 def _extra_headers(root: Path, doc: Path, args) -> list[str]:
     """表紙・透かしのように文書ごとに生成する Typst を集める。"""
     extra = []
@@ -656,6 +717,18 @@ def _extra_headers(root: Path, doc: Path, args) -> list[str]:
         if args.author:
             meta["author"] = args.author
         extra.append(str(build_cover(root, cover, meta)))
+
+    # 改訂履歴は表紙の後・目次の前。include-in-header はテンプレートの
+    # タイトル/目次より前に出るので、この並びで意図どおりになる。
+    if getattr(args, "revision_history", False):
+        source = getattr(args, "source_doc", None) or doc
+        hist = build_history(root, source, getattr(args, "history_limit", 20))
+        if hist:
+            extra.append(str(hist))
+
+    mode = getattr(args, "revision_mark", None)
+    if mode and mode != "bar":
+        extra.append(str(build_revision_mode(root, mode)))
     return extra
 
 
@@ -684,6 +757,8 @@ def cmd_revise(args) -> int:
             encoding="utf-8", newline="\n")
 
     args.targets = [str(marked)]
+    # 履歴・表紙は改訂マーカー入りの中間ファイルではなく元ファイルから取る
+    args.source_override = src
     args.cover = getattr(args, "cover", None)
     rc = _render_docs(root, [marked], args)
     marked.unlink(missing_ok=True)
@@ -706,6 +781,7 @@ def _render_docs(root: Path, targets: list[Path], args) -> int:
     rendered, failed = [], []
     for src in targets:
         src = src if src.is_absolute() else root / src
+        args.source_doc = getattr(args, "source_override", None) or src
         doc = make_shadow(src) if src.suffix == ".md" else src
         cmd = [quarto, "render", str(doc.relative_to(root))]
         # 表紙と透かしは文書ごとに内容が変わるので、その都度生成して
@@ -987,6 +1063,11 @@ def main() -> int:
                    help="見出し先頭の手書き番号を落とす(自動採番との二重を防ぐ)")
     p.add_argument("--cover", choices=COVERS, help="表紙を差し込む")
     p.add_argument("--code-theme", help="コードの配色(assets/themes の tmTheme 名)")
+    p.add_argument("--revision-history", action="store_true",
+                   help="git 履歴から改訂履歴ページを付ける(表紙の次・目次の前)")
+    p.add_argument("--history-limit", type=int, default=20)
+    p.add_argument("--revision-mark", choices=REVISION_MODES, default="bar",
+                   help="改訂箇所の見せ方: bar=線 / color=文字色 / both=両方")
     p.add_argument("--watermark", help='透かし文字(例: DRAFT)')
     p.add_argument("--author"); p.add_argument("--subtitle"); p.add_argument("--date")
     p.add_argument("--version"); p.add_argument("--doc-number"); p.add_argument("--classification")
@@ -1008,6 +1089,11 @@ def main() -> int:
     p.add_argument("--design", choices=DESIGNS); p.add_argument("--style", choices=STYLES)
     p.add_argument("--watermark"); p.add_argument("--author")
     p.add_argument("--code-theme"); p.add_argument("--cover", choices=COVERS)
+    p.add_argument("--revision-history", action="store_true",
+                   help="git 履歴から改訂履歴ページを付ける(表紙の次・目次の前)")
+    p.add_argument("--history-limit", type=int, default=20)
+    p.add_argument("--revision-mark", choices=REVISION_MODES, default="bar",
+                   help="改訂箇所の見せ方: bar=線 / color=文字色 / both=両方")
     p.add_argument("--strip-numbers", action="store_true")
     p.set_defaults(func=cmd_revise)
 

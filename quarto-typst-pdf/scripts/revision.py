@@ -158,10 +158,50 @@ def mark(file: Path, base: str, out_path: Path) -> list[dict]:
     return blocks
 
 
+def history(file: Path, limit: int = 20, since: str | None = None) -> list[dict]:
+    """git の履歴から改訂履歴の行を作る。
+
+    版数は、そのコミット時点で最も近いタグを使う(タグが無ければ短縮ハッシュ)。
+    「いつ・誰が・何を」だけを拾い、体裁は呼び出し側に任せる。
+    """
+    root = git_root(file)
+    rel = file.resolve().relative_to(root).as_posix()
+
+    cmd = ["git", "log", "--date=short", "--format=%H\t%ad\t%an\t%s"]
+    if limit:
+        cmd += [f"-{limit}"]
+    if since:
+        cmd += [f"{since}..HEAD"]
+    cmd += ["--", rel]
+
+    r = _run(cmd, root)
+    if r.returncode != 0:
+        return []
+
+    rows = []
+    for line in r.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        sha, date, author, subject = parts[0], parts[1], parts[2], "\t".join(parts[3:])
+        tag = _run(["git", "describe", "--tags", "--abbrev=0", sha], root)
+        version = tag.stdout.strip() if tag.returncode == 0 else sha[:7]
+        rows.append({"version": version, "date": date,
+                     "author": author, "summary": subject})
+
+    rows.reverse()  # 古い順に並べる(改訂履歴表の慣習)
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="revision", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    ph = sub.add_parser("history")
+    ph.add_argument("file")
+    ph.add_argument("--limit", type=int, default=20)
+    ph.add_argument("--since", help="このリビジョン以降だけを出す")
 
     for name in ("map", "mark"):
         p = sub.add_parser(name)
@@ -172,6 +212,11 @@ def main() -> int:
 
     args = ap.parse_args()
     file = Path(args.file).resolve()
+
+    if args.cmd == "history":
+        print(json.dumps(history(file, args.limit, args.since),
+                         ensure_ascii=False, indent=2))
+        return 0
 
     if args.cmd == "map":
         blocks = map_revisions(file, args.base)

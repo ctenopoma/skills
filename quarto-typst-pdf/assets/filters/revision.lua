@@ -20,7 +20,7 @@ function Div(div)
     return nil
   end
 
-  local out = { pandoc.RawBlock("typst", "#revision-bar(\"" .. kind .. "\")[") }
+  local out = { pandoc.RawBlock("typst", "#revision-mark(\"" .. kind .. "\")[") }
   for _, block in ipairs(div.content) do
     out[#out + 1] = block
   end
