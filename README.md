@@ -49,3 +49,9 @@ git add -A
 git commit -m "update: ..."
 git push
 ```
+
+## 収録スキル
+
+| スキル | 用途 |
+| --- | --- |
+| [quarto-typst-pdf](quarto-typst-pdf/) | Markdown / Jupyter Notebook を Quarto × Typst で技術文書PDFにする。環境導入・合本・デザイン指定・目視調整まで |

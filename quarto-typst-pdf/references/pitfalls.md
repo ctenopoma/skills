@@ -1,0 +1,73 @@
+# 実際に踏んだ落とし穴と対処
+
+llm_poc(md 2本 + Jupyter Notebook 11本、日英混在・Mermaid・Draw.io入り)で
+検証したときに出た問題。いずれも `assets/` と `scripts/qtpdf.py` で対処済みだが、
+挙動が変わったときの手がかりとして残す。
+
+## Quarto / Typst の導入
+
+- **winget が使えないことがある。** シェルによっては `winget` が PATH に無い。
+  ポータブル zip を `~/.local/quarto` に展開する方式なら管理者権限も PATH 変更も
+  要らない(`qtpdf.py install` がこれをやる)。セキュリティ制約のある環境ではむしろ本命。
+- **Jupyter は要らない。** `execute: enabled: false` なら保存済みの出力をそのまま
+  組版するだけなので、Python に jupyter が入っていなくてもノートブックをPDFにできる。
+- **Mermaid には Chromium 系ブラウザが要る。** HTML 以外の出力では内部でヘッドレス
+  実行するため。Windows なら Edge / Chrome があれば満たせるが、無い環境では図が出ない。
+
+## Markdown の取り込み
+
+- **GitHub 流の ` ```mermaid ` は Quarto では処理されない。** ` ```{mermaid} ` に
+  変換が要る。元ファイルを書き換えず shadow `.qmd` を作って変換する。
+- **日本語見出しのアンカーでコンパイルが落ちる。** `[…](#見出し)` のリンク先 slug は
+  GitHub / VSCode / Pandoc で規則が違い、ズレると Typst が
+  `label ... does not exist` で失敗する。リンク先を集めて見出しに明示IDを振る。
+- **H1 を title に上げたら `shift-heading-level-by: -1` を併用する。** しないと
+  本文の `##` が第2階層のままになり、目次と番号が1段ずれる。
+
+## 図
+
+- **Mermaid の画像に物理サイズが直接入る。** Quarto は `width: 25.17in` のような
+  自然サイズを指定してくるため A4 からはみ出す。Lua フィルタで `width: 100%` に
+  書き換え、`height` を落としてアスペクト比を保つ(`filters/fit-images.lua`)。
+- **Mermaid 内の数式は既定の PNG 経路で出る。** KaTeX が SVG 内 `foreignObject`
+  として吐く分には懸念があったが、Quarto の既定経路では問題なく描画された。
+- **Draw.io SVG(`*.drawio.svg`)はそのまま埋まる。** 再編集性も保たれる。ただし
+  図中フォントは SVG 側の指定(Meiryo 等 OS フォント)のままで本文とは揃わない。
+
+## 表と図表番号
+
+- **列幅が等間隔になる。** Pandoc は行の長い pipe table に相対列幅を割り当て、
+  Quarto がそれを `columns: (33.33%, ...)` として出す。幅指定を落とすと
+  `columns: N` になり Typst が内容量に応じて配分する(`filters/numbering.lua`)。
+- **セルが中央寄せ・両端揃えになる。** Quarto は `align: (auto, ...)` を渡すので、
+  figure の中央寄せをセルまで継承してしまう。`base.typ` で左揃え・両端揃えなしにする。
+- **キャプションの無い表・図には番号が付かない。** Quarto は float 化したものだけを
+  `#figure` にするため。同じ kind(`quarto-float-tbl` / `quarto-float-fig`)で包めば
+  カウンタを共有して通し番号になる。
+- **`numbering.lua` は Quarto 本体のフィルタの後で動かす。** `_quarto.yml` の
+  `filters:` で `- quarto` の次に置く。前だと Quarto が後から float 化した表を
+  二重に包んでしまう。
+- **float の入れ物は class では見分けられない。** `quarto-scaffold` はセル出力の
+  包みにも付く。直下に Typst の `#figure(` 生片を持つかどうかで判定する。
+- **改ページ時のヘッダ行再表示は既定で効く。** Typst の `table.header(repeat: true)`
+  を Quarto が出しているので、こちらで何かする必要はない。
+
+## 合本(book)
+
+- **`author` が未指定だとコンパイルエラー。** typst の book テンプレート
+  (orange-book)が `author` を前提にしている。空文字でも与える。
+- **章頭に空白ページが入る。** テンプレートに `pagebreak(to: "odd")` が固定で
+  書かれており、設定では消せない。パッチ版パッケージを `TYPST_PACKAGE_PATH` で
+  優先解決させると消える(Quarto 本体は書き換えない)。
+- **プロジェクトローカルの `_extensions/` にコピーしても効かない。** パッケージ
+  解決の経路が違うため。環境変数での上書きが要る。
+
+## その他
+
+- **`monofont` 指定が効かない。** typst テンプレートが拾わないので、
+  `#show raw: set text(font: (...))` を include-in-header で注入する
+  (`base.typ` が実施)。
+- **ページ番号は Typst 側で `#set page(numbering:)` しても上書きされる。**
+  テンプレートの `set page` が後に来るため。Quarto の `page-numbering` オプションを使う。
+- **プロファイルは複数指定できる。** `--profile design,style` で両方の
+  `include-in-header` が合成される。design と style を直交させられる根拠。
