@@ -4,9 +4,12 @@
 // --- コード: 欧文は等幅、和文はゴシックへフォールバック ---
 #show raw: set text(font: ("JetBrains Mono", "Noto Sans CJK JP"))
 
-// --- 図表と本文の間隔 ---
+// --- 図表と本文の間隔、そして改ページ ---
 // 既定では図表が本文に近すぎて塊が分離して見えないため、上下に余白を取る。
-#show figure: set block(above: 1.8em, below: 1.8em)
+// あわせて breakable を有効にする。figure は既定でページをまたげず、
+// 1ページに収まらない長い表は分割されずにページ下端からあふれ、
+// 次の行が重なって潰れる(実際に踏んだ)。
+#show figure: set block(above: 1.8em, below: 1.8em, breakable: true)
 #show figure.caption: set text(size: 9pt)
 #show figure.caption: set block(above: 0.7em, below: 0.7em)
 

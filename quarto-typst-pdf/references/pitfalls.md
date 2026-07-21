@@ -117,3 +117,7 @@ llm_poc(md 2本 + Jupyter Notebook 11本、日英混在・Mermaid・Draw.io入�
   1つにまとめると判定前に本文を通過してしまう。
 - **手書きの見出し番号は Notebook にもある。** Markdown だけ前処理しても
   ノートブックの見出しが二重番号のまま残る。AST 段階(Lua)で落とせば両方に効く。
+- **長い表がページ下端からあふれて行が重なる。** Typst の `figure` は既定で
+  ページをまたげない。`numbering.lua` が表を figure で包むため、1ページに
+  収まらない表が分割されずに潰れる。`#show figure: set block(breakable: true)`
+  で解決する(`base.typ` が実施)。分割時のカラム名再表示はこれで初めて効く。
