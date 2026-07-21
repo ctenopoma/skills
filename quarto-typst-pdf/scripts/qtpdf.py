@@ -1007,7 +1007,8 @@ def main() -> int:
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("--design", choices=DESIGNS); p.add_argument("--style", choices=STYLES)
     p.add_argument("--watermark"); p.add_argument("--author")
-    p.add_argument("--code-theme")
+    p.add_argument("--code-theme"); p.add_argument("--cover", choices=COVERS)
+    p.add_argument("--strip-numbers", action="store_true")
     p.set_defaults(func=cmd_revise)
 
     p = sub.add_parser("matrix")
