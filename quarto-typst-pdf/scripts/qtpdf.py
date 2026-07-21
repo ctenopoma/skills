@@ -229,6 +229,7 @@ execute:
 # Quarto の処理結果を見てから動く必要がある。
 filters:
   - quarto
+  - {assets}/filters/strip-numbers.lua
   - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua
@@ -402,8 +403,30 @@ def strip_manual_numbers(body: str) -> str:
     return "\n".join(out)
 
 
+HTML_IMG = re.compile(r"<img\s+[^>]*?src=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
+HTML_ALT = re.compile(r"alt=[\"']([^\"']*)[\"']", re.IGNORECASE)
+
+
+def html_images_to_markdown(body: str) -> str:
+    """生 HTML の `<img>` を Markdown の画像に直す。
+
+    README の冒頭にロゴやバッジを `<p align="center"><img ...></p>` で置く
+    書き方は多いが、Typst 出力では生 HTML ごと捨てられて画像が消える。
+    """
+    def repl(m):
+        tag = m.group(0)
+        alt = HTML_ALT.search(tag)
+        # 幅指定はロゴやバッジで効いているので引き継ぐ。落とすと原寸で巨大化する。
+        size = re.search(r"width=[\"']?(\d+)", tag, re.IGNORECASE)
+        attr = f"{{width=\"{size.group(1)}px\"}}" if size else ""
+        return f"![{alt.group(1) if alt else ''}]({m.group(1)}){attr}"
+
+    return HTML_IMG.sub(repl, body)
+
+
 def _transform_md(text: str, strip_numbers: bool = False) -> str:
     text = MERMAID_FENCE.sub(r"\1```{mermaid}", text)
+    text = html_images_to_markdown(text)
     if strip_numbers:
         text = strip_manual_numbers(text)
     return _pin_anchors(text)
@@ -423,7 +446,9 @@ def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
 
     title, lines = front.get("title") or src.stem, text.splitlines()
     for i, line in enumerate(lines):
-        if not line.strip():
+        # 冒頭にバッジや中央寄せロゴの生 HTML を置く書き方は多い。
+        # そこで打ち切ると H1 を見つけられずファイル名が題になってしまう。
+        if not line.strip() or line.lstrip().startswith("<"):
             continue
         m = re.match(r"^#\s+(.+)$", line)
         if m:
@@ -527,27 +552,37 @@ def read_front_matter(doc: Path) -> dict:
 EXTRA_PROFILE = "qtpdfx"
 
 
-def _extra_profile(root: Path, headers: list[str]) -> str | None:
+def _extra_profile(root: Path, headers: list[str], extra_filters: list[str] | None = None) -> str | None:
     """生成した Typst を読ませるための一時プロファイルを書く。
 
     `-M include-in-header:...` ではリストに追加できず既存の指定を潰すため、
     プロファイルとして渡す(プロファイル同士なら include-in-header は合成される)。
     """
-    if not headers:
+    extra_filters = extra_filters or []
+    if not headers and not extra_filters:
         return None
+
     body = "format:\n  typst:\n"
-    # コードテーマを使うときは Skylighting を止め、言語タグを保つフィルタを足す。
+    # コードテーマを使うときは Skylighting を止める。
     # (Skylighting が生きていると Typst の raw(theme:) は無視される)
-    if any("code-theme" in h for h in headers):
+    use_code_theme = any("code-theme" in h for h in headers)
+    if use_code_theme:
         body += "    syntax-highlighting: none\n"
-    body += "    include-in-header:\n"
-    body += "".join(f"      - {h}\n" for h in headers)
-    if any("code-theme" in h for h in headers):
-        body += ("filters:\n  - quarto\n"
-                 f"  - {(ASSETS / 'filters/code-theme.lua').as_posix()}\n"
-                 f"  - {(ASSETS / 'filters/revision.lua').as_posix()}\n"
-                 f"  - {(ASSETS / 'filters/numbering.lua').as_posix()}\n"
-                 f"  - {(ASSETS / 'filters/fit-images.lua').as_posix()}\n")
+    if headers:
+        body += "    include-in-header:\n"
+        body += "".join(f"      - {h}\n" for h in headers)
+
+    # プロファイルの filters はマージではなく置き換えになるため、
+    # 足すときは既定の並びごと書き直す。
+    chain = list(extra_filters)
+    if use_code_theme:
+        chain.insert(0, (ASSETS / "filters/code-theme.lua").as_posix())
+    if chain:
+        body += "filters:\n  - quarto\n"
+        body += "".join(f"  - {f}\n" for f in chain)
+        for name in ("revision.lua", "numbering.lua", "fit-images.lua"):
+            body += f"  - {(ASSETS / 'filters' / name).as_posix()}\n"
+
     (root / f"_quarto-{EXTRA_PROFILE}.yml").write_text(body, encoding="utf-8", newline="\n")
     return EXTRA_PROFILE
 
@@ -671,13 +706,14 @@ def _render_docs(root: Path, targets: list[Path], args) -> int:
     rendered, failed = [], []
     for src in targets:
         src = src if src.is_absolute() else root / src
-        doc = (make_shadow(src, getattr(args, "strip_numbers", False))
-               if src.suffix == ".md" else src)
+        doc = make_shadow(src) if src.suffix == ".md" else src
         cmd = [quarto, "render", str(doc.relative_to(root))]
         # 表紙と透かしは文書ごとに内容が変わるので、その都度生成して
         # 一時プロファイルとして足す。
         profiles = _profiles(args)
         extra = _extra_profile(root, _extra_headers(root, doc, args))
+        if getattr(args, "strip_numbers", False):
+            cmd += ["-M", "strip-numbers:true"]
         if extra:
             profiles.append(extra)
         if profiles:
@@ -734,6 +770,7 @@ tbl-supplement: "表"
 
 filters:
   - quarto
+  - {assets}/filters/strip-numbers.lua
   - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua
