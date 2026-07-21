@@ -17,7 +17,7 @@ Zenn(https://zenn.dev)の記事は GitHub Flavored Markdown に独自拡張を�
         → `::: {.callout-note}` / `::: {.callout-warning}`
     - `:::details タイトル`
         → `::: {.callout-note collapse="true"}` + 中に `## タイトル`
-          (Quarto の callout はこの内側の見出みだしをタイトルとして吸収し、
+          (Quarto の callout はこの内側の見出しをタイトルとして吸収し、
           目次・章番号には数えない。PDF では details の折りたたみは効かない
           ので、展開済みの note として出す)
     - 入れ子(`::::` 以降、4個以上のコロン)
@@ -183,7 +183,8 @@ def render_quarto_frontmatter(fm: dict[str, str], warnings: list[str],
 # ============================================================================
 
 def convert_code_fences(body: str, warnings: list[str]) -> str:
-    """```lang:filename / ```lang: 説明 を Quarto の filename 属性に変える。
+    """```lang:filename / ```lang: 説明 を、太字のファイル名キャプション付きの
+    コードブロックに変える。
 
     ```mermaid は qtpdf.py の shadow 生成と同じく ```{mermaid} に変える
     (zenn.py の出力は .qmd としてそのままビルドに渡すため、.md 専用の

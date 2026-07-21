@@ -413,13 +413,23 @@ def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
     """GitHub互換の .md から Quarto 用の shadow .qmd を作る(元ファイルは変更しない)。"""
     text = src.read_text(encoding="utf-8")
 
-    title, lines = src.stem, text.splitlines()
+    # 既に frontmatter がある .md(Zenn 記事など)は、それを剥がして
+    # title だけ引き継ぐ。そのまま渡すと本文として組版されてしまう。
+    front = read_front_matter(src)
+    if front:
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            text = parts[2].lstrip("\n")
+
+    title, lines = front.get("title") or src.stem, text.splitlines()
     for i, line in enumerate(lines):
         if not line.strip():
             continue
         m = re.match(r"^#\s+(.+)$", line)
         if m:
-            title = m.group(1).strip()
+            # 先頭 H1 は title へ昇格させる(frontmatter の title があればそちらを優先)
+            if not front.get("title"):
+                title = m.group(1).strip()
             lines = lines[:i] + lines[i + 1:]
         break
 
