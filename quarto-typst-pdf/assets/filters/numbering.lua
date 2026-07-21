@@ -18,6 +18,112 @@
 local tbl_supplement = "Table"
 local fig_supplement = "Figure"
 
+-- 全角は2文字分として見た目の幅を測る。
+local function display_width(s)
+  local w = 0
+  for _, cp in utf8.codes(s) do
+    w = w + (cp > 0x2000 and 2 or 1)
+  end
+  return w
+end
+
+local MIN_SHARE = 0.08 -- これ以下に潰れると読めない
+local CAP = 60         -- 1列がこれ以上長くても幅は増やさない(折り返す前提)
+local LINE_CAPACITY = 86 -- 版面いっぱいに入る等幅文字数のおよその目安
+local MAX_FLOOR = 0.4  -- 1列が下限として要求できる上限
+
+--- 空白で切れない最長の連なり。コード中の識別子は折り返せないので、
+--- ここが列の最小幅を決める。
+local function longest_token(s)
+  local longest = 0
+  for token in s:gmatch("%S+") do
+    local w = display_width(token)
+    if w > longest then
+      longest = w
+    end
+  end
+  return longest
+end
+
+--- 各列の内容量から、合計 100% になる列幅を決める。
+--
+-- 幅指定を落として `columns: N`(全列 auto)にすると、Typst は内容の自然幅で
+-- 組むため、長い列があると版面をはみ出す。かといって等分だと内容量を無視する。
+-- そこで列ごとの最大セル幅を測り、それに比例した割合を明示する。
+local function proportional_widths(tbl)
+  local n = #tbl.colspecs
+  if n == 0 then
+    return
+  end
+
+  local widest, token = {}, {}
+  for i = 1, n do
+    widest[i], token[i] = 0, 0
+  end
+
+  local function scan(rows)
+    for _, row in ipairs(rows or {}) do
+      for i, cell in ipairs(row.cells) do
+        if i <= n then
+          local text = pandoc.utils.stringify(cell.contents)
+          widest[i] = math.max(widest[i], display_width(text))
+          token[i] = math.max(token[i], longest_token(text))
+        end
+      end
+    end
+  end
+
+  scan(tbl.head and tbl.head.rows)
+  for _, body in ipairs(tbl.bodies or {}) do
+    scan(body.head)
+    scan(body.body)
+  end
+
+  local total = 0
+  for i = 1, n do
+    widest[i] = math.max(1, math.min(widest[i], CAP))
+    total = total + widest[i]
+  end
+
+  -- 比例配分したうえで、各列の下限(折り返せない語が収まる幅)を保証する。
+  -- 合計が 100% を超えた分は、余裕のある列から余裕に比例して差し引く。
+  local shares, floor = {}, {}
+  for i = 1, n do
+    floor[i] = math.max(MIN_SHARE, math.min(MAX_FLOOR, (token[i] + 2) / LINE_CAPACITY))
+    shares[i] = math.max(widest[i] / total, floor[i])
+  end
+
+  local sum = 0
+  for i = 1, n do
+    sum = sum + shares[i]
+  end
+  local excess = sum - 1
+  if excess > 0 then
+    local slack = 0
+    for i = 1, n do
+      slack = slack + math.max(0, shares[i] - floor[i])
+    end
+    if slack > 0 then
+      local cut = math.min(excess, slack)
+      for i = 1, n do
+        local room = math.max(0, shares[i] - floor[i])
+        shares[i] = shares[i] - cut * room / slack
+      end
+    end
+  end
+
+  -- 下限が積み上がって 100% を超えることがある(列が多い表)。
+  -- その場合は下限をあきらめて一律に縮める。版面をはみ出すよりは、
+  -- 長い識別子が少しはみ出すほうがましなため。
+  sum = 0
+  for i = 1, n do
+    sum = sum + shares[i]
+  end
+  for i = 1, n do
+    tbl.colspecs[i][2] = shares[i] / sum
+  end
+end
+
 local meta_and_widths = {
   Meta = function(meta)
     local function s(key, fallback)
@@ -30,9 +136,7 @@ local meta_and_widths = {
   end,
 
   Table = function(tbl)
-    for _, spec in ipairs(tbl.colspecs) do
-      spec[2] = nil -- ColWidthDefault
-    end
+    proportional_widths(tbl)
     return tbl
   end,
 }

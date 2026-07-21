@@ -4,6 +4,14 @@
 // --- コード: 欧文は等幅、和文はゴシックへフォールバック ---
 #show raw: set text(font: ("JetBrains Mono", "Noto Sans CJK JP"))
 
+// --- 目次と本文の切れ目 ---
+// 既定では目次のすぐ下に本文が続くため、本文の書き出しが目次の一部に見える。
+// 明確に間を空けて、どこまでが目次かを分かるようにする。
+#show outline: it => {
+  it
+  v(2.2em)
+}
+
 // --- 図表と本文の間隔、そして改ページ ---
 // 既定では図表が本文に近すぎて塊が分離して見えないため、上下に余白を取る。
 // あわせて breakable を有効にする。figure は既定でページをまたげず、
@@ -24,5 +32,12 @@
 #show table.cell: set align(start + top)
 #show table.cell: set par(justify: false)
 #show table.cell.where(y: 0): set text(weight: 600)
+
+// 表の中のコードは少し小さく。長い識別子は折り返せないので、
+// 等倍のままだと列からはみ出して隣の列の文字に重なる。
+#show table.cell: it => {
+  show raw: set text(size: 0.86em)
+  it
+}
 
 // 改ページ時のヘッダ行再表示は Typst の table.header(repeat) が担う(既定で有効)
