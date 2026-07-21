@@ -37,8 +37,8 @@ Zenn(https://zenn.dev)の記事は GitHub Flavored Markdown に独自拡張を�
     - 文書内リンク `[...](#見出し)` が壊れないよう、見出しに明示アンカーを
       付与する(qtpdf.py の shadow 生成と同じアルゴリズム)
 
-変換できない・意味が失われる記法(Zenn独自の脚注 `^[...]`、画像サイズ指定
-`![](img =600x)`、message/details 以外の未知のコンテナ、対応の取れない
+変換できない・意味が失われる記法(画像サイズ指定 `![](img =600x)`、
+message/details 以外の未知のコンテナ、対応の取れない
 `:::` 等)は黙って落とさず、標準エラー出力に警告として列挙する。
 
 使い方:
@@ -85,7 +85,8 @@ HEADING = re.compile(r"^( {0,3})(#{1,6})\s+(.+?)\s*$")
 LINK_TARGET = re.compile(r"\]\(#([^)]+)\)")
 
 # 変換できない・情報が失われる可能性がある記法の検出用。
-FOOTNOTE_INLINE = re.compile(r"\^\[")
+# (Zenn のインライン脚注 ^[...] は Pandoc の markdown リーダーがそのまま
+#  ネイティブサポートしているため、警告なしでそのまま出力してよいと確認済み)
 IMG_SIZE_SUFFIX = re.compile(r"!\[[^\]]*\]\([^)]*[ \t]+=\d+x?\d*\)")
 
 # コードフェンスの言語表記のうち、Zenn でよく使われる略記を正式名に寄せる。
@@ -442,12 +443,6 @@ def scan_unhandled(body: str, warnings: list[str]) -> None:
         if in_fence:
             continue
 
-        if FOOTNOTE_INLINE.search(line):
-            warnings.append(
-                f"{lineno}行目: Zenn のインライン脚注 ^[...] を検出。"
-                " Quarto/Pandoc は [^id] … [^id]: 本文 という参照形式の脚注しか"
-                " 認識しないため、手動での書き換えが必要")
-
         if IMG_SIZE_SUFFIX.search(line):
             warnings.append(
                 f"{lineno}行目: Zenn の画像サイズ指定 (例: ![](img =600x)) を検出。"
@@ -458,6 +453,37 @@ def scan_unhandled(body: str, warnings: list[str]) -> None:
             warnings.append(
                 f"{lineno}行目: 未知のコンテナ記法 ':::{m_unknown.group(1)}' を検出。"
                 " message/details 以外は変換対象外なのでそのまま出力した")
+
+
+def warn_if_heading_duplicates_title(body: str, title: str, warnings: list[str]) -> None:
+    """本文冒頭の見出しが frontmatter の title と同じ文言なら、二重表示になる旨を警告する。
+
+    Zenn では記事本文の先頭に `# タイトルと同じ文言` を書く慣習があるが、Quarto は
+    frontmatter の title を独立した文書タイトルとして別途組版するため、そのまま
+    残すと同じ文言が2回(タイトルと本文見出し)出てしまう。内容を変える判断は
+    zenn.py ではしない(見出しを消す・変えるのは著者の意図に関わるため)。
+    気付けるように警告だけ出す。
+    """
+    title_bare = title.strip().strip('"').strip("'")
+    if not title_bare:
+        return
+    in_fence = False
+    for lineno, line in enumerate(body.split("\n"), 1):
+        if FENCE_LINE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = HEADING.match(line)
+        if m:
+            heading_text = m.group(3).strip()
+            if heading_text == title_bare:
+                warnings.append(
+                    f"{lineno}行目: 見出し \"{heading_text}\" が frontmatter の title と"
+                    " 同じ文言。Quarto は title を別途見出しとして組版するため、"
+                    " このままだと文書タイトルと同じ文言が本文にも重複して出る"
+                    "(意味を変える書き換えになるため自動では消さない。必要なら手動で調整)")
+            return  # 最初に見つかった見出しだけ見れば十分
 
 
 # ============================================================================
@@ -475,6 +501,8 @@ def convert_text(text: str, warnings: list[str], fallback_title: str) -> str:
 
     fm = parse_zenn_frontmatter(fm_lines)
     header = render_quarto_frontmatter(fm, warnings, fallback_title)
+    if fm.get("title"):
+        warn_if_heading_duplicates_title(body, fm["title"], warnings)
 
     body = convert_code_fences(body, warnings)
     body = convert_containers(body, warnings)

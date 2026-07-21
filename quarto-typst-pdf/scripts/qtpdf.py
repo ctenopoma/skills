@@ -426,7 +426,8 @@ def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
     shadow = src.with_name(src.stem + "__pdf.qmd")
     shadow.write_text(
         f'---\ntitle: "{title}"\noutput-file: "{src.stem}.pdf"\n'
-        "shift-heading-level-by: -1\n---\n\n" + _transform_md("\n".join(lines)),
+        "shift-heading-level-by: -1\n---\n\n"
+        + _transform_md("\n".join(lines), strip_numbers),
         encoding="utf-8", newline="\n")
     return shadow
 
