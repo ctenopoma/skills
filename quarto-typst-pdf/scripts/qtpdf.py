@@ -11,6 +11,7 @@
     matrix [dir]        design × style の組み合わせを一括レンダする
     diagram <in> <out>  PlantUML の .puml を画像にする
     zenn <in> <out>     Zenn記法の Markdown を .qmd に変換する
+    check <pdf>         体裁くずれ(紙外へのはみ出し・空ページ・豆腐)を機械的に調べる
     probe <pdf>         ページ数・埋め込みフォント・空白ページを調べ、PNGを書き出す
 
 どのサブコマンドも、判断に使える形(見出し付きの短い報告)で結果を返す。
@@ -1003,6 +1004,11 @@ def cmd_zenn(args) -> int:
     return _delegate("zenn.py", argv)
 
 
+def cmd_check(args) -> int:
+    """体裁くずれを機械的に調べる。判定できるものだけを見る。"""
+    return _delegate("inspect_pdf.py", [args.pdf] + (["--json"] if args.json else []))
+
+
 def cmd_probe(args) -> int:
     try:
         import pypdfium2 as pdfium
@@ -1117,6 +1123,10 @@ def main() -> int:
     p.add_argument("input", nargs="?"); p.add_argument("output", nargs="?")
     p.add_argument("--dir"); p.add_argument("--out")
     p.set_defaults(func=cmd_zenn)
+
+    p = sub.add_parser("check", help="体裁くずれ(はみ出し・空ページ・豆腐)を調べる")
+    p.add_argument("pdf"); p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("probe")
     p.add_argument("pdf"); p.add_argument("--pages")
