@@ -230,6 +230,7 @@ execute:
 filters:
   - quarto
   - {assets}/filters/strip-numbers.lua
+  - {assets}/filters/pagebreaks.lua
   - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua
@@ -580,7 +581,7 @@ def _extra_profile(root: Path, headers: list[str], extra_filters: list[str] | No
     if chain:
         body += "filters:\n  - quarto\n"
         body += "".join(f"  - {f}\n" for f in chain)
-        for name in ("revision.lua", "numbering.lua", "fit-images.lua"):
+        for name in ("pagebreaks.lua", "revision.lua", "numbering.lua", "fit-images.lua"):
             body += f"  - {(ASSETS / 'filters' / name).as_posix()}\n"
 
     (root / f"_quarto-{EXTRA_PROFILE}.yml").write_text(body, encoding="utf-8", newline="\n")
@@ -847,6 +848,7 @@ tbl-supplement: "表"
 filters:
   - quarto
   - {assets}/filters/strip-numbers.lua
+  - {assets}/filters/pagebreaks.lua
   - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua

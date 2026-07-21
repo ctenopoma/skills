@@ -136,3 +136,12 @@ llm_poc(md 2本 + Jupyter Notebook 11本、日英混在・Mermaid・Draw.io入�
 - **表紙・改訂履歴は include-in-header に置くと目次より前に出る。** Quarto の
   typst テンプレートはタイトルと目次を本文の直前に組むため、この並びで
   「表紙 → 改訂履歴 → 目次 → 本文」になる。
+- **`pagebreak()` は show ルールの中では使えない。** Quarto のテンプレートは本文を
+  関数の引数として組むため、show ルールの出力がコンテナ扱いになり
+  「pagebreaks are not allowed inside of containers」で落ちる(素の Typst では通る)。
+  Lua フィルタで AST の最上位に生の `#pagebreak(weak: true)` を挿し込む。
+- **「章」はレベル1見出しとは限らない。** H1 を title へ上げた文書は
+  `shift-heading-level-by` で後からずらされるため、フィルタの時点では 2 のことがある。
+  最上位に現れる見出しの最小レベルを実測して章とみなす。
+- **章の直前の区切り線は落とす。** 改頁で区切られるので二重になるうえ、
+  線だけが前ページ末尾に取り残されて空白ページのように見える。
