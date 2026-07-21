@@ -1089,6 +1089,9 @@ def main() -> int:
     p.add_argument("--design", choices=DESIGNS); p.add_argument("--style", choices=STYLES)
     p.add_argument("--watermark"); p.add_argument("--author")
     p.add_argument("--code-theme"); p.add_argument("--cover", choices=COVERS)
+    p.add_argument("--subtitle"); p.add_argument("--date")
+    p.add_argument("--version"); p.add_argument("--doc-number")
+    p.add_argument("--classification")
     p.add_argument("--revision-history", action="store_true",
                    help="git 履歴から改訂履歴ページを付ける(表紙の次・目次の前)")
     p.add_argument("--history-limit", type=int, default=20)
