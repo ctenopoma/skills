@@ -7,7 +7,10 @@
     init [dir]          プロジェクトにビルド設定を作る(_quarto.yml など)
     build [dir]         md → shadow qmd を作ってレンダリングする
     book [dir]          全文書を1冊の合本PDFにする
+    revise <file>       git 差分から改訂バー付きのPDFを出す
     matrix [dir]        design × style の組み合わせを一括レンダする
+    diagram <in> <out>  PlantUML の .puml を画像にする
+    zenn <in> <out>     Zenn記法の Markdown を .qmd に変換する
     probe <pdf>         ページ数・埋め込みフォント・空白ページを調べ、PNGを書き出す
 
 どのサブコマンドも、判断に使える形(見出し付きの短い報告)で結果を返す。
@@ -102,6 +105,14 @@ def cmd_doctor(args) -> int:
 
     chrome = _find_chrome()
     print(f"- Chromium系ブラウザ: {chrome or '**無し** — Mermaid の画像化に必要'}")
+
+    # PlantUML は Corretto(ライセンス上の指定)と plantuml.jar が要る。
+    corretto = Path.home() / ".local/corretto/bin/java.exe"
+    jar = Path.home() / ".local/plantuml/plantuml.jar"
+    if corretto.exists() and jar.exists():
+        print("- PlantUML: 利用可(Amazon Corretto + plantuml.jar をユーザー領域に導入済み)")
+    else:
+        print("- PlantUML: **未整備** → `python scripts/plantuml.py doctor` で導入手順を確認")
 
     print("\n## フォント")
     font_dir = Path(args.fonts) if args.fonts else Path.cwd() / "fonts"
@@ -218,6 +229,7 @@ execute:
 # Quarto の処理結果を見てから動く必要がある。
 filters:
   - quarto
+  - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua
 
@@ -236,6 +248,8 @@ format:
     toc-depth: 2
     include-in-header:
       - {assets}/base.typ
+      - {assets}/callouts.typ
+      - {assets}/revision.typ
 """
 
 DESIGN_YML = """\
@@ -368,11 +382,34 @@ def _pin_anchors(body: str) -> str:
     return "\n".join(out)
 
 
-def _transform_md(text: str) -> str:
-    return _pin_anchors(MERMAID_FENCE.sub(r"\1```{mermaid}", text))
+MANUAL_NUMBER = re.compile(r"^(#{1,6})\s+\d+(?:\.\d+)*\.?\s+(?=\S)")
 
 
-def make_shadow(src: Path) -> Path:
+def strip_manual_numbers(body: str) -> str:
+    """見出しの先頭に手で振られた番号を落とす。
+
+    「## 1. 概要」のような原文に自動採番を重ねると「2.1 1. 概要」と二重になる。
+    番号を style 側に一本化したいときに使う(既定では実行しない。原文の意図的な
+    番号を消してしまう可能性があるため)。
+    """
+    out, in_fence = [], False
+    for line in body.splitlines():
+        if FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence:
+            line = MANUAL_NUMBER.sub(r"\1 ", line)
+        out.append(line)
+    return "\n".join(out)
+
+
+def _transform_md(text: str, strip_numbers: bool = False) -> str:
+    text = MERMAID_FENCE.sub(r"\1```{mermaid}", text)
+    if strip_numbers:
+        text = strip_manual_numbers(text)
+    return _pin_anchors(text)
+
+
+def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
     """GitHub互換の .md から Quarto 用の shadow .qmd を作る(元ファイルは変更しない)。"""
     text = src.read_text(encoding="utf-8")
 
@@ -412,23 +449,228 @@ def _profiles(args) -> list[str]:
     return p
 
 
+COVERS = ["simple", "formal"]
+
+COVER_KEYS = {
+    "TITLE": "title", "SUBTITLE": "subtitle", "AUTHOR": "author",
+    "DATE": "date", "VERSION": "version",
+    "NUMBER": "doc-number", "CLASSIFICATION": "classification",
+}
+
+
+def _typst_str(value) -> str:
+    """Typst の文字列リテラルにする。値が無ければ none。"""
+    if value in (None, ""):
+        return "none"
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def build_cover(root: Path, name: str, meta: dict) -> Path:
+    """表紙テンプレートのプレースホルダを文書メタデータで埋め、生成物を返す。
+
+    表紙は文書ごとに値が違うので、テンプレートをそのまま include できない。
+    @@KEY@@ を置換した実体を作業ファイルとして書き出し、それを読ませる。
+    """
+    template = (ASSETS / "covers" / f"{name}.typ").read_text(encoding="utf-8")
+    for placeholder, key in COVER_KEYS.items():
+        template = template.replace(f"@@{placeholder}@@", _typst_str(meta.get(key)))
+    out = root / f".qtpdf-cover-{name}.typ"
+    out.write_text(template, encoding="utf-8", newline="\n")
+    return out
+
+
+WATERMARK = """\
+// DRAFT 透かし。レビュー段階のPDFが最終版と取り違えられる事故を防ぐ。
+#set page(background: rotate(-30deg, text(
+  size: 100pt, weight: 700, fill: rgb(0, 0, 0, 26), tracking: 0.1em, "{text}",
+)))
+"""
+
+
+def build_watermark(root: Path, label: str) -> Path:
+    out = root / ".qtpdf-watermark.typ"
+    out.write_text(WATERMARK.format(text=label), encoding="utf-8", newline="\n")
+    return out
+
+
+def read_front_matter(doc: Path) -> dict:
+    """.qmd / .md 先頭の frontmatter を素朴に読む(表紙に流す値の取得用)。"""
+    meta = {}
+    try:
+        text = doc.read_text(encoding="utf-8")
+    except OSError:
+        return meta
+    if not text.startswith("---"):
+        return meta
+    body = text.split("---", 2)
+    if len(body) < 3:
+        return meta
+    for line in body[1].splitlines():
+        if ":" not in line or line.startswith((" ", "\t", "#")):
+            continue
+        k, v = line.split(":", 1)
+        meta[k.strip()] = v.strip().strip('"').strip("'")
+    return meta
+
+
+EXTRA_PROFILE = "qtpdfx"
+
+
+def _extra_profile(root: Path, headers: list[str]) -> str | None:
+    """生成した Typst を読ませるための一時プロファイルを書く。
+
+    `-M include-in-header:...` ではリストに追加できず既存の指定を潰すため、
+    プロファイルとして渡す(プロファイル同士なら include-in-header は合成される)。
+    """
+    if not headers:
+        return None
+    body = "format:\n  typst:\n"
+    # コードテーマを使うときは Skylighting を止め、言語タグを保つフィルタを足す。
+    # (Skylighting が生きていると Typst の raw(theme:) は無視される)
+    if any("code-theme" in h for h in headers):
+        body += "    syntax-highlighting: none\n"
+    body += "    include-in-header:\n"
+    body += "".join(f"      - {h}\n" for h in headers)
+    if any("code-theme" in h for h in headers):
+        body += ("filters:\n  - quarto\n"
+                 f"  - {(ASSETS / 'filters/code-theme.lua').as_posix()}\n"
+                 f"  - {(ASSETS / 'filters/revision.lua').as_posix()}\n"
+                 f"  - {(ASSETS / 'filters/numbering.lua').as_posix()}\n"
+                 f"  - {(ASSETS / 'filters/fit-images.lua').as_posix()}\n")
+    (root / f"_quarto-{EXTRA_PROFILE}.yml").write_text(body, encoding="utf-8", newline="\n")
+    return EXTRA_PROFILE
+
+
+def code_themes() -> list[str]:
+    return sorted(p.stem for p in (ASSETS / "themes").glob("*.tmTheme"))
+
+
+def build_code_theme(root: Path, name: str) -> Path:
+    """コードの配色を VSCode 由来の tmTheme に差し替える Typst を書く。
+
+    scripts/vscode_theme.py が VSCode のテーマ JSON から生成したものを使う。
+    """
+    theme = ASSETS / "themes" / f"{name}.tmTheme"
+    if not theme.exists():
+        sys.exit(f"コードテーマ {name} がありません。利用可能: {', '.join(code_themes())}")
+
+    # Typst はプロジェクト外の絶対パスを読めない(ルートより上は参照不可)。
+    # テーマ本体をプロジェクトへ複製し、相対パスで参照する。
+    local = root / f".qtpdf-theme-{name}.tmTheme"
+    shutil.copy(theme, local)
+
+    # 暗い配色のときはコード面の下地も暗くする。Quarto は raw ブロックに
+    # 明るい灰色の背景を固定で敷くため、そのままだと文字が読めなくなる。
+    bg = _theme_background(theme)
+    dark = bg is not None and sum(int(bg[i:i + 2], 16) for i in (0, 2, 4)) < 3 * 128
+
+    out = root / ".qtpdf-code-theme.typ"
+    out.write_text(
+        "// コードの配色(VSCode テーマ由来の tmTheme)。\n"
+        "// Skylighting を止めて Typst 自身のハイライタに任せるため、\n"
+        "// filters/code-theme.lua と syntax-highlighting: none がセットで要る。\n"
+        f'#set raw(theme: "{local.name}")\n'
+        + (f'#show raw.where(block: true): set block(fill: rgb("#{bg}"))\n'
+           f'#show raw.where(block: true): set text(fill: rgb("#{_theme_foreground(theme)}"))\n'
+           if dark else ""),
+        encoding="utf-8", newline="\n")
+    return out
+
+
+def _plist_global(theme: Path, key: str) -> str | None:
+    """tmTheme の先頭グローバル設定から色を1つ取る(background / foreground)。"""
+    text = theme.read_text(encoding="utf-8")
+    m = re.search(r"<key>" + key + r"</key>\s*<string>#([0-9A-Fa-f]{6})", text)
+    return m.group(1) if m else None
+
+
+def _theme_background(theme: Path) -> str | None:
+    return _plist_global(theme, "background")
+
+
+def _theme_foreground(theme: Path) -> str:
+    return _plist_global(theme, "foreground") or "E0E0E0"
+
+
+def _extra_headers(root: Path, doc: Path, args) -> list[str]:
+    """表紙・透かしのように文書ごとに生成する Typst を集める。"""
+    extra = []
+    if getattr(args, "code_theme", None):
+        extra.append(str(build_code_theme(root, args.code_theme)))
+    # 透かしを先に置く。後ろに置くと、先に1ページ使い切る表紙に掛からない。
+    if getattr(args, "watermark", None):
+        extra.append(str(build_watermark(root, args.watermark)))
+    cover = getattr(args, "cover", None)
+    if cover:
+        meta = read_front_matter(doc)
+        for key in ("version", "doc-number", "classification", "subtitle", "date"):
+            val = getattr(args, key.replace("-", "_"), None)
+            if val:
+                meta[key] = val
+        if args.author:
+            meta["author"] = args.author
+        extra.append(str(build_cover(root, cover, meta)))
+    return extra
+
+
+def cmd_revise(args) -> int:
+    """改訂版PDFを出す。git 差分から変更ブロックを判定し、改訂バー付きで組版する。"""
+    import revision  # 同じ scripts/ にある
+
+    root = Path(args.dir).resolve()
+    src = Path(args.file)
+    src = src if src.is_absolute() else root / src
+
+    marked = src.with_name(src.stem + "__rev.qmd")
+    blocks = revision.mark(src, args.base, marked)
+
+    n_add = sum(1 for b in blocks if b["kind"] == "added")
+    print(f"## 改訂箇所  {len(blocks)} ブロック(追加 {n_add} / 変更 {len(blocks) - n_add})")
+    for b in blocks:
+        print(f"- {b['kind']:8} 行{b['start']}-{b['end']} 変更率{b['ratio']:.0%}  {b['preview']}")
+
+    if src.suffix == ".md":
+        # shadow と同じ前処理(mermaid 記法・アンカー)を通す
+        text = marked.read_text(encoding="utf-8")
+        marked.write_text(
+            f'---\ntitle: "{src.stem}"\noutput-file: "{src.stem}-rev.pdf"\n'
+            "shift-heading-level-by: -1\n---\n\n" + _transform_md(text),
+            encoding="utf-8", newline="\n")
+
+    args.targets = [str(marked)]
+    args.cover = getattr(args, "cover", None)
+    rc = _render_docs(root, [marked], args)
+    marked.unlink(missing_ok=True)
+    return rc
+
+
 def cmd_build(args) -> int:
     root = Path(args.dir).resolve()
-    quarto = need_quarto()
     if not (root / "_quarto.yml").exists():
         sys.exit("_quarto.yml がありません。先に `qtpdf.py init` を実行してください。")
 
     targets = [Path(t) for t in args.targets] if args.targets else discover(root)
     if not targets:
         sys.exit("PDF化する文書が見つかりません。")
+    return _render_docs(root, targets, args)
 
+
+def _render_docs(root: Path, targets: list[Path], args) -> int:
+    quarto = need_quarto()
     rendered, failed = [], []
     for src in targets:
         src = src if src.is_absolute() else root / src
-        doc = make_shadow(src) if src.suffix == ".md" else src
+        doc = (make_shadow(src, getattr(args, "strip_numbers", False))
+               if src.suffix == ".md" else src)
         cmd = [quarto, "render", str(doc.relative_to(root))]
-        if _profiles(args):
-            cmd += ["--profile", ",".join(_profiles(args))]
+        # 表紙と透かしは文書ごとに内容が変わるので、その都度生成して
+        # 一時プロファイルとして足す。
+        profiles = _profiles(args)
+        extra = _extra_profile(root, _extra_headers(root, doc, args))
+        if extra:
+            profiles.append(extra)
+        if profiles:
+            cmd += ["--profile", ",".join(profiles)]
         r = _run(cmd, cwd=root)
         (rendered if r.returncode == 0 else failed).append((src.name, _err(r)))
 
@@ -472,6 +714,8 @@ format:
     toc-depth: 2
     include-in-header:
       - {assets}/base.typ
+      - {assets}/callouts.typ
+      - {assets}/revision.typ
       - {assets}/designs/{design}.typ
 
 fig-supplement: "図"
@@ -479,6 +723,7 @@ tbl-supplement: "表"
 
 filters:
   - quarto
+  - {assets}/filters/revision.lua
   - {assets}/filters/numbering.lua
   - {assets}/filters/fit-images.lua
 """
@@ -496,7 +741,8 @@ def cmd_book(args) -> int:
     for i, src in enumerate(discover(root)):
         if src.suffix == ".md":
             name = "index.qmd" if i == 0 else src.stem + ".qmd"
-            (work / name).write_text(_transform_md(src.read_text(encoding="utf-8")),
+            (work / name).write_text(
+                _transform_md(src.read_text(encoding="utf-8"), args.strip_numbers),
                                      encoding="utf-8", newline="\n")
         else:
             name = src.name
@@ -606,6 +852,31 @@ def _preview(pdf: Path, out_dir: Path, tag: str, pages) -> None:
             doc[i].render(scale=1.5).to_pil().save(out_dir / f"{tag}_p{i + 1}.png")
 
 
+def _delegate(script: str, argv: list[str]) -> int:
+    """同じ scripts/ にある単体ツールへそのまま渡す。"""
+    r = subprocess.run([sys.executable, str(SKILL_DIR / "scripts" / script), *argv])
+    return r.returncode
+
+
+def cmd_diagram(args) -> int:
+    """PlantUML の .puml を画像にする(Markdown へは画像として埋め込む)。"""
+    argv = [args.input, args.output]
+    if args.fonts:
+        argv += ["--fonts", args.fonts]
+    if args.font:
+        argv += ["--font", args.font]
+    return _delegate("plantuml.py", argv)
+
+
+def cmd_zenn(args) -> int:
+    """Zenn記法の Markdown を Quarto の .qmd に変換する。"""
+    if args.dir:
+        argv = ["--dir", args.dir] + (["--out", args.out] if args.out else [])
+    else:
+        argv = [args.input, args.output]
+    return _delegate("zenn.py", argv)
+
+
 def cmd_probe(args) -> int:
     try:
         import pypdfium2 as pdfium
@@ -664,20 +935,48 @@ def main() -> int:
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("targets", nargs="*")
     p.add_argument("--design", choices=DESIGNS); p.add_argument("--style", choices=STYLES)
+    p.add_argument("--strip-numbers", action="store_true",
+                   help="見出し先頭の手書き番号を落とす(自動採番との二重を防ぐ)")
+    p.add_argument("--cover", choices=COVERS, help="表紙を差し込む")
+    p.add_argument("--code-theme", help="コードの配色(assets/themes の tmTheme 名)")
+    p.add_argument("--watermark", help='透かし文字(例: DRAFT)')
+    p.add_argument("--author"); p.add_argument("--subtitle"); p.add_argument("--date")
+    p.add_argument("--version"); p.add_argument("--doc-number"); p.add_argument("--classification")
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("book")
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("--title"); p.add_argument("--author", default="")
     p.add_argument("--output"); p.add_argument("--design", choices=DESIGNS)
+    p.add_argument("--strip-numbers", action="store_true",
+                   help="見出し先頭の手書き番号を落とす(自動採番との二重を防ぐ)")
     p.add_argument("--lang", default="ja"); p.add_argument("--fonts")
     p.set_defaults(func=cmd_book)
+
+    p = sub.add_parser("revise")
+    p.add_argument("file"); p.add_argument("--base", required=True,
+                                           help="比較元のリビジョン(例: HEAD~1, v1.0)")
+    p.add_argument("dir", nargs="?", default=".")
+    p.add_argument("--design", choices=DESIGNS); p.add_argument("--style", choices=STYLES)
+    p.add_argument("--watermark"); p.add_argument("--author")
+    p.add_argument("--code-theme")
+    p.set_defaults(func=cmd_revise)
 
     p = sub.add_parser("matrix")
     p.add_argument("dir", nargs="?", default=".")
     p.add_argument("--target")
     p.add_argument("--designs", nargs="*"); p.add_argument("--styles", nargs="*")
     p.set_defaults(func=cmd_matrix)
+
+    p = sub.add_parser("diagram", help="PlantUML の .puml を画像にする")
+    p.add_argument("input"); p.add_argument("output")
+    p.add_argument("--fonts"); p.add_argument("--font")
+    p.set_defaults(func=cmd_diagram)
+
+    p = sub.add_parser("zenn", help="Zenn記法の Markdown を .qmd に変換する")
+    p.add_argument("input", nargs="?"); p.add_argument("output", nargs="?")
+    p.add_argument("--dir"); p.add_argument("--out")
+    p.set_defaults(func=cmd_zenn)
 
     p = sub.add_parser("probe")
     p.add_argument("pdf"); p.add_argument("--pages")

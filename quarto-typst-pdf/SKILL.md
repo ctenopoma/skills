@@ -76,7 +76,28 @@ qtpdf probe _pdf/README.pdf --pages 1,3,5
 PNG に書き出す。**書き出した PNG は Read ツールで開いて目視すること。**
 持ち込んだフォントが実際に使われたかは、埋め込みフォント一覧で確認できる。
 
-### 5. 調整する
+### 5. 表紙・透かし・改訂バー
+
+```bash
+# 表紙(simple: 罫線1本 / formal: 文書管理情報つき)
+qtpdf build . 仕様書.md --cover formal --version 1.2 --doc-number DOC-001 \
+  --classification 社外秘 --author "チーム名" --date 2026-07-21
+
+# レビュー用に DRAFT の透かしを入れる
+qtpdf build --watermark DRAFT
+
+# git の2リビジョン間の変更を改訂バーで示す(追加=実線 / 変更=破線)
+qtpdf revise 仕様書.md --base HEAD~1 --design spec-sheet --style jis-jp
+```
+
+表紙の値は文書の frontmatter からも拾う(`title` / `subtitle` / `author` /
+`date` / `version` / `doc-number` / `classification`)。コマンドラインの指定が優先。
+
+`revise` は git 差分を**ブロック単位**(段落・見出し・コードブロック・箇条書き)に
+丸めてから判定する。行単位のままでは「1文字直した段落」と「書き直した段落」が
+区別できないため。変更率も併せて報告する。
+
+### 6. 調整する
 
 要望に応じて design / style を変える。両者は直交していて、どの組み合わせでも
 壊れない(`references/design-style.md` に選び方と拡張時の約束を書いてある)。
@@ -117,24 +138,51 @@ qtpdf matrix --designs spec-sheet engineering-note --styles jis-jp
 | `references/design-style.md` | design / style の選び方、2層の契約(拡張時の約束) |
 | `references/pitfalls.md` | Quarto × Typst で踏んだ問題と対処。エラー時の一次資料 |
 | `references/fonts.md` | 推奨フォントと入手先。`fonts/README.md` として配置される |
+| `references/authoring.md` | 素の Markdown を読みやすく整えるときの判断基準 |
+| `references/plantuml.md` | Corretto と plantuml.jar の導入。ライセンス上の理由も |
 
 ## 資産
 
 `assets/` の中身は検証済みで、`qtpdf init` が作る `_quarto.yml` から参照される。
 
 - `base.typ` — 全体共通。コードのフォント、図表まわりの余白、表の外枠とセルの組み方
+- `callouts.typ` — Info / Warning などの囲い5種
+- `revision.typ` — 改訂バー(追加=実線 / 変更=破線)
 - `designs/*.typ` — 配色・フォント・表の罫線と塗り(見た目だけ)
 - `styles/*.typ` — 図表番号の書式と採番範囲(番号だけ)
+- `covers/*.typ` — 表紙。`@@KEY@@` を qtpdf がメタデータで置換する
+- `themes/*.tmTheme` — コードの配色(VSCode テーマから変換したもの)
 - `filters/numbering.lua` — 表の列幅を内容量に応じて配分し、キャプションの無い
   表・図にも Quarto と同じカウンタで番号を振る
 - `filters/fit-images.lua` — Mermaid / Draw.io の図を本文幅に収める
+- `filters/revision.lua` — 改訂マーカーの Div を Typst の改訂バーに橋渡しする
 
-## まだできないこと
+## 図とコードの色
 
-要望が来たら、できない旨を伝えたうえで代替を出す。
+```bash
+# PlantUML(Amazon Corretto と plantuml.jar をユーザー領域に導入して使う)
+qtpdf diagram design.puml figures/design.png --fonts fonts
+# → 生成した画像を Markdown に ![](figures/design.png) で埋める
 
-- callout(Info / Warning の囲い)のデザイン制御
-- VSCode テーマを使ったコードの色分け
-- 表紙の差し込み
-- 改訂箇所の自動判定と改訂バー
-- PlantUML(Java が要る)
+# Zenn記法(:::message 等)の記事を Quarto の .qmd に変換
+qtpdf zenn article.md article.qmd
+qtpdf zenn --dir path/to/zenn-contents --out converted/
+
+# コードの配色を VSCode テーマに合わせる
+qtpdf build --code-theme anthropic-dark      # 他: anthropic-light
+```
+
+Mermaid と Draw.io は Markdown に直接書ける(変換不要)。PlantUML だけは
+Quarto が直接扱えないので、先に画像へビルドしてから埋め込む。
+
+執筆支援(素の文章を callout やコードブロックに整える)を頼まれたら、
+`references/authoring.md` の判断基準に従うこと。原文の意味を変えないのが第一。
+
+## 制約として残っているもの
+
+- **タグ付きPDF(PDF/UA)は出せない。** Quarto 同梱の Typst が対応するまで待ち。
+  代替として、画像の代替テキスト欠落は警告できる。
+- **PlantUML は Java が要る。** ライセンス上 Amazon Corretto を使う
+  (`references/plantuml.md`)。Mermaid と Draw.io だけなら Java 不要。
+- **Draw.io SVG の図中フォントは SVG 側の指定のまま。** 本文フォントとは揃わない。
+  揃えたい場合は Draw.io 側でフォントを変えるか、PNG で書き出す。

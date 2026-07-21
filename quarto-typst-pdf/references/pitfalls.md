@@ -71,3 +71,33 @@ llm_poc(md 2本 + Jupyter Notebook 11本、日英混在・Mermaid・Draw.io入�
   テンプレートの `set page` が後に来るため。Quarto の `page-numbering` オプションを使う。
 - **プロファイルは複数指定できる。** `--profile design,style` で両方の
   `include-in-header` が合成される。design と style を直交させられる根拠。
+- **`-M include-in-header:...` では追加できない。** リスト型の指定を丸ごと
+  置き換えてしまい、`base.typ` ごと消える。文書ごとに Typst を足したいときは
+  一時プロファイルを書いて `--profile` に足す(表紙・透かし・コードテーマがこの方式)。
+- **本文フォントは design の `.typ` では変えられない。** テンプレートの
+  `set text(font: ...)` が後に来て勝つ。`_quarto-<design>.yml` の
+  `mainfont` で指定する。
+
+## 表紙・改訂バー・コードテーマ
+
+- **Typst はプロジェクト外の絶対パスを読めない。** `#set raw(theme: "C:/...")` は
+  「プロジェクト直下からの相対」と解釈されて file not found になる。tmTheme は
+  プロジェクトへ複製してファイル名だけで参照する。
+- **Quarto は Div の class を Typst に渡さない。** `::: {.revision-added}` は
+  素の `#block[...]` になるため、show ルールでは種類を見分けられない。
+  Lua フィルタで raw ブロックに変換して関数呼び出しにする。
+- **改訂バーは `block` の左罫線で引く。** `line(end: (x, 100%))` を使うと
+  100% が版面の残り高さに解決され、ブロックが1ページを丸ごと占有して壊れる。
+  `block(stroke: (left: ...), breakable: true)` なら中身の高さに一致し、
+  改ページで分割されても各断片に引かれる。
+- **表紙は1ページ使い切って `counter(page).update(1)`。** しないと本文が
+  2ページ目から始まる番号になる。
+- **透かしは表紙より先に入れる。** 後に置くと、先に改頁する表紙には掛からない。
+
+## Windows
+
+- **コンソールの既定は cp932。** 日本語やダッシュ記号を print すると
+  `UnicodeEncodeError` で落ちる。スクリプト冒頭で stdout/stderr を UTF-8 に
+  再設定しておく。
+- **`winget` が使えないことがある。** シェルによっては PATH に無い。
+  ポータブル展開方式(Quarto / Corretto / plantuml.jar)なら影響を受けない。
