@@ -15,12 +15,22 @@ skills/
 
 ## 新しいPCでのセットアップ
 
-既存の `~/.claude/skills` が(空 or 未作成)であることを確認してから:
+`~/.claude/skills` が未作成(またはクリーンな状態)なら、clone先を直接指定するだけでOK。
 
 ```bash
-# 既存フォルダがあれば退避
-mv ~/.claude/skills ~/.claude/skills.bak 2>/dev/null
+git clone https://github.com/ctenopoma/skills.git ~/.claude/skills
+```
 
+Windows (コマンドプロンプト) の場合:
+
+```bat
+git clone https://github.com/ctenopoma/skills.git %USERPROFILE%\.claude\skills
+```
+
+既に `~/.claude/skills` に何かある場合は、先に退避してからclone:
+
+```bash
+mv ~/.claude/skills ~/.claude/skills.bak
 git clone https://github.com/ctenopoma/skills.git ~/.claude/skills
 ```
 
