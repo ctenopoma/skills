@@ -63,7 +63,6 @@ PDFは一度で決まらない。**必ず「出す → 調べる → 見る → 
 | 章が改頁しない | `filters/pagebreaks.lua` |
 | フォントが効かない | `_quarto-<design>.yml` の `mainfont` |
 | コードの色が変わらない | `--code-theme` と `syntax-highlighting: none` |
-
 | 見出しの字間が広い | `base.typ` の `#show heading: set par(justify: false)` |
 
 直す前に `references/pitfalls.md` を読むこと。同じ問題を一度は踏んでいる。
