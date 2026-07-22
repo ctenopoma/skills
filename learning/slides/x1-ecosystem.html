@@ -55,9 +55,10 @@
     <tr><td>プロジェクト同梱</td><td><code>&lt;repo&gt;/.claude/skills/</code> に入れてコミット</td><td>そのプロジェクトの全員</td></tr>
     <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイス(gitリポジトリ)として配布。利用者は <code>/plugin</code> で導入</td><td>部署・組織への本格配布</td></tr>
   </table>
-  <div class="warn">
-    LiteLLM 等のゲートウェイは <strong>Skills の配布には関与しない</strong>。
-    Skill は API 経路上に存在しないただのファイル。配布は git / プラグインの仕事。
+  <div class="note">
+    Claude Code のローカルスキルは API 経路上に存在しないただのファイルなので、
+    配布は git / プラグインの仕事。ただし<strong>「API でClaude を呼ぶアプリ」向けには
+    別経路として Skills API がある</strong>(7枚目)— LiteLLM の機能一覧にある「Skills」はそれ。
   </div>
 </section>
 
@@ -87,7 +88,7 @@
   </ul>
   <div class="flow">
     <div class="box">Claude Code<small>ANTHROPIC_BASE_URL を<br>ゲートウェイに向ける</small></div>
-    <div class="box">OpenWebUI<small>OpenAI互換の<br>接続先として登録</small></div>
+    <div class="box">社内アプリ<small>OpenAI互換の<br>接続先として登録</small></div>
     <div class="arrow">→</div>
     <div class="box alt">LiteLLM Proxy<small>仮想キー・コスト・ログ</small></div>
     <div class="arrow">→</div>
@@ -114,6 +115,26 @@
 
 <!-- 7 -->
 <section class="slide">
+  <h2>補足: Skills API — 「LiteLLM の機能にある Skills」の正体</h2>
+  <p>Claude API には <strong>Skills API</strong> がある。スキル(SKILL.md+同梱ファイルの束)を
+  <strong>組織の Anthropic アカウントにアップロードしてバージョン管理</strong>し、
+  API 呼び出し時にサーバ側の実行環境へロードして使う仕組み(ベータ機能)。</p>
+  <ul>
+    <li>使い手は「API で Claude を呼ぶ自作アプリ」やサーバ管理型エージェント。
+      公式のプリビルトスキル(Excel・PowerPoint・PDF 等)も同じ経路で使える</li>
+    <li>LiteLLM の機能一覧にある「Skills」= この Skills API のゲートウェイ対応</li>
+  </ul>
+  <table>
+    <tr><th></th><th>Claude Code のスキル(この教材)</th><th>Skills API のスキル</th></tr>
+    <tr><td>置き場所</td><td>手元のフォルダ(クライアント側)</td><td>Anthropic 側(組織アカウント)</td></tr>
+    <tr><td>配布経路</td><td>git / プラグイン</td><td>API アップロード+バージョン管理</td></tr>
+    <tr><td>使う人</td><td>Claude Code 利用者</td><td>API で Claude を組み込むアプリ</td></tr>
+  </table>
+  <div class="point"><strong>中身は同じ SKILL.md 形式</strong>。この教材で作ったスキル資産は、将来 API アプリに進んでもそのまま持っていける。</div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
   <h2>MCP Inspector — 内製開発の必携デバッガ</h2>
   <pre><code>npx @modelcontextprotocol/inspector python server.py</code></pre>
   <ul>
@@ -127,7 +148,7 @@
   </div>
 </section>
 
-<!-- 8 -->
+<!-- 9 -->
 <section class="slide">
   <h2>FastMCP 2.x と uv/uvx</h2>
   <h3>FastMCP 2.x(jlowin/fastmcp)</h3>
@@ -144,41 +165,12 @@
   </ul>
 </section>
 
-<!-- 9 -->
-<section class="slide">
-  <h2>ローカル LLM: Ollama + OpenWebUI</h2>
-  <ul>
-    <li>Ollama でローカルモデルを動かし、OpenWebUI を UI にすると
-      <strong>完全オフラインの AI 環境</strong>になる</li>
-    <li>教材で作った MCP サーバ(HTTP 化)は<strong>そのまま接続できる</strong> —
-      MCP が標準プロトコルであることの実益</li>
-  </ul>
-  <div class="warn">
-    ツール呼び出し(関数呼び出し)の精度はモデル依存。小さいモデルで使うときは、
-    docstring をより明示的に書く・ツール数を絞る、などの調整が要る。
-    「docstring が LLM へのインターフェース」(レベルA)の重要度がむしろ上がる。
-  </div>
-</section>
-
 <!-- 10 -->
-<section class="slide">
-  <h2>セキュリティと運用の注意</h2>
-  <ul>
-    <li><strong>STDIO サーバの導入は任意コード実行と同義</strong>。出所不明のサーバを
-      安易に登録しない。OSS は中身を読める — 読んでから使う</li>
-    <li>HTTP で立てるなら<strong>認証を付けてから</strong>共有する
-      (平文・無認証で社内公開しない)。ゲートウェイ経由なら認証・ログを一元化できる</li>
-    <li>クライアント側の防御: ツール実行の承認プロンプト、allowlist 設定を活用する</li>
-    <li>秘密情報(API キー等)はサーバの環境変数で渡す。コード・設定に直書きしない</li>
-  </ul>
-</section>
-
-<!-- 11 -->
 <section class="slide">
   <h2>まとめ: 教材との接続マップ</h2>
   <table>
     <tr><th>教材で作った物</th><th>そのままの配布先</th></tr>
-    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ 将来はプラグイン化</td></tr>
+    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ プラグイン化 → API アプリに進むなら Skills API</td></tr>
     <tr><td>todo / plot / paper-library サーバ</td><td>ソース+git → パッケージ化 → HTTP 化 → ゲートウェイ登録、と段階的に格上げ</td></tr>
     <tr><td>紙芝居教材(slides/)</td><td>ファイル配布のみで完結(それが html-craft の思想)</td></tr>
   </table>
