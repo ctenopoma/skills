@@ -64,6 +64,29 @@ OSS の LLM ゲートウェイ。社内に1台立てて、全員がそこ経由�
 
 つまり「§3 ④の HTTP 化」を組織規模にしたもの。内製 MCP サーバの社内配布の本命。
 
+### お試し(ローカルで完結・検証済み)
+
+```bash
+pip install "litellm[proxy]"
+```
+
+`litellm-config.yaml` を作る(model_list に claude、`general_settings.master_key:
+sk-handson-1234`、`mcp_servers.data` に `url: http://127.0.0.1:8000/mcp` /
+`transport: http` — 詳細は紙芝居版)。
+
+1. ターミナル1: `python mcp-servers/data-mcp/server.py --http`
+2. ターミナル2: `PYTHONUTF8=1 litellm --config litellm-config.yaml --port 4000`
+   (**Windows 日本語環境は PYTHONUTF8=1 必須** — 無いと cp932 で起動失敗)
+3. 認証の体験: `curl http://127.0.0.1:4000/v1/models` は拒否され、
+   `-H "Authorization: Bearer sk-handson-1234"` を付けるとモデル一覧が返る
+4. MCP 中継: `claude mcp add --transport http gw http://127.0.0.1:4000/mcp
+   --header "Authorization: Bearer sk-handson-1234"` → `/mcp` で Connected、
+   ツールは `data-load` のように「サーバ名-ツール名」で見え、実呼び出しもできる
+5. 後片付け: `claude mcp remove gw`(直登録の data と重複するため)
+
+LLM 中継そのもの(チャット補完)は本物の API キーが必要。キーがあるなら
+model_list のキーを本物にし、クライアントの接続先を `http://127.0.0.1:4000` に向ける。
+
 ## 5. LiteLLM Skills Gateway — スキルの社内配布レジストリ
 
 LiteLLM には、スキルの**社内配布所(レジストリ)**になる機能がある。§2 のプラグイン配布で

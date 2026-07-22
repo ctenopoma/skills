@@ -57,7 +57,7 @@
   </table>
   <div class="note">
     どの形態でも、<strong>実行時にスキルを読むのは各自の PC</strong>(インストールした
-    手元のコピー)。Skills Gateway の詳細は7枚目。
+    手元のコピー)。Skills Gateway の詳細は9枚目。
   </div>
 </section>
 
@@ -110,6 +110,58 @@
     <strong>内製 MCP サーバの社内配布の本命</strong>。
   </div>
   <p class="warn">機能の有無・設定記法はバージョン依存が大きい領域。導入時に必ず当該バージョンのドキュメントで確認する。</p>
+</section>
+
+<!-- 6b -->
+<section class="slide">
+  <h2>ハンズオン: LiteLLM を手元で立てる</h2>
+  <pre><code>pip install "litellm[proxy]"</code></pre>
+  <p>作業フォルダに設定ファイルを作る:</p>
+  <span class="filename">litellm-config.yaml</span>
+  <pre><code>model_list:
+  - model_name: claude
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  master_key: sk-handson-1234        <span class="dim"># お試し用の管理キー</span>
+
+mcp_servers:
+  data:                              <span class="dim"># レベルC-2 で作った data-mcp をぶら下げる</span>
+    url: http://127.0.0.1:8000/mcp
+    transport: http</code></pre>
+  <pre><code><span class="cm"># ターミナル1: data-mcp を HTTP で起動</span>
+python mcp-servers/data-mcp/server.py --http
+
+<span class="cm"># ターミナル2: LiteLLM を起動</span>
+PYTHONUTF8=1 litellm --config litellm-config.yaml --port 4000</code></pre>
+  <div class="warn">Windows の日本語環境では <code>PYTHONUTF8=1</code> が必須
+    (無いと起動バナーが cp932 でエンコードできず起動失敗する)。
+    PowerShell では <code>$env:PYTHONUTF8="1"</code>。</div>
+</section>
+
+<!-- 6c -->
+<section class="slide">
+  <h2>ハンズオン: ゲートウェイの認証と MCP 中継を試す</h2>
+  <p><strong>① 仮想キー認証の体験</strong>(キーが無いと通らないことを確認):</p>
+  <pre><code>curl http://127.0.0.1:4000/v1/models
+<span class="dim">→ 拒否される</span>
+curl -H "Authorization: Bearer sk-handson-1234" http://127.0.0.1:4000/v1/models
+<span class="dim">→ {"data":[{"id":"claude",...}]} が返る</span></code></pre>
+  <p><strong>② MCP Gateway 経由で自作サーバを使う</strong>:</p>
+  <pre><code>claude mcp add --transport http gw http://127.0.0.1:4000/mcp \
+  --header "Authorization: Bearer sk-handson-1234"</code></pre>
+  <ul>
+    <li>再起動して <code>/mcp</code> → gw が Connected。ツール名が
+      <code>data-load</code> のように<strong>「サーバ名-ツール名」</strong>で見える
+      (ゲートウェイが複数サーバを束ねるための名前空間)</li>
+    <li>「experiment.csv を load して」→ ゲートウェイ経由で実呼び出しできる</li>
+    <li>終わったら後片付け: <code>claude mcp remove gw</code>(直登録の data と重複するため)</li>
+  </ul>
+  <p class="note">LLM 中継そのもの(チャット補完)を試すには本物の API キーが必要。
+  キーがあるなら model_list のキーを本物にし、クライアントの接続先
+  (<code>ANTHROPIC_BASE_URL</code> 等)を <code>http://127.0.0.1:4000</code> に向ける。</p>
 </section>
 
 <!-- 7 -->
