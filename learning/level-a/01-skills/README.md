@@ -93,6 +93,14 @@ cp -r anthropic-skills/<スキル名> ~/.claude/skills/
 - スキルの実体はただのフォルダなので、社内共有も「git リポジトリに置く」だけで済む
   (このリポジトリ自体がその実例)
 
+代表的な OSS スキル集(いずれも GitHub。導入前に SKILL.md を一読してから使う):
+
+| リポジトリ | 中身 |
+| --- | --- |
+| `anthropics/skills` | 公式サンプル集。Word / Excel / PowerPoint / PDF などの文書系スキル |
+| `K-Dense-AI/scientific-agent-skills` | 科学研究向けの約150スキル(MIT)。データ解析・機械学習・バイオ/ケモインフォマティクス・文献レビュー・科学文書の作成など |
+| `obra/superpowers` | 開発ワークフロー集(MIT)。TDD・体系的デバッグ・実装計画・コードレビューの型。Claude Code プラグインとしても導入できる |
+
 ## 5. さらに先へ: scripts/ パターン
 
 手順の中に「決まりきった処理」があるなら、スクリプトにして同梱し、
