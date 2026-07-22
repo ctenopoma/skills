@@ -56,9 +56,10 @@
     <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイス(gitリポジトリ)として配布。利用者は <code>/plugin</code> で導入</td><td>部署・組織への本格配布</td></tr>
   </table>
   <div class="note">
-    Claude Code のローカルスキルは API 経路上に存在しないただのファイルなので、
-    配布は git / プラグインの仕事。ただし<strong>「API でClaude を呼ぶアプリ」向けには
-    別経路として Skills API がある</strong>(7枚目)— LiteLLM の機能一覧にある「Skills」はそれ。
+    Claude Code のスキルは<strong>自分の PC に置くファイル</strong>なので、配布方法は
+    「ファイルをどう届けるか」= git / プラグイン。一方、プログラムから Claude API を
+    呼ぶアプリのためには、スキルを Anthropic に預けておく別の仕組み(Skills API)が
+    ある(7枚目)。LiteLLM の機能一覧にある「Skills」はそれのこと。
   </div>
 </section>
 
@@ -116,21 +117,25 @@
 <!-- 7 -->
 <section class="slide">
   <h2>補足: Skills API — 「LiteLLM の機能にある Skills」の正体</h2>
-  <p>Claude API には <strong>Skills API</strong> がある。スキル(SKILL.md+同梱ファイルの束)を
-  <strong>組織の Anthropic アカウントにアップロードしてバージョン管理</strong>し、
-  API 呼び出し時にサーバ側の実行環境へロードして使う仕組み(ベータ機能)。</p>
+  <p><strong>前提のおさらい</strong>: スキルの実体は、SKILL.md や references/ が入った
+  <strong>1つのフォルダ</strong>。Claude Code は「自分の PC にあるそのフォルダ」を読んで動く。</p>
+  <p><strong>困る場面</strong>: Claude は Claude Code 以外からも使う。自社のプログラムに
+  Claude API を組み込む場合(社内チャットボットや文書の自動生成など)、Claude は
+  Anthropic のサーバの中で動くので、<strong>あなたの PC のフォルダは読めない</strong>。</p>
+  <p><strong>解決策 = Skills API</strong>: スキルのフォルダを zip にして Anthropic に
+  <strong>登録して預けておく</strong>仕組み。API で Claude を呼ぶときに
+  「登録してあるこのスキルを使え」と指定すると、Anthropic のサーバ側でそのスキルが
+  読み込まれる。登録し直すたびに版(v1, v2, …)として記録される。</p>
   <ul>
-    <li>使い手は「API で Claude を呼ぶ自作アプリ」やサーバ管理型エージェント。
-      公式のプリビルトスキル(Excel・PowerPoint・PDF 等)も同じ経路で使える</li>
-    <li>LiteLLM の機能一覧にある「Skills」= この Skills API のゲートウェイ対応</li>
+    <li>LiteLLM の機能一覧にある「Skills」= この登録・指定をゲートウェイ経由で扱えるようにする対応</li>
   </ul>
   <table>
-    <tr><th></th><th>Claude Code のスキル(この教材)</th><th>Skills API のスキル</th></tr>
-    <tr><td>置き場所</td><td>手元のフォルダ(クライアント側)</td><td>Anthropic 側(組織アカウント)</td></tr>
-    <tr><td>配布経路</td><td>git / プラグイン</td><td>API アップロード+バージョン管理</td></tr>
-    <tr><td>使う人</td><td>Claude Code 利用者</td><td>API で Claude を組み込むアプリ</td></tr>
+    <tr><th>同じスキルのフォルダを…</th><th>置く場所</th><th>配る方法</th></tr>
+    <tr><td>Claude Code で使うなら</td><td>自分の PC</td><td>git / プラグイン</td></tr>
+    <tr><td>API を組み込んだアプリで使うなら</td><td>Anthropic に登録</td><td>Skills API</td></tr>
   </table>
-  <div class="point"><strong>中身は同じ SKILL.md 形式</strong>。この教材で作ったスキル資産は、将来 API アプリに進んでもそのまま持っていける。</div>
+  <div class="point">フォルダの中身(SKILL.md の書き方)はどちらも同じ。
+  この教材で作ったスキルは、将来 API アプリを作るときもそのまま使える。</div>
 </section>
 
 <!-- 8 -->
