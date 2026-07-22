@@ -57,10 +57,7 @@
   </table>
   <div class="note">
     どの形態でも、<strong>実行時にスキルを読むのは各自の PC</strong>(インストールした
-    手元のコピー)。LiteLLM の Skills Gateway は「配布所(登録・公開・検索)」を
-    引き受けるもので、アプリストアと同じモデル。なお、scripts 入りのスキルを
-    「Claude API を組み込んだアプリ」で使うときだけ、Anthropic に登録する別の仕組み
-    (Skills API)が関係する(7枚目)。
+    手元のコピー)。Skills Gateway の詳細は7枚目。
   </div>
 </section>
 
@@ -117,29 +114,29 @@
 
 <!-- 7 -->
 <section class="slide">
-  <h2>補足: Skills API — スキルを「API を組み込んだアプリ」で使うとき</h2>
-  <p><strong>結論から</strong>: この教材のスキル運用(Claude Code+手元のフォルダ)には
-  関係ない話。「Claude API を組み込んだ自作アプリ」でスキルを使いたくなったときだけ
-  読めばよい。使い方は2通り。</p>
-  <table>
-    <tr><th>スキルの内容</th><th>やり方</th></tr>
-    <tr><td>手順書(SKILL.md)だけ</td><td>アプリが SKILL.md を読んで、プロンプトに含めて送る。<strong>これが普通。特別な仕組みは不要</strong></td></tr>
-    <tr><td>scripts/ など実行ファイル入り<br>(quarto-typst-pdf, html-craft 型)</td><td><strong>Skills API</strong> を使う(下記)</td></tr>
-  </table>
-  <p><strong>Skills API が必要になる理由</strong>: API 利用時のコード実行は、あなたの PC では
-  なく Anthropic 側のサンドボックス(隔離された実行用コンテナ)の中で行われる。
-  だから scripts を動かすには、ファイル一式をそのコンテナに届ける手段が要る。
-  Skills API は「スキルのフォルダを zip で事前登録しておくと、API 呼び出しで ID を
-  指定したときにサンドボックス内へ展開される」という仕組み。登録し直すと
-  版(v1, v2, …)として記録される。</p>
-  <div class="note">
-    紛らわしいので注意: LiteLLM のドキュメントで「Skills」は3つの別物を指す。
-    ① <strong>Skills Gateway</strong> = スキルの社内配布レジストリ(3枚目のプラグイン配布の
-    マーケットプレイス置き場。保存は LiteLLM 側、実行は手元のコピー)。
-    ② <strong>litellm-skills</strong> = LiteLLM 自体を管理するためのスキル集
-    (git で取得して自分の PC に置く普通の Agent Skills)。
-    ③ <strong>/skills エンドポイント対応</strong> = この Skills API へのリクエストを
-    Anthropic へ中継できるという意味。
+  <h2>LiteLLM Skills Gateway — スキルの社内配布レジストリ</h2>
+  <p>LiteLLM には、スキルの<strong>社内配布所(レジストリ)</strong>になる機能がある。
+  3枚目のプラグイン配布で使うマーケットプレイスの置き場を、
+  git リポジトリの代わりに LiteLLM が担うもの。</p>
+  <div class="flow">
+    <div class="box">作る人<small>スキルを登録・公開<br>POST /claude-code/plugins</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">LiteLLM<small>社内スキルハブ<br>(一覧・検索・公開管理)</small></div>
+    <div class="arrow">→</div>
+    <div class="box">使う人<small>/plugin marketplace add で追加<br>→ インストールして手元で実行</small></div>
+  </div>
+  <ul>
+    <li>スキルの保存(マスター)は <strong>LiteLLM 側</strong>。チーム共有は
+      「登録 → 公開 → 各自がインストール」の流れで実現する</li>
+    <li>実行時に読まれるのは<strong>各自の PC にインストールされたコピー</strong>。
+      リモート参照ではなく、アプリストアと同じモデル</li>
+    <li>Anthropic は関与しない。Claude Code のプラグイン配布の仕組みに、
+      社内向けの置き場を提供しているだけ</li>
+  </ul>
+  <div class="point">
+    位置づけ: MCP Gateway が「MCP サーバの社内配布」なら、Skills Gateway は
+    「スキルの社内配布」。ゲートウェイ1台で LLM アクセス・MCP・スキルの
+    配布をまとめられる。
   </div>
 </section>
 
@@ -180,7 +177,7 @@
   <h2>まとめ: 教材との接続マップ</h2>
   <table>
     <tr><th>教材で作った物</th><th>そのままの配布先</th></tr>
-    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ プラグイン化 → API アプリに進むなら Skills API</td></tr>
+    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ プラグイン化(置き場は git または Skills Gateway)</td></tr>
     <tr><td>todo / plot / paper-library サーバ</td><td>ソース+git → パッケージ化 → HTTP 化 → ゲートウェイ登録、と段階的に格上げ</td></tr>
     <tr><td>紙芝居教材(slides/)</td><td>ファイル配布のみで完結(それが html-craft の思想)</td></tr>
   </table>

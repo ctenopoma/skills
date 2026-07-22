@@ -59,8 +59,8 @@ OpenWebUI・Claude Desktop・Cursor などからもそのまま使える。各�
 
 - [appendix-ecosystem](appendix-ecosystem/README.md) — 作ったスキル・MCP サーバを
   「チームに配って運用する」ための周辺技術。配布形態(git / プラグイン / pip・npm / Docker /
-  ゲートウェイ)、LiteLLM Proxy(LLM ゲートウェイ)と MCP Gateway、Skills API
-  (APIアプリ向けのスキル配布)、MCP Inspector、FastMCP 2.x、uv/uvx
+  ゲートウェイ)、LiteLLM Proxy(LLM ゲートウェイ)と MCP Gateway・Skills Gateway
+  (スキルの社内配布レジストリ)、MCP Inspector、FastMCP 2.x、uv/uvx
 
 ## 用語の整理(最初にこれだけ)
 
