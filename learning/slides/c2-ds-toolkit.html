@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>レベルC-2: データ分析支援セット — スキル×MCPの実戦構成</title>
+<title>レベルC-2: データ分析支援セット — 動かしながら設計を学ぶ</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <header class="topbar">
   <a href="index.html">← 目次</a>
-  <span class="deck-title">レベルC-2: データ分析支援セット — スキル×MCPの実戦構成</span>
+  <span class="deck-title">レベルC-2: データ分析支援セット — 動かしながら設計を学ぶ</span>
   <button id="modeToggle">一覧表示</button>
 </header>
 <div class="progress"><div id="bar"></div></div>
@@ -19,153 +19,142 @@
 <!-- 1 -->
 <section class="slide title-slide">
   <span class="chip" style="align-self:center">LEVEL C-2</span>
-  <h1>データ分析支援セット<br>スキル × MCP の実戦構成</h1>
-  <p class="lead">EDA の型・データ処理・統計計算・作図・ポンチ絵。<br>
-  スキル2つ+MCP サーバ2つで「分析業務の下ごしらえ」を置き換える。<br>
-  レベルA〜Cで学んだ部品分担の総集編。</p>
+  <h1>データ分析支援セット<br>動かしながら設計を学ぶ</h1>
+  <p class="lead">スキル2つ(eda-workflow / diagram)+ MCP 2つ(data / stats)+ plot-mcp。<br>
+  サンプルデータで分析を一巡し、ログから設計原則を確認して、<br>
+  最後に道具と手順書を<strong>同時に改造</strong>する。</p>
   <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る</p>
 </section>
 
 <!-- 2 -->
 <section class="slide">
-  <h2>全体像: 5つの部品と役割分担</h2>
-  <div class="flow">
-    <div class="box">ユーザー<small>「この CSV 分析して」</small></div>
-    <div class="arrow">→</div>
-    <div class="box alt">eda-workflow<small>手順書=指揮者<br>順序と判断を担当</small></div>
-    <div class="arrow">→<small>ツールを指名</small></div>
-    <div class="box">data-mcp / stats-mcp / plot-mcp<small>処理・計算・描画を担当</small></div>
-  </div>
-  <table>
-    <tr><th>部品</th><th>種類</th><th>担当</th></tr>
-    <tr><td>eda-workflow</td><td>スキル</td><td>EDA の手順と判断(品質→分布→関係→深掘り→所見)</td></tr>
-    <tr><td>data-mcp</td><td>MCP</td><td>DuckDB でデータ処理(読込・プロファイル・SQL・書き出し)</td></tr>
-    <tr><td>stats-mcp</td><td>MCP</td><td>統計計算(検定・相関・ベースラインモデル)</td></tr>
-    <tr><td>plot-mcp(レベルB-1)</td><td>MCP</td><td>グラフ描画(画像で返す)</td></tr>
-    <tr><td>diagram</td><td>スキル</td><td>ポンチ絵・概念図(Mermaid / SVG)</td></tr>
-  </table>
+  <h2>セットアップ</h2>
+  <pre><code><span class="cm"># 依存(未導入なら)</span>
+pip install "mcp[cli]" duckdb pandas scipy scikit-learn matplotlib
+
+<span class="cm"># MCP サーバを登録(パスは自分の clone 先に読み替え)</span>
+claude mcp add data  -- python C:/work_space/skills/mcp-servers/data-mcp/server.py
+claude mcp add stats -- python C:/work_space/skills/mcp-servers/stats-mcp/server.py
+claude mcp add plot  -- python C:/work_space/skills/learning/level-b/plot-mcp/server.py</code></pre>
+  <p><strong>確認</strong>: Claude Code を再起動し、<code>/mcp</code> で
+  data / stats / plot が Connected になっていること。
+  <code>/mcp</code> のツール一覧で <code>load</code> や <code>compare_groups</code> の
+  説明文(docstring)も眺めておく。</p>
+  <p class="note">スキル(eda-workflow / diagram)はリポジトリ直下にあるので再起動だけで有効。</p>
 </section>
 
 <!-- 3 -->
 <section class="slide">
-  <h2>設計主題①: 大きいデータをコンテキストに入れない</h2>
-  <p>CSV をそのまま Claude に読ませると、コンテキストを浪費するうえ、
-  行数が増えると集計を間違え始める。data-mcp は<strong>データを LLM に見せない</strong>ための道具。</p>
-  <table>
-    <tr><th>ツール</th><th>返すもの</th></tr>
-    <tr><td><code>load</code></td><td>DuckDB テーブルとして登録し、<strong>行数と型だけ</strong>返す</td></tr>
-    <tr><td><code>profile</code></td><td>列ごとの欠損・ユニーク・代表値の<strong>要約</strong></td></tr>
-    <tr><td><code>query</code></td><td>SQL の結果(<strong>最大50行に制限</strong>。溢れたら「集計せよ」と促す)</td></tr>
-    <tr><td><code>export</code></td><td>処理結果を<strong>ファイルに書き出し</strong>、他ツールへはパスで渡す</td></tr>
-  </table>
-  <div class="point">
-    原則: LLM に流すのは「要約と結果」だけ。生データはサーバ側に留め、
-    ツール間の受け渡しもファイルパスで行う。100万行でもコンテキスト消費は変わらない。
-  </div>
+  <h2>ハンズオン1: 分析を一巡させて観察する</h2>
+  <pre><code>mcp-servers/data-mcp/sample/experiment.csv を分析して</code></pre>
+  <p>模擬実験データ(400行: group, dose, temp, category, yield_pct)で
+  eda-workflow が発動する。<strong>結果を読む前に、進み方を観察する</strong>:</p>
+  <ul>
+    <li>ツールが <code>load</code> → <code>profile</code> の順で呼ばれているか
+      (スキルの手順1→2)</li>
+    <li>品質チェックの報告に <strong>temp の欠損</strong>が挙がっているか(12件仕込んである)</li>
+    <li>会話の中に<strong>CSV の生データ(400行)が一度も現れない</strong>こと —
+      出てくるのは要約と最大50行の集計結果だけ</li>
+  </ul>
 </section>
 
 <!-- 4 -->
 <section class="slide">
-  <h2>設計主題②: LLM に計算させない</h2>
-  <p>検定統計量や交差検証スコアのような「答えが一意に決まる計算」を
-  LLM が暗算すると、それらしい嘘が混ざる。stats-mcp はそれを潰すための道具。</p>
-  <ul>
-    <li><code>compare_groups</code>: 2群なら Welch の t 検定、3群以上なら ANOVA を<strong>自動選択</strong></li>
-    <li><code>test_independence</code> / <code>correlation</code> / <code>check_normality</code>:
-      定番の検定・相関を関数一発に</li>
-    <li><code>quick_fit</code>: RandomForest+5-fold CV のベースライン。「予測できそうか」の当たり付け</li>
-  </ul>
-  <div class="point">
-    設計の作法: ツールは<strong>数値と注意書きだけ返し、結論を断定しない</strong>
-    (「p 値 = 0.03」までがツール、「差があると言えるか」の解釈は LLM と人間の仕事)。
-    期待度数不足や n 過大のときは警告を添える。
-  </div>
+  <h2>ハンズオン1: 答え合わせ</h2>
+  <p>データは答えを仕込んで生成してある。自分の結果と突き合わせる:</p>
+  <table>
+    <tr><th>チェック項目</th><th>期待される結果</th></tr>
+    <tr><td>行数・列数</td><td>400 行・5 列</td></tr>
+    <tr><td>品質</td><td>temp に欠損 12 件(他の列は欠損なし)</td></tr>
+    <tr><td>相関</td><td>dose と yield_pct に強い正の相関(<strong>r ≈ 0.85</strong>)</td></tr>
+    <tr><td>その他の関係</td><td>temp は yield_pct とほぼ無相関(r ≈ -0.01)</td></tr>
+  </table>
+  <p class="note">数値が多少ずれるのは正常(集計の切り口の違い)。ただし
+  「dose が効いている」という発見に至らなかったら、どのステップで
+  見落としたかをログで遡る — それ自体が手順書のデバッグ。</p>
 </section>
 
 <!-- 5 -->
 <section class="slide">
-  <h2>設計主題③: 手順と知識はスキルへ</h2>
-  <div class="tree">eda-workflow/
-├── SKILL.md               手順6ステップ+ルール(暗算禁止・因果断定禁止 等)
-└── references/
-    ├── quality.md         品質チェックリストと対処の選択肢
-    ├── charts.md          伝えたいこと → 図の対応表+作法
-    └── methods.md         <b>問い → 手法の選定フロー(=手法提案の中身)</b></div>
-  <ul>
-    <li>「2群で差があるか?」→ t 検定、「予測できそうか?」→ quick_fit、のように
-      <strong>問いから手法を引く表</strong>を references に持つ。手法名から入らない</li>
-    <li>p 値の扱い・多重比較・サンプルサイズの注意もここに書く —
-      <strong>コードが1行もない、知識だけの本格スキル資産</strong></li>
-    <li>チームの分析ノウハウが溜まったら references に追記するだけで全員に配れる</li>
-  </ul>
+  <h2>ハンズオン2: 深掘りの質問を投げる</h2>
+  <p>続けて聞く(1つずつ)。<strong>どのツールが選ばれるか</strong>を毎回確認する:</p>
+  <table>
+    <tr><th>質問</th><th>呼ばれるはずのツール</th><th>期待される結果</th></tr>
+    <tr><td>「group ごとに収率に差はある?」</td><td><code>compare_groups</code>(3群→ANOVA自動選択)</td><td><strong>p ≈ 8.8e-13</strong>、B 群が高い</td></tr>
+    <tr><td>「収率は予測できそう?」</td><td><code>quick_fit</code></td><td>R² ≈ 0.62、dose の重要度 ≈ 0.88</td></tr>
+    <tr><td>「category と group に関連はある?」</td><td><code>test_independence</code></td><td><strong>p ≈ 0.67 = 関連なし</strong></td></tr>
+  </table>
+  <div class="point">
+    3問目は<strong>わざと関連のない組み合わせ</strong>。「有意でない」を Claude が
+    どう報告するかを見る — 無理に発見をひねり出さず「関連は確認できない」と
+    言えていれば、手順書のルール(断定しない・裏付ける)が効いている。
+  </div>
 </section>
 
 <!-- 6 -->
 <section class="slide">
-  <h2>diagram スキル: ポンチ絵をテキスト記述に</h2>
-  <p>「描画ツールでマウス作業」を「テキストで記述」に置き換える。
-  修正・バージョン管理・流用が楽になる。</p>
+  <h2>ハンズオン3: 分析の流れをポンチ絵にする</h2>
+  <pre><code>ここまでの分析の流れをポンチ絵にして。Markdown に貼れる形式で</code></pre>
+  <p><strong>観察ポイント</strong>(diagram スキルの手順どおりか):</p>
   <ol>
-    <li><strong>図種を決める</strong>: 伝えたいこと→図種の対応表(フロー / 構成 / シーケンス / 状態遷移 / 因果 / ガント)</li>
-    <li><strong>要素を箇条書きで合意</strong>: 描く前に箱と矢印を列挙してユーザーと確認(手戻り防止)</li>
-    <li><strong>記法パターンで組む</strong>: Markdown・GitHub 向けは Mermaid、
-      単体ファイル・html-craft 埋め込みは SVG 直書き</li>
+    <li>いきなり描かず、<strong>箱と矢印の箇条書きを提示して合意を求めて</strong>くるか</li>
+    <li>「Markdown に貼れる形式で」の指定で Mermaid が選ばれるか</li>
+    <li>出力された <code>```mermaid</code> ブロックを .md ファイルに貼り、
+      エディタや GitHub でレンダリングされることを確認</li>
   </ol>
-  <div class="point">
-    作法: 箱は7個前後まで/流れの向きは1方向に統一/色は意味があるときだけ。
-    SVG パターンは html-craft と同じ配色トークンなので、スライドやダッシュボードに
-    貼っても馴染む。
-  </div>
+  <p>余裕があれば: 「同じ図を単体ファイルでも」と頼み、SVG 版が
+  ブラウザで開けることも確認する(色が html-craft の成果物と揃っている)。</p>
 </section>
 
 <!-- 7 -->
 <section class="slide">
-  <h2>セットアップ</h2>
-  <pre><code><span class="cm"># MCP サーバを登録(パスは自分の clone 先に読み替え)</span>
-claude mcp add data  -- python C:/work_space/skills/mcp-servers/data-mcp/server.py
-claude mcp add stats -- python C:/work_space/skills/mcp-servers/stats-mcp/server.py
-claude mcp add plot  -- python C:/work_space/skills/learning/level-b/plot-mcp/server.py
-
-<span class="cm"># 依存(未導入なら)</span>
-pip install "mcp[cli]" duckdb pandas scipy scikit-learn matplotlib</code></pre>
-  <ul>
-    <li>スキル(eda-workflow / diagram)はこのリポジトリ直下にあるので、
-      clone 済みなら<strong>再起動だけで有効</strong></li>
-    <li>ハンズオン用のサンプルデータを同梱:
-      <code>mcp-servers/data-mcp/sample/experiment.csv</code>
-      (模擬実験データ 400行: group, dose, temp, category, yield_pct)</li>
-  </ul>
+  <h2>ログで確認: この構成の設計原則3つ</h2>
+  <p>ここまでの<strong>自分のセッションログ</strong>から、次の3つの証拠を探す:</p>
+  <ol>
+    <li><strong>大きいデータをコンテキストに入れない</strong>:
+      400行の生データが会話に出た箇所は無いはず。data-mcp の <code>query</code> が
+      50行で打ち切る設計と、<code>export</code> がファイルパスで受け渡す設計を思い出す</li>
+    <li><strong>LLM に計算させない</strong>: p 値・相関係数・R² はすべて
+      stats-mcp の返り値。Claude が暗算した数値がひとつでもあれば、それは設計への違反
+      (見つけたら報告の仕方を疑う)</li>
+    <li><strong>手順と知識はスキルに</strong>: 「3群だから ANOVA」の判断は
+      stats-mcp の自動選択+ eda-workflow の references/methods.md
+      (問い→手法の表)から来ている。<code>code ~/.claude/skills/eda-workflow/references/methods.md</code>
+      を開いて表を確認する</li>
+  </ol>
 </section>
 
 <!-- 8 -->
 <section class="slide">
-  <h2>ハンズオン: サンプルデータで一巡する</h2>
-  <pre><code>mcp-servers/data-mcp/sample/experiment.csv を分析して</code></pre>
-  <p>eda-workflow が発動し、おおよそ次の流れで進む(数値は実測):</p>
+  <h2>改造ハンズオン: 道具と手順書を同時に育てる</h2>
+  <p>お題: <strong>箱ひげ図を plot-mcp に追加し、charts.md にも登録する</strong>。</p>
   <ol>
-    <li><code>load</code> → 400行・5列。<code>profile</code> → temp に欠損12件を検出</li>
-    <li>品質チェックの報告 → 分布(histogram)→ <code>correlation</code> →
-      dose と yield_pct に強い相関(<strong>r = 0.85</strong>)を発見、散布図で確認</li>
-    <li>深掘りの例:
-      <ul>
-        <li>「group ごとに収率に差はある?」→ ANOVA(<strong>p = 8.8e-13</strong>、B群が高い)</li>
-        <li>「収率は予測できそう?」→ quick_fit(<strong>R² ≈ 0.62</strong>、dose の重要度 0.88)</li>
-      </ul></li>
-    <li>所見まとめ → 「レポートにして」で html-craft(dashboard)、
-      「分析の流れをポンチ絵にして」で diagram が接続する</li>
+    <li><code>learning/level-b/plot-mcp/server.py</code> の <code>plot_csv</code> に分岐を1つ追加:
+      <pre><code>elif kind == "box":
+    df.boxplot(column=[c.strip() for c in y.split(",")], by=x, ax=ax)
+    fig.suptitle("")</code></pre>
+      docstring の kind の説明にも <code>"box"</code> を足す</li>
+    <li><code>eda-workflow/references/charts.md</code> の表に1行追加:
+      「カテゴリ別の分布比較 | 箱ひげ図 | <code>plot_csv(csv, x=カテゴリ, y, kind="box")</code>」</li>
+    <li>Claude Code を再起動して試す:
+      <pre><code>group ごとの yield_pct の分布を箱ひげ図で見せて</code></pre></li>
+    <li><strong>確認</strong>: B 群の箱が上にずれて見えるか(ANOVA の結果と図が一致)</li>
   </ol>
+  <div class="point">道具(サーバ)と手順書(references)を<strong>セットで更新する</strong>のが
+  この構成の保守の型。片方だけ直すと、スキルが新機能を知らないままになる。</div>
 </section>
 
 <!-- 9 -->
 <section class="slide">
-  <h2>改造課題 — セットを育てる</h2>
+  <h2>発展課題</h2>
   <ol>
-    <li>plot-mcp に箱ひげ図(<code>kind="box"</code>)を追加し、
-      eda-workflow の charts.md の対応表を更新する(<strong>道具と手順書を同時に育てる</strong>練習)</li>
-    <li><code>compare_groups</code> に効果量(Cohen's d)を追加する</li>
-    <li>「所見まとめ→ html-craft dashboard」の自動化手順を eda-workflow に追記する</li>
-    <li>自分の分野の定番手法・判断基準を methods.md に追記する
-      (references は<strong>チームの知識置き場</strong>として育てる)</li>
+    <li><code>compare_groups</code> に効果量(Cohen's d)を追加する
+      (p 値だけでは効果の大きさが分からない、という methods.md の注意を道具側で支える)</li>
+    <li>「所見まとめを html-craft の dashboard にする」流れを一度通し、
+      定型化できそうなら eda-workflow の手順6に追記する</li>
+    <li>自分の分野の定番手法・判断基準を <code>references/methods.md</code> に追記する
+      — references を<strong>チームの知識置き場</strong>として育てる第一歩</li>
+    <li>自分の実データ(CSV)で一巡させ、手順書に足りないステップを見つけて直す</li>
   </ol>
 </section>
 
@@ -177,8 +166,9 @@ pip install "mcp[cli]" duckdb pandas scipy scikit-learn matplotlib</code></pre>
     <tr><td>型</td><td>ツール導入型(1スキルで完結)</td><td><strong>部品分担型</strong>(スキル×MCPの編成)</td></tr>
     <tr><td>スキルの役割</td><td>作り方の知識+スクリプト</td><td>順序・判断・選定フロー(指揮者)</td></tr>
     <tr><td>MCP の役割</td><td>—</td><td>データ処理・統計計算・描画(実働部隊)</td></tr>
+    <tr><td>育て方</td><td>references に部品を足す</td><td><strong>道具と references をセットで更新</strong></td></tr>
   </table>
-  <h3>この章で押さえる設計原則</h3>
+  <h3>ハンズオンで確認した設計原則</h3>
   <ul>
     <li>大きいデータはコンテキストに入れない(要約と結果だけ流す)</li>
     <li>決定的な計算は LLM にさせない(ツールは数値まで、解釈から先が LLM)</li>
