@@ -54,6 +54,11 @@ OpenWebUI・Claude Desktop・Cursor などからもそのまま使える。各�
   このリポジトリの [html-craft](../html-craft/)(スライド / ダッシュボード / デモを
   自己完結HTML 1ファイルで作るスキル)を実例に、SKILL.md / references / assets / scripts の
   置き場所設計、統合スキルの description 設計、マルチエージェントでの分担執筆までを学ぶ
+- 同格の実例として、データ分析支援セットもリポジトリに収録:
+  [eda-workflow](../eda-workflow/)(EDAの手順書スキル)+ [diagram](../diagram/)
+  (ポンチ絵・概念図スキル)+ [mcp-servers/](../mcp-servers/)(data-mcp: DuckDB
+  データ処理 / stats-mcp: 統計計算)。「手順と知識はスキル、計算と処理は MCP」
+  「大きいデータをコンテキストに入れない」「LLM に計算させない」が設計の主題
 
 ## 付録: 周辺エコシステム
 
