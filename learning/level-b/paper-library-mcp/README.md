@@ -43,36 +43,38 @@ paper://{filename} (resource)
 ポイント: **抽出はインデックス時に済ませる**。検索のたびに PDF を開かないので速く、
 LLM に渡るのは常にテキストになっている。
 
-## 3. コードの骨格
+## 3. ハンズオン: 自分で書く
 
-完成品: [server.py](server.py)。リソースはデコレータが違うだけ。
+**配管は写し、本体は仕様から自作する**(紙芝居版に写経用コードと仕様を掲載)。
 
-```python
-@mcp.tool()
-def search_papers(query: str) -> str:
-    """キーワードで文献を全文検索し、ヒット箇所の前後を返す。..."""
-
-@mcp.resource("paper://{filename}")
-def read_paper(filename: str) -> str:
-    """指定した PDF の本文テキスト全文。要約や精読はこれを読んでから行う。"""
-```
-
-`paper://{filename}` は**リソーステンプレート**。`{filename}` 部分が引数になる。
+1. **配管をコピー**: `my-papers/server.py` を新規作成。冒頭の `LIB_DIR / DB_PATH` 定義と
+   `_db`(SQLite 接続)・`reindex`(フォルダ走査)は定型なので、完成例
+   [server.py](server.py) からコピーしてよい。バイナリ→テキスト変換の本体
+   `_extract`(pypdf でタイトル・ページ数・本文を取り出す)は写経する
+2. **仕様から自作**: コードを見ずに実装する
+   - `search_papers(query)`(tool)— タイトルまたは本文の LIKE 検索。ヒットごとに
+     「ファイル名 | タイトル+前後80字スニペット」。0件なら「一致なし」。
+     **結果の最後に「全文はリソース paper://<ファイル名> で」と誘導文を入れる**
+   - `read_paper(filename)`(resource)— `@mcp.resource("paper://{filename}")` で
+     本文全文を返す。未登録なら「reindex 済みか確認」と返す。
+     リソースは**デコレータが違うだけ**で、`{filename}` 部分が引数になる
 
 ## 4. 動かす
 
 ```bash
 pip install "mcp[cli]" pypdf
 mkdir ~/paper-library      # ここに手持ちの PDF を数本入れる
-claude mcp add paper-library -- python C:/work_space/skills/learning/level-b/paper-library-mcp/server.py
+claude mcp add paper-library -- python (my-papers/server.py の絶対パス)
 ```
 
-動作確認:
+動作確認と答え合わせ:
 
 1. 「文献ライブラリをインデックスして」→ `reindex` → 件数が返る
 2. 「◯◯について書いてある文献ある?」→ `search_papers` → ファイル名+スニペット
 3. 「(ヒットした文献)を要約して」→ Claude が `paper://` リソースを読んで要約
    (`@paper-library:paper://ファイル名.pdf` と自分で指定してもよい)
+4. 完成例との差分を見る: reindex の try/except(壊れた PDF 1本で全体を止めない)/
+   誘導文の書き方 / 0件時・未登録時のメッセージが「次に何をすべきか」を伝えているか
 
 ## 5. 改造課題
 

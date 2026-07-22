@@ -144,6 +144,29 @@ claude mcp add plot  -- python C:/work_space/skills/learning/level-b/plot-mcp/se
   この構成の保守の型。片方だけ直すと、スキルが新機能を知らないままになる。</div>
 </section>
 
+<!-- 8b -->
+<section class="slide">
+  <h2>改造ハンズオン2: 自分のツールを新設する</h2>
+  <p>お題: <strong>外れ値検出ツールを stats-mcp に自分で追加する</strong>。仕様だけ見て書く。</p>
+  <table>
+    <tr><th>作るもの</th><th>仕様</th></tr>
+    <tr><td><code>detect_outliers(csv_path, column)</code></td>
+        <td>IQR 法(Q1−1.5×IQR 〜 Q3+1.5×IQR の外を外れ値とする)で、
+        件数・境界値・外れ値の例(最大5件)を返す。<strong>判定基準(IQR法)を
+        返答に明記する</strong>(基準を隠さない)</td></tr>
+  </table>
+  <p>ヒント: pandas の <code>quantile(0.25)</code> / <code>quantile(0.75)</code>。
+  docstring には「機械的な基準であり、除外の判断は原因調査とセットで」と書く。</p>
+  <ol>
+    <li>実装 → 再起動 →「yield_pct に外れ値ある?」で試す</li>
+    <li><strong>手順書側も更新</strong>: eda-workflow の <code>references/quality.md</code> の
+      外れ値の行に「detect_outliers で件数と境界を確認」と追記</li>
+    <li>もう一度「このデータの品質チェックして」と頼み、新ツールが使われるか確認</li>
+  </ol>
+  <div class="point">これで「MCP ツールの新設 → 手順書への登録 → スキル経由での発動」を
+  一人で一周したことになる。自分の分野の定番計算も同じ型で足していける。</div>
+</section>
+
 <!-- 9 -->
 <section class="slide">
   <h2>発展課題</h2>

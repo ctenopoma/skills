@@ -22,46 +22,25 @@ Python SDK では `Image` 型を返すだけで、SDK が base64 化と MIME タ
 
 ## 2. コードの骨格
 
-完成品: [server.py](server.py)。要点は2つ。
+**自分で書いて動かす**(紙芝居版に写経用コードと仕様を掲載)。
 
-```python
-from mcp.server.fastmcp import FastMCP, Image
+1. **写経(骨格)**: `my-plot/server.py` を新規作成し、骨格+`_fig_to_image`
+   (Figure → PNG バイト列 → `Image` 型で return)+`describe_csv`(下見用・テキスト)を写経する
+2. **仕様から自作(2本)**: コードを見ずに実装する。Figure を作って `_fig_to_image(fig)` を返すだけ
+   - `plot_csv(csv_path, x, y, kind="line")` — "line" / "scatter" / "bar" の3種
+   - `histogram(csv_path, column, bins=20)` — 1列の分布。欠損は `dropna()` してから
+   - docstring には「いつ使うか」も書く(histogram は「外れ値の確認に」等)
+3. **動作確認**: `pip install "mcp[cli]" matplotlib pandas` →
+   `claude mcp add plot -- python (my-plot/server.py の絶対パス)` → 再起動。
+   サンプルデータ [sample/timeseries.csv](sample/timeseries.csv) で:
+   - 「どんなデータ?」→ `describe_csv` / 「センサー2つの推移をグラフに」→ **会話に画像が出る** /
+     「sensor_b の分布は?外れ値ある?」→ histogram の画像を Claude 自身が見て考察する
+4. **答え合わせ**: 完成例 [server.py](server.py) と見比べる。観点:
+   y のカンマ区切り複数列対応(+凡例)/ `plt.close(fig)` の後始末(サーバは長生きする)/
+   docstring の役割づけ(describe「下見に使う」→ 描画、の順番誘導)
 
-def _fig_to_image(fig) -> Image:
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    return Image(data=buf.getvalue(), format="png")
-
-@mcp.tool()
-def plot_csv(csv_path: str, x: str, y: str, kind: str = "line") -> Image:
-    """CSV から列を選んでグラフを描き、PNG 画像で返す。..."""
-```
-
-ツールは3つ。docstring で「使う順番」を誘導している点に注目
-(describe で下見 → plot / histogram で描画)。
-
-- `describe_csv` — 行数・列名・基本統計量(テキスト)
-- `plot_csv` — 折れ線 / 散布図 / 棒グラフ(画像)
-- `histogram` — 1列の分布(画像)
-
-`@mcp.tool()` + docstring という作りはレベルAと**完全に同じ**。
-変わったのは戻り値の型だけ。
-
-## 3. 動かす
-
-```bash
-pip install "mcp[cli]" matplotlib pandas
-claude mcp add plot -- python C:/work_space/skills/learning/level-b/plot-mcp/server.py
-```
-
-サンプルデータ [sample/timeseries.csv](sample/timeseries.csv)(day, sensor_a, sensor_b の60日分)で動作確認:
-
-1. 「`.../sample/timeseries.csv` ってどんなデータ?」→ `describe_csv`
-2. 「センサー2つの推移をグラフにして」→ `plot_csv` → **会話に画像が出る**
-3. 「sensor_b の分布は?外れ値ある?」→ `histogram` → 画像を見た上での考察が返る
-
-手元の実データ CSV に差し替えて試すとよい。
+`@mcp.tool()` + docstring という作りはレベルAと**完全に同じ**。変わったのは戻り値の型だけ。
+仕上げに手元の実データ CSV で一巡させるとよい。
 
 ## 4. 改造課題
 

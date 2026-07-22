@@ -76,8 +76,12 @@
 
 <!-- 5 -->
 <section class="slide">
-  <h2>コードの骨格1: PDF からの抽出</h2>
-  <span class="filename">server.py(抜粋)</span>
+  <h2>ハンズオン: 自分で作る(1/2) — 配管は写し、抽出を書く</h2>
+  <p><code>my-papers/server.py</code> を新規作成。冒頭の <code>LIB_DIR / DB_PATH</code> 定義と
+  <code>_db</code>(SQLite 接続)・<code>reindex</code>(フォルダ走査)は定型の配管なので、
+  完成例 <code>learning/level-b/paper-library-mcp/server.py</code> から<strong>コピーしてよい</strong>。
+  バイナリ→テキスト変換の本体 <code>_extract</code> は写経する:</p>
+  <span class="filename">my-papers/server.py(抜粋)</span>
   <pre><code>from pypdf import PdfReader
 
 def _extract(pdf_path: Path) -> tuple[str, int, str]:
@@ -96,23 +100,23 @@ def _extract(pdf_path: Path) -> tuple[str, int, str]:
 
 <!-- 6 -->
 <section class="slide">
-  <h2>コードの骨格2: tool と resource</h2>
-  <span class="filename">server.py(抜粋)</span>
-  <pre><code>@mcp.tool()
-def search_papers(query: str) -> str:
-    """キーワードで文献を全文検索し、ヒット箇所の前後を返す。
-    本文の全文が必要なときはリソース paper://&lt;ファイル名&gt; を読む。"""
-    ...  <span class="dim"># LIKE 検索 → ファイル名・タイトル・前後80字</span>
-
-@mcp.resource("paper://{filename}")
-def read_paper(filename: str) -> str:
-    """指定した PDF の本文テキスト全文。要約や精読はこれを読んでから行う。"""
-    ...  <span class="dim"># SQLite から text を返すだけ</span></code></pre>
+  <h2>ハンズオン: 自分で作る(2/2) — 検索とリソースを仕様から書く</h2>
+  <p>ここはコードを見ずに、仕様だけで実装する。</p>
+  <table>
+    <tr><th>作るもの</th><th>仕様</th></tr>
+    <tr><td><code>search_papers(query)</code><br>(tool)</td>
+        <td>タイトルまたは本文の部分一致(SQL の LIKE)で検索。ヒットごとに
+        「ファイル名 | タイトル+ヒット箇所の前後80字」を返す。0件なら「一致なし」。
+        <strong>結果の最後に「全文はリソース paper://&lt;ファイル名&gt; で」と誘導文を入れる</strong></td></tr>
+    <tr><td><code>read_paper(filename)</code><br>(resource)</td>
+        <td><code>@mcp.resource("paper://{filename}")</code> で本文テキスト全文を返す。
+        未登録のファイル名なら「reindex 済みか確認」と返す</td></tr>
+  </table>
+  <p><strong>ヒント</strong>(詰まったときだけ):</p>
   <ul>
-    <li>リソースは<strong>デコレータが違うだけ</strong>。<code>paper://{filename}</code> は
-      リソーステンプレートで、<code>{filename}</code> 部分が引数になる</li>
-    <li>ツールの docstring にリソースへの誘導を書いてある点にも注目
-      (検索 → 全文、の段階的開示)</li>
+    <li>リソースは<strong>デコレータが違うだけ</strong>。<code>{filename}</code> 部分がそのまま引数になる</li>
+    <li>スニペットは <code>text.lower().find(query.lower())</code> の位置の前後を切り出す</li>
+    <li>誘導文が「検索 → 全文」の段階的開示を作る(Skill の設計と同じ発想)</li>
   </ul>
 </section>
 
@@ -124,7 +128,7 @@ def read_paper(filename: str) -> str:
 <span class="cm"># ライブラリフォルダを作り、手持ちの PDF を数本入れる</span>
 mkdir ~/paper-library
 
-claude mcp add paper-library -- python C:/work_space/skills/learning/level-b/paper-library-mcp/server.py</code></pre>
+claude mcp add paper-library -- python <span class="dim">(my-papers/server.py の絶対パス)</span></code></pre>
   <p class="note">場所を変えたいときは環境変数 <code>PAPER_LIBRARY_DIR</code> を設定する。
   日本語 PDF も pypdf で抽出できる(スキャン画像だけの PDF はテキストが取れないので対象外)。</p>
 </section>
@@ -144,6 +148,10 @@ claude mcp add paper-library -- python C:/work_space/skills/learning/level-b/pap
       → Claude が <code>paper://ファイル名.pdf</code> リソースを読んで要約する。
       <code>@paper-library:paper://ファイル名.pdf</code> と自分で指定してもよい</li>
   </ol>
+  <p><strong>答え合わせ</strong>: 完成例と自分のコードの差分を見る —
+  ① reindex の try/except(壊れた PDF が1本あっても全体を止めない)
+  ② search_papers の誘導文の書き方 ③ 0件時・未登録時のメッセージが
+  「次に何をすべきか」を伝えているか。</p>
 </section>
 
 <!-- 9 -->

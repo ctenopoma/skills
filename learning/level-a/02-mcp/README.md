@@ -75,47 +75,38 @@ Claude Code を起動し `/mcp` と打つと接続状態とツール一覧が見
 }
 ```
 
-## 3. ハンズオン2: ToDo サーバを内製する(STDIO)
+## 3. ハンズオン2: ToDo サーバを自分で書く(STDIO)
 
-ここが本題。[todo-mcp/server.py](todo-mcp/server.py) が完成品で、
-Python の公式 SDK(FastMCP)を使うと **実質50行**で書ける。まずコードを開いて読むこと。
-構造は単純で、
+ここが本題。**完成品は見ずに、自分で書いて動かす**(紙芝居版に写経用コードと仕様を掲載)。
 
-- `@mcp.tool()` を付けた関数がそのままツールになる
-- **docstring と型ヒントがそのままツールの説明・引数定義として LLM に渡る**
-  (だから docstring は人間向けコメントではなく「LLM がいつどう使うかの説明」を書く)
-- データは `~/.todo-mcp.json` に保存するだけ
+1. **写経(1本目)**: 作業フォルダに `my-todo/server.py` を作り、FastMCP の骨格+
+   `add_task`(JSON ファイルに追記して結果を返す)を写経する。
+   `pip install "mcp[cli]"` →
+   `claude mcp add todo -- python (my-todo/server.py の絶対パス)` → 再起動 →
+   「タスク追加して: 〜」で動作確認
+2. **仕様から自作(2本)**: コードを見ずに実装する
+   - `list_tasks(status="open")` — "open" / "done" / "all" で絞って一覧を文字列で返す。0件ならその旨
+   - `complete_task(task_id: int)` — status を "done" にして保存。**見つからない ID でも
+     エラーにせず「見つからない」と返す**
+   - 再起動(STDIO はコード変更のたびに必要)→「一覧見せて」「1番終わった」「99番終わった」で確認
+3. **答え合わせ**: 完成例 [todo-mcp/server.py](todo-mcp/server.py) と見比べる。観点:
+   docstring の粒度(「いつ使うか」まで書くか)/ 登録日・完了日の+α設計 /
+   _load・_save の関数化。`/mcp` で自分の docstring がそのまま説明文になっていることも確認
 
-### 動かす
+押さえるポイント: `@mcp.tool()` を付けた関数がそのままツールになる。
+**docstring と型ヒントがそのままツールの説明・引数定義として LLM に渡る**ので、
+docstring は人間向けコメントではなく「LLM がいつどう使うかの説明」を書く。
 
-```bash
-pip install "mcp[cli]"
-```
+## 4. ハンズオン3: 自分のサーバを HTTP 化する
 
-Claude Code に登録(パスは自分の環境の絶対パスに置き換える):
-
-```bash
-claude mcp add todo -- python C:/work_space/skills/learning/level-a/02-mcp/todo-mcp/server.py
-```
-
-Claude Code を起動して試す:
-
-- 「タスク追加して: MCP教材のStep2を読む」→ `add_task` が呼ばれる
-- 「いまのタスク一覧見せて」→ `list_tasks`
-- 「1番終わった」→ `complete_task`
-
-`/mcp` でツール一覧に `add_task` / `list_tasks` / `complete_task` が
-見えていること、docstring がそのまま説明文になっていることを確認する。
-
-## 4. ハンズオン3: 同じサーバを HTTP 化する
-
-STDIO と HTTP の差が「起動方法の差」でしかないことを体験する。
-server.py は `--http` を付けると Streamable HTTP モードで起動するようにしてある。
+STDIO と HTTP の差が「起動方法の差」でしかないことを、自分のコードで体験する。
+my-todo/server.py の末尾を起動引数で切り替わるように書き換える(`import sys` を追加し、
+`"--http" in sys.argv` なら `mcp.run(transport="streamable-http")`、それ以外は `mcp.run()`)。
 
 ターミナル1(サーバを起動しっぱなしにする):
 
 ```bash
-python C:/work_space/skills/learning/level-a/02-mcp/todo-mcp/server.py --http
+python (my-todo/server.py の絶対パス) --http
 ```
 
 ターミナル2(HTTP サーバとして登録し直す):

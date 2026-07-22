@@ -61,56 +61,43 @@
 
 <!-- 4 -->
 <section class="slide">
-  <h2>ハンズオン: task-planner スキル</h2>
-  <span class="filename">~/.claude/skills/task-planner/SKILL.md</span>
-  <pre><code>---
-name: task-planner
-description: 作業の目標をタスクに分解して ToDo MCP に登録し、
-  着手順を提案する。ユーザーが「タスクに分解して」「作業計画を
-  立てて」「段取りを考えて」と言ったとき、または「進捗をまとめて」
-  と言ったときに使う。
----
-
-# 作業分解プランナー
-
-## 計画モード(「タスクに分解して」)
-1. 目標を確認する。成果物が曖昧なら1回だけ質問する
-2. 目標を 2〜7 個のタスクに分解する:
-   - 1タスク = 半日以内で終わる粒度
-   - 「〜を調べる」「〜を実装する」のように動詞で言い切る
-3. 分解案を一覧で提示し、ユーザーの合意を得る
-4. 合意後、mcp__todo__add_task で1件ずつ登録する
-5. 着手順と「最初の一歩」を提案する
-
-## 進捗モード(「進捗をまとめて」)
-1. mcp__todo__list_tasks を status="all" で呼ぶ
-2. 完了 / 残り / 次の一歩、の形式でまとめる
-
-## ルール
-- 合意前に add_task を呼ばない(勝手に登録しない)
-- 登録したタスクの文言は書き換えない
-- 未完了が6件を超えていたら、計画の見直しを提案する</code></pre>
+  <h2>ハンズオン: task-planner を自分で書く</h2>
+  <p><code>~/.claude/skills/task-planner/SKILL.md</code> を新規作成し、
+  次の仕様を満たす手順書を<strong>自分で書く</strong>(完成例は次ページで答え合わせ):</p>
+  <table>
+    <tr><th>要素</th><th>仕様</th></tr>
+    <tr><td>description</td><td>「タスクに分解して」「作業計画を立てて」「進捗をまとめて」の言い回しで発動する</td></tr>
+    <tr><td>計画モード</td><td>目標を確認 → <strong>2〜7個のタスクに分解</strong>(半日以内の粒度・動詞で言い切る)→
+      分解案を提示して<strong>合意を得てから</strong> <code>mcp__todo__add_task</code> で1件ずつ登録 → 着手順を提案</td></tr>
+    <tr><td>進捗モード</td><td><code>mcp__todo__list_tasks</code> を <code>status="all"</code> で呼び、
+      「完了 / 残り / 次の一歩」の形式でまとめる</td></tr>
+    <tr><td>ルール</td><td>合意前に登録しない / タスクの文言を書き換えない / 未完了6件超で見直しを提案</td></tr>
+  </table>
+  <p class="note">書き方のポイント: MCP ツールは<strong>フルネーム
+  (mcp__サーバ名__ツール名)で指名</strong>する。手順の番号と形式を具体的に書くほど動きが安定する。</p>
 </section>
 
 <!-- 5 -->
 <section class="slide">
-  <h2>ハンズオン: セットアップと動作確認</h2>
-  <pre><code><span class="cm"># 完成例をコピー</span>
-cp -r learning/level-a/03-skills-x-mcp/examples/task-planner ~/.claude/skills/
-
-<span class="cm"># todo サーバが登録済みか確認(Step 2 でやった)</span>
+  <h2>ハンズオン: 動作確認と答え合わせ</h2>
+  <pre><code><span class="cm"># todo サーバが登録済みか確認(Step 2 でやった)</span>
 claude mcp list</code></pre>
   <ol>
     <li>Claude Code を再起動する</li>
     <li>計画モードを試す:
       <pre><code>グラフ描画の MCP サーバを作る。タスクに分解して</code></pre>
-      → 分解案の提示 → 合意すると <code>add_task</code> が件数分呼ばれる → 着手順の提案</li>
+      → 分解案の提示 → <strong>合意する前に登録が始まらないか</strong>を見る →
+      合意すると <code>add_task</code> が件数分呼ばれる → 着手順の提案</li>
     <li>いくつか完了させたあとで進捗モード:
       <pre><code>進捗まとめて</code></pre>
-      → <code>list_tasks</code> が呼ばれ、所定の形式のレポートが出る</li>
+      → <code>list_tasks</code> が呼ばれ、自分が書いた形式でレポートが出る</li>
+    <li><strong>答え合わせ</strong>: 完成例
+      <code>learning/level-a/03-skills-x-mcp/examples/task-planner/SKILL.md</code> と見比べる。
+      観点: 合意チェックポイントの置き方 / 形式をコードブロックで示しているか /
+      ルールが禁止形で明確か</li>
   </ol>
-  <p class="note">お題は自分の実作業に置き換えてよい。分解の粒度が業務に合わないと感じたら、
-  それが次ページ以降の「手順書を育てる」話につながる。</p>
+  <p class="note">お題は自分の実作業に置き換えてよい。分解の粒度が合わないと感じたら
+  自分の SKILL.md の粒度ルールを直す — それが「手順書を育てる」ことそのもの。</p>
 </section>
 
 <!-- 6 -->

@@ -120,27 +120,16 @@ claude mcp list</code></pre>
 
 <!-- 7 -->
 <section class="slide">
-  <h2>ハンズオン2: ToDo サーバを内製する</h2>
-  <p class="lead">ここが本題。Python の公式 SDK(FastMCP)なら実質50行で書ける</p>
-  <p>完成品: <code>learning/level-a/02-mcp/todo-mcp/server.py</code>。
-  まずコードを開いて読む。構造は3点だけ。</p>
-  <ul>
-    <li><code>@mcp.tool()</code> を付けた関数が<strong>そのままツールになる</strong></li>
-    <li><strong>docstring と型ヒントが、そのままツールの説明・引数定義として LLM に渡る</strong></li>
-    <li>データは <code>~/.todo-mcp.json</code> に保存するだけ</li>
-  </ul>
-  <div class="point">
-    docstring は人間向けコメントではなく「<strong>LLM がいつ・どう使うか</strong>の説明」を書く。
-    Step 1 の description と同じで、ここの書き方がツールの使われやすさを決める。
-  </div>
-</section>
+  <h2>ハンズオン2: ToDo サーバを自分で書く(1/2)</h2>
+  <p class="lead">ここが本題。完成品は見ずに、まず1本目のツールを写経する</p>
+  <p>作業フォルダに <code>my-todo/server.py</code> を作り、次を打ち込む
+  (コピペせず打つ。<strong>docstring がそのまま LLM への説明になる</strong>ことを意識しながら):</p>
+  <span class="filename">my-todo/server.py</span>
+  <pre><code>import json
+from pathlib import Path
+from mcp.server.fastmcp import FastMCP
 
-<!-- 8 -->
-<section class="slide">
-  <h2>ハンズオン2: コードの骨格</h2>
-  <span class="filename">server.py(抜粋)</span>
-  <pre><code>from mcp.server.fastmcp import FastMCP
-
+DATA_FILE = Path.home() / ".todo-mcp.json"
 mcp = FastMCP("todo")
 
 @mcp.tool()
@@ -151,51 +140,81 @@ def add_task(title: str) -> str:
     Args:
         title: タスクの内容(短い1文)
     """
-    ...  <span class="dim"># JSON ファイルに追記して結果を返すだけ</span>
-
-@mcp.tool()
-def list_tasks(status: str = "open") -> str:
-    """タスクの一覧を返す。..."""
-
-@mcp.tool()
-def complete_task(task_id: int) -> str:
-    """タスクを完了にする。..."""
+    tasks = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else []
+    task_id = max((t["id"] for t in tasks), default=0) + 1
+    tasks.append({"id": task_id, "title": title, "status": "open"})
+    DATA_FILE.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+    return f"タスク {task_id} を追加した: {title}"
 
 if __name__ == "__main__":
     mcp.run()  <span class="dim"># 既定は STDIO</span></code></pre>
+  <pre><code>pip install "mcp[cli]"
+claude mcp add todo -- python <span class="dim">(my-todo/server.py の絶対パス)</span></code></pre>
+  <p>Claude Code を再起動 →「タスク追加して: MCP教材のStep2」→ 動いたら次へ。</p>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>ハンズオン2: 残り2本は仕様だけ見て自分で書く(2/2)</h2>
+  <p>今度はコードを見ずに、<strong>仕様から自分で実装する</strong>。
+  データの読み書きは add_task と同じパターンでよい。</p>
+  <table>
+    <tr><th>ツール</th><th>仕様</th></tr>
+    <tr><td><code>list_tasks(status: str = "open")</code></td>
+        <td>status("open" / "done" / "all")で絞ってタスク一覧を文字列で返す。0件ならその旨を返す</td></tr>
+    <tr><td><code>complete_task(task_id: int)</code></td>
+        <td>該当タスクの status を "done" にして保存し、結果を返す。<strong>見つからない ID のときも
+        エラーにせず「見つからない」と返す</strong></td></tr>
+  </table>
+  <p><strong>ヒント</strong>(詰まったときだけ見る):</p>
+  <ul>
+    <li>docstring には「何をするか」+「ユーザーがどう言ったときに使うか」を書く(add_task と同じ型)</li>
+    <li>STDIO サーバはコードを変えるたびに Claude Code の再起動が必要</li>
+  </ul>
+  <p>書けたら再起動 →「いまのタスク一覧見せて」「1番終わった」→「99番終わった」(存在しないID)で試す。</p>
 </section>
 
 <!-- 9 -->
 <section class="slide">
-  <h2>ハンズオン2: 動かす</h2>
-  <pre><code><span class="cm"># SDK を入れる</span>
-pip install "mcp[cli]"
-
-<span class="cm"># Claude Code に登録(パスは自分の環境の絶対パスに)</span>
-claude mcp add todo -- python C:/work_space/skills/learning/level-a/02-mcp/todo-mcp/server.py</code></pre>
-  <p>Claude Code を起動して試す:</p>
-  <table>
-    <tr><th>話しかけ方</th><th>呼ばれるツール</th></tr>
-    <tr><td>「タスク追加して: MCP教材のStep2を読む」</td><td><code>add_task</code></td></tr>
-    <tr><td>「いまのタスク一覧見せて」</td><td><code>list_tasks</code></td></tr>
-    <tr><td>「1番終わった」</td><td><code>complete_task</code></td></tr>
-  </table>
-  <p><code>/mcp</code> でツール一覧を開き、<strong>docstring がそのまま説明文になっている</strong>ことを確認する。</p>
+  <h2>ハンズオン2: 答え合わせ</h2>
+  <p>動いたら、完成例 <code>learning/level-a/02-mcp/todo-mcp/server.py</code> を開いて
+  自分のコードと見比べる。差分から学ぶ観点:</p>
+  <ul>
+    <li><strong>docstring の粒度</strong>: 「いつ使うか」まで書けていたか。完成例は
+      「ユーザーが『#1終わった』と言ったときに使う」の水準まで書いている</li>
+    <li><strong>+αの設計</strong>: 完成例は登録日・完了日も記録している。
+      あとで「今週やったこと」を聞けるようにするための布石 — ツールは使われ方を想像して作る</li>
+    <li><strong>読み書きの関数化</strong>: 完成例は _load / _save に分けている。
+      ツールが増えるほど効いてくる</li>
+  </ul>
+  <p><code>/mcp</code> でツール一覧を開き、<strong>自分の書いた docstring がそのまま説明文に
+  なっている</strong>ことも確認する。</p>
+  <div class="point">
+    ここまでで「MCP サーバを自分でゼロから書いて動かした」ことになる。
+    50行の壁の低さと、docstring が品質を決めることが体感できたはず。
+  </div>
 </section>
 
 <!-- 10 -->
 <section class="slide">
-  <h2>ハンズオン3: 同じサーバを HTTP 化する</h2>
-  <p class="lead">STDIO と HTTP の差が「起動方法の差」でしかないことを体験する</p>
-  <p>server.py は <code>--http</code> を付けると Streamable HTTP モードで起動する。</p>
+  <h2>ハンズオン3: 自分のサーバを HTTP 化する</h2>
+  <p class="lead">STDIO と HTTP の差が「起動方法の差」でしかないことを、自分のコードで体験する</p>
+  <p>my-todo/server.py の末尾を、起動引数で切り替わるように書き換える(変更はこれだけ):</p>
+  <pre><code>import sys  <span class="dim"># 先頭に追加</span>
+
+if __name__ == "__main__":
+    if "--http" in sys.argv:
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()</code></pre>
   <pre><code><span class="cm"># ターミナル1: サーバを起動しっぱなしにする</span>
-python .../todo-mcp/server.py --http
+python <span class="dim">(my-todo/server.py)</span> --http
 <span class="dim">INFO: Uvicorn running on http://127.0.0.1:8000</span>
 
 <span class="cm"># ターミナル2: HTTP サーバとして登録し直す</span>
 claude mcp add --transport http todo-http http://127.0.0.1:8000/mcp</code></pre>
-  <p>Claude Code から同じようにタスク操作できれば成功。
-  データファイルは共通なので、STDIO 版で入れたタスクがそのまま見える。</p>
+  <p>Claude Code から同じようにタスク操作できれば成功。データファイルは共通なので、
+  STDIO 版で入れたタスクがそのまま見える。<strong>ツール定義は1行も変えていない</strong>。</p>
 </section>
 
 <!-- 11 -->

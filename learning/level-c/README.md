@@ -28,9 +28,11 @@ PowerPoint・Excelスクショ共有・口頭説明の置き換え。
    Edge 対策コメントを読む(**道具のクセは一度だけ解いてコードに焼く**)
 6. **改造**: references/slides.md に「2カラム比較」部品を追記 → 再起動 →
    「STDIOとHTTPの比較スライドを1枚作って」で新部品が使われるか確認
-7. **仕上げワーク**: 自分の業務からひとつ選び、置き場所マップ
-   (SKILL.md / references / assets / scripts に何を置くか)を埋めてから
-   Claude に SKILL.md 初版を作らせる
+7. **仕上げワーク(作り切る)**: 自分の業務からひとつ選び、置き場所マップ
+   (SKILL.md / references / assets / scripts に何を置くか)を埋める →
+   SKILL.md 初版を**自分で書いて** `~/.claude/skills/` に置く → 再起動して
+   設計図の言い回しで**発動テスト**(発動しなければ description を直す)→
+   実際に使いながら references / scripts へ分離していく
 
 ### ふりかえり(置き場所の判断基準)
 
@@ -71,6 +73,10 @@ PowerPoint・Excelスクショ共有・口頭説明の置き換え。
 5. **改造(道具と手順書をセットで更新)**: plot-mcp の `plot_csv` に `kind="box"`
    (箱ひげ図)を追加 → charts.md の表にも1行追加 → 再起動 →
    「groupごとの yield_pct の分布を箱ひげ図で」→ B群の箱が上にずれることを確認
+6. **自分のツールを新設**: stats-mcp に `detect_outliers(csv_path, column)` を仕様から自作
+   (IQR 法で件数・境界・例を返す。判定基準を返答に明記)→
+   eda-workflow の quality.md の外れ値の行に登録 → 「品質チェックして」で
+   新ツールが使われるか確認。**MCP ツールの新設 → 手順書への登録 → スキル経由の発動**を一周する
 
 ### 発展課題
 

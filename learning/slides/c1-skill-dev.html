@@ -172,9 +172,9 @@ grep -c "&lt;style&gt;" test.html   <span class="dim"># CSS がインライン�
 
 <!-- 11 -->
 <section class="slide">
-  <h2>仕上げワーク: 自分のスキルの設計図を書く</h2>
+  <h2>仕上げワーク: 自分のスキルを作り切る</h2>
   <p>自分の業務から「毎回同じ説明をしている作業」をひとつ選び、
-  コードを書く前に置き場所マップを埋める(15分)。</p>
+  まず置き場所マップを埋める(15分)。<strong>ここからが本番 — 実際に作って動かすまでやる</strong>。</p>
   <pre><code>スキル名:
 置き換える業務:
 発動してほしい言い回し(description に入れる語):
@@ -183,11 +183,16 @@ SKILL.md   に書く手順の骨格(5行以内):
 references に分ける知識(ファイル名と中身1行ずつ):
 assets     に入れる実績のある部品(なければ「なし」):
 scripts    に固める定型処理(なければ「なし」):</code></pre>
-  <ul>
-    <li>埋まったら、それを Claude に渡して SKILL.md の初版を作らせてみる</li>
-    <li>15枚超のスライドのような大きい成果物を作るときは、references/slides.md 末尾の
-      「分担執筆」手順(親がアウトラインと一貫性、サブが並列執筆)を参照</li>
-  </ul>
+  <ol>
+    <li>SKILL.md の初版を<strong>自分で書き</strong>、<code>~/.claude/skills/&lt;スキル名&gt;/</code> に置く
+      (description には設計図の「言い回し」をそのまま入れる)</li>
+    <li>再起動 → その言い回しで話しかけて<strong>発動テスト</strong>。
+      発動しなければ description を直す(レベルA Step1 の勘所がここで効く)</li>
+    <li>2〜3回実際の業務で使い、長くなった部分を references/ に分離する(段階的開示)</li>
+    <li>毎回同じ処理が見えたら scripts/ に固める(to_pdf.py が手本)</li>
+  </ol>
+  <p class="note">大型成果物(15枚超のスライド等)を作るスキルなら、references/slides.md 末尾の
+  「分担執筆」手順(親がアウトラインと一貫性、サブが並列執筆)も参考にする。</p>
   <p style="text-align:center; margin-top:16px"><a href="c2-ds-toolkit.html" style="color:var(--accent); font-weight:700; font-size:20px">→ C-2: データ分析支援セットへ</a></p>
 </section>
 
