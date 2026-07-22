@@ -16,6 +16,10 @@ claude mcp add stats -- python C:/work_space/skills/mcp-servers/stats-mcp/server
 
 どちらも `--http` を付けて起動すると Streamable HTTP(`http://127.0.0.1:8000/mcp`)になる。
 
+動作確認用のサンプルデータ: [data-mcp/sample/experiment.csv](data-mcp/sample/experiment.csv)
+(模擬実験データ 400行)。登録後に「このCSVを分析して」で
+[eda-workflow](../eda-workflow/) スキルの一巡を体験できる。
+
 ## スキルとの連携
 
 [eda-workflow](../eda-workflow/) スキルがこの2つ+ [plot-mcp](../learning/level-b/plot-mcp/)
