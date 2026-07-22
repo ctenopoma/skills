@@ -53,13 +53,14 @@
     <tr><th>形態</th><th>やり方</th><th>向き</th></tr>
     <tr><td>個人用を git 共有</td><td><code>~/.claude/skills</code> を git リポジトリにする(<strong>このリポジトリ方式</strong>)</td><td>個人の複数PC、少人数</td></tr>
     <tr><td>プロジェクト同梱</td><td><code>&lt;repo&gt;/.claude/skills/</code> に入れてコミット</td><td>そのプロジェクトの全員</td></tr>
-    <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイス(gitリポジトリ)として配布。利用者は <code>/plugin</code> で導入</td><td>部署・組織への本格配布</td></tr>
+    <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイスとして配布。利用者は <code>/plugin</code> で導入。マーケットプレイスの置き場は git リポジトリ、または <strong>LiteLLM の Skills Gateway</strong>(社内レジストリ機能)</td><td>部署・組織への本格配布</td></tr>
   </table>
   <div class="note">
-    Claude Code のスキルは<strong>自分の PC に置くファイル</strong>なので、配布方法は
-    「ファイルをどう届けるか」= git / プラグイン。なお、scripts 入りのスキルを
+    どの形態でも、<strong>実行時にスキルを読むのは各自の PC</strong>(インストールした
+    手元のコピー)。LiteLLM の Skills Gateway は「配布所(登録・公開・検索)」を
+    引き受けるもので、アプリストアと同じモデル。なお、scripts 入りのスキルを
     「Claude API を組み込んだアプリ」で使うときだけ、Anthropic に登録する別の仕組み
-    (Skills API)が関係する(7枚目)。LiteLLM の機能一覧にある「Skills」はそれのこと。
+    (Skills API)が関係する(7枚目)。
   </div>
 </section>
 
@@ -132,13 +133,13 @@
   指定したときにサンドボックス内へ展開される」という仕組み。登録し直すと
   版(v1, v2, …)として記録される。</p>
   <div class="note">
-    LiteLLM のドキュメントで「Skills」は2つの別物を指すので注意:
-    ① <strong>litellm-skills</strong> = LiteLLM 自体を管理する(ユーザー追加・キー発行等)
-    ためのスキル集。GitHub から取ってきて<strong>自分の PC に置く普通の Agent Skills</strong>
-    (仕組みはレベルAの OSS スキル導入と同じ)。
-    ② <strong>/skills エンドポイント対応</strong> = 上記 Skills API へのリクエストを
-    Anthropic へ中継できるという意味。どちらの場合も
-    <strong>LiteLLM 上にスキルが保存されるわけではない</strong>。
+    紛らわしいので注意: LiteLLM のドキュメントで「Skills」は3つの別物を指す。
+    ① <strong>Skills Gateway</strong> = スキルの社内配布レジストリ(3枚目のプラグイン配布の
+    マーケットプレイス置き場。保存は LiteLLM 側、実行は手元のコピー)。
+    ② <strong>litellm-skills</strong> = LiteLLM 自体を管理するためのスキル集
+    (git で取得して自分の PC に置く普通の Agent Skills)。
+    ③ <strong>/skills エンドポイント対応</strong> = この Skills API へのリクエストを
+    Anthropic へ中継できるという意味。
   </div>
 </section>
 
