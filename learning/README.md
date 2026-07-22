@@ -55,6 +55,13 @@ OpenWebUI・Claude Desktop・Cursor などからもそのまま使える。各�
   自己完結HTML 1ファイルで作るスキル)を実例に、SKILL.md / references / assets / scripts の
   置き場所設計、統合スキルの description 設計、マルチエージェントでの分担執筆までを学ぶ
 
+## 付録: 周辺エコシステム
+
+- [appendix-ecosystem](appendix-ecosystem/README.md) — 作ったスキル・MCP サーバを
+  「チームに配って運用する」ための周辺技術。配布形態(git / プラグイン / pip・npm / Docker /
+  ゲートウェイ)、LiteLLM Proxy(LLM ゲートウェイ)と MCP Gateway、MCP Inspector、
+  FastMCP 2.x、uv/uvx、Ollama + OpenWebUI、セキュリティの注意
+
 ## 用語の整理(最初にこれだけ)
 
 - **Agent Skills**: Claude への「手順書」。`SKILL.md` という Markdown ファイルで、

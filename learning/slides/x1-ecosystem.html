@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>付録: 周辺エコシステム — 配布・運用・開発支援</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">付録: 周辺エコシステム — 配布・運用・開発支援</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">APPENDIX</span>
+  <h1>周辺エコシステム<br>配布・運用・開発支援</h1>
+  <p class="lead">「自分の手元で動く」から「チームに配って運用する」へ。<br>
+  スキルと MCP サーバの周辺技術を役割で整理する。</p>
+  <p class="hint">ツール名・記法はバージョンで変わる。ここでは役割と選び方を押さえる。</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>全体地図: 作る → 試す → 配る → 運用する → 使う</h2>
+  <div class="flow">
+    <div class="box">作る<small>mcp SDK<br>(FastMCP)</small></div>
+    <div class="arrow">→</div>
+    <div class="box">試す<small>MCP Inspector</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">配る<small>git / pip・npm<br>Docker / ゲートウェイ</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">運用する<small>LiteLLM Proxy<br>キー・コスト・制御</small></div>
+    <div class="arrow">→</div>
+    <div class="box">使う<small>Claude Code / Desktop<br>OpenWebUI / Cursor</small></div>
+  </div>
+  <p>教材のレベルA〜Cは「作る」「試す」まで。この付録は右半分の話。</p>
+  <div class="point">
+    先に大事な整理: <strong>Skill はクライアント側のファイル、MCP はサーバ</strong>。
+    だから配布の仕組みがまったく違う(次の2枚)。
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>Skills の配布 = ファイルを配る問題</h2>
+  <table>
+    <tr><th>形態</th><th>やり方</th><th>向き</th></tr>
+    <tr><td>個人用を git 共有</td><td><code>~/.claude/skills</code> を git リポジトリにする(<strong>このリポジトリ方式</strong>)</td><td>個人の複数PC、少人数</td></tr>
+    <tr><td>プロジェクト同梱</td><td><code>&lt;repo&gt;/.claude/skills/</code> に入れてコミット</td><td>そのプロジェクトの全員</td></tr>
+    <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイス(gitリポジトリ)として配布。利用者は <code>/plugin</code> で導入</td><td>部署・組織への本格配布</td></tr>
+  </table>
+  <div class="warn">
+    LiteLLM 等のゲートウェイは <strong>Skills の配布には関与しない</strong>。
+    Skill は API 経路上に存在しないただのファイル。配布は git / プラグインの仕事。
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>MCP サーバの配布 = 4形態</h2>
+  <table>
+    <tr><th>形態</th><th>やり方</th><th>特徴</th></tr>
+    <tr><td>① ソース+git</td><td>clone して <code>python server.py</code> を登録(<strong>教材方式</strong>)</td><td>一番単純。環境構築は利用者任せ</td></tr>
+    <tr><td>② パッケージ</td><td>pip / npm で配布し <code>uvx</code> / <code>npx</code> で実行</td><td>依存ごと隔離実行。ミラーがあれば楽</td></tr>
+    <tr><td>③ Docker</td><td>イメージ化して実行(STDIO or HTTP)</td><td>依存を完全に封じる</td></tr>
+    <tr><td>④ 中央ゲートウェイ</td><td>HTTP で1箇所に立て、全員が URL を登録</td><td>各PCへのインストール不要</td></tr>
+  </table>
+  <p class="note">④は教材の <code>--http</code> の延長。②は <code>pyproject.toml</code> の
+  <code>[project.scripts]</code> でエントリポイントを切ると <code>uvx your-mcp-server</code> の一発で配れる。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>LiteLLM Proxy — 社内 LLM ゲートウェイ</h2>
+  <p>OSS の LLM ゲートウェイ。社内に1台立てて、<strong>全員がそこ経由で LLM API を使う</strong>構成にする。
+  プロキシ環境の社内 AI 基盤として定番。</p>
+  <ul>
+    <li><strong>仮想キー</strong>: 本物の API キーはゲートウェイだけが持つ。利用者には仮想キーを発行</li>
+    <li><strong>コスト管理</strong>: ユーザー/チーム別の使用量集計・予算・レート制限</li>
+    <li><strong>モデル振り分け</strong>: 複数プロバイダを1つの OpenAI 互換 API に集約</li>
+  </ul>
+  <div class="flow">
+    <div class="box">Claude Code<small>ANTHROPIC_BASE_URL を<br>ゲートウェイに向ける</small></div>
+    <div class="box">OpenWebUI<small>OpenAI互換の<br>接続先として登録</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">LiteLLM Proxy<small>仮想キー・コスト・ログ</small></div>
+    <div class="arrow">→</div>
+    <div class="box">各社 LLM API</div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>LiteLLM の MCP Gateway — MCP の一元配布</h2>
+  <p>近年の LiteLLM には <strong>MCP ゲートウェイ機能</strong>があり、MCP サーバを
+  ゲートウェイに登録して配布できる。</p>
+  <ul>
+    <li>利用者はゲートウェイの MCP エンドポイント<strong>1つ</strong>をクライアントに登録するだけ</li>
+    <li>どのツール群を誰に見せるかを<strong>仮想キー単位でアクセス制御</strong>できる</li>
+    <li>ツール呼び出しのログ・監査もゲートウェイに集まる</li>
+  </ul>
+  <div class="point">
+    位置づけ: 「HTTP化(レベルA ハンズオン3)」を組織規模にしたもの。
+    <strong>内製 MCP サーバの社内配布の本命</strong>。
+  </div>
+  <p class="warn">機能の有無・設定記法はバージョン依存が大きい領域。導入時に必ず当該バージョンのドキュメントで確認する。</p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>MCP Inspector — 内製開発の必携デバッガ</h2>
+  <pre><code>npx @modelcontextprotocol/inspector python server.py</code></pre>
+  <ul>
+    <li>ブラウザの GUI が立ち上がり、ツール一覧・呼び出しテスト・resources 閲覧ができる</li>
+    <li>docstring がどう見えているか、引数スキーマが意図どおりかを目視確認できる</li>
+  </ul>
+  <div class="point">
+    使いどころ: <strong>Claude Code に繋ぐ前に Inspector で叩く</strong>。
+    動かないとき「サーバの問題か、クライアントの問題か」を一発で切り分けられる。
+    教材レベルBの改造課題をやるときにも便利。
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>FastMCP 2.x と uv/uvx</h2>
+  <h3>FastMCP 2.x(jlowin/fastmcp)</h3>
+  <ul>
+    <li>教材で使った公式 SDK 同梱の FastMCP の<strong>発展版 OSS</strong></li>
+    <li>認証、複数サーバの合成 (mount)、既存サーバのプロキシ化、クライアントライブラリなど</li>
+    <li>使い分け: 学習・小規模運用は <code>mcp[cli]</code> で十分。
+      認証付きで公開する段階になったら検討</li>
+  </ul>
+  <h3>uv / uvx</h3>
+  <ul>
+    <li>Python の高速パッケージマネージャ。<code>uvx</code> は「インストールせず隔離実行」</li>
+    <li>MCP サーバの配布・実行の事実上の標準になりつつある(Node 側の <code>npx</code> に対応)</li>
+  </ul>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>ローカル LLM: Ollama + OpenWebUI</h2>
+  <ul>
+    <li>Ollama でローカルモデルを動かし、OpenWebUI を UI にすると
+      <strong>完全オフラインの AI 環境</strong>になる</li>
+    <li>教材で作った MCP サーバ(HTTP 化)は<strong>そのまま接続できる</strong> —
+      MCP が標準プロトコルであることの実益</li>
+  </ul>
+  <div class="warn">
+    ツール呼び出し(関数呼び出し)の精度はモデル依存。小さいモデルで使うときは、
+    docstring をより明示的に書く・ツール数を絞る、などの調整が要る。
+    「docstring が LLM へのインターフェース」(レベルA)の重要度がむしろ上がる。
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>セキュリティと運用の注意</h2>
+  <ul>
+    <li><strong>STDIO サーバの導入は任意コード実行と同義</strong>。出所不明のサーバを
+      安易に登録しない。OSS は中身を読める — 読んでから使う</li>
+    <li>HTTP で立てるなら<strong>認証を付けてから</strong>共有する
+      (平文・無認証で社内公開しない)。ゲートウェイ経由なら認証・ログを一元化できる</li>
+    <li>クライアント側の防御: ツール実行の承認プロンプト、allowlist 設定を活用する</li>
+    <li>秘密情報(API キー等)はサーバの環境変数で渡す。コード・設定に直書きしない</li>
+  </ul>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2>まとめ: 教材との接続マップ</h2>
+  <table>
+    <tr><th>教材で作った物</th><th>そのままの配布先</th></tr>
+    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ 将来はプラグイン化</td></tr>
+    <tr><td>todo / plot / paper-library サーバ</td><td>ソース+git → パッケージ化 → HTTP 化 → ゲートウェイ登録、と段階的に格上げ</td></tr>
+    <tr><td>紙芝居教材(slides/)</td><td>ファイル配布のみで完結(それが html-craft の思想)</td></tr>
+  </table>
+  <div class="point">
+    次の実務ステップの候補:
+    ① MCP Inspector を入れて内製サーバの開発ループを速くする
+    ② LiteLLM Proxy を立てて LLM アクセスを一元化する
+    ③ その上で MCP Gateway に内製サーバを登録して配布する
+  </div>
+  <p style="text-align:center; margin-top:24px"><a href="index.html" style="color:var(--accent); font-weight:700; font-size:20px">→ 目次に戻る</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>
