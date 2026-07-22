@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レベルB-1: plot-mcp — 画像を返す MCP サーバ</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">レベルB-1: plot-mcp — 画像を返す MCP サーバ</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">LEVEL B-1</span>
+  <h1>画像を返す MCP サーバ<br>plot-mcp</h1>
+  <p class="lead">レベルAのツールはすべてテキストを返していた。<br>
+  今度は CSV を渡すと<strong>グラフを PNG 画像で返す</strong>サーバを作る。</p>
+  <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>レベルAとの違い: コンテンツ型</h2>
+  <p>MCP のツールが返せるのはテキストだけではない。</p>
+  <table>
+    <tr><th>型</th><th>中身</th><th>例</th></tr>
+    <tr><td>TextContent</td><td>文字列</td><td>レベルAの全ツール</td></tr>
+    <tr><td><strong>ImageContent</strong></td><td>base64 の画像 + MIME タイプ</td><td><strong>この章のグラフ</strong></td></tr>
+    <tr><td>EmbeddedResource</td><td>リソース参照</td><td>B-2 で扱う</td></tr>
+  </table>
+  <div class="point">
+    クライアント側の LLM は返ってきた画像を<strong>「見る」ことができる</strong>。つまり
+    「グラフを描かせて、そのグラフを見て考察させる」が1往復でできる。
+    これが画像を返せることの実用的な意味。
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>データの流れ</h2>
+  <div class="flow">
+    <div class="box">CSV ファイル<small>手元のデータ</small></div>
+    <div class="arrow">→<small>pandas で読む</small></div>
+    <div class="box alt">matplotlib<small>Agg バックエンドで描画<br>(画面いらず)</small></div>
+    <div class="arrow">→<small>PNG バイト列</small></div>
+    <div class="box">Image 型で return<small>SDK が base64 化して<br>ImageContent に包む</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">Claude が画像を見る</div>
+  </div>
+  <p>base64 化や MIME タイプの付与は SDK がやってくれる。
+  自分で書くのは「PNG のバイト列を <code>Image</code> 型に入れて返す」ところまで。</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>コードの骨格: Image を返す</h2>
+  <span class="filename">server.py(抜粋)</span>
+  <pre><code>from mcp.server.fastmcp import FastMCP, Image
+import matplotlib
+matplotlib.use("Agg")  <span class="dim"># 画面を持たない環境用</span>
+
+def _fig_to_image(fig) -> Image:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return Image(data=buf.getvalue(), format="png")
+
+@mcp.tool()
+def plot_csv(csv_path: str, x: str, y: str, kind: str = "line") -> Image:
+    """CSV から列を選んでグラフを描き、PNG 画像で返す。
+    時系列や2変数の関係を見たいときに使う。..."""
+    df = pd.read_csv(csv_path)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ...
+    return _fig_to_image(fig)</code></pre>
+  <p><code>@mcp.tool()</code> + docstring という作りはレベルAと<strong>完全に同じ</strong>。
+  変わったのは戻り値の型だけ。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>ツールは3つ — docstring で順番を誘導</h2>
+  <table>
+    <tr><th>ツール</th><th>返すもの</th><th>docstring での役割づけ</th></tr>
+    <tr><td><code>describe_csv</code></td><td>テキスト</td><td>「グラフを描く前に、どんな列があるかの<strong>下見</strong>に使う」</td></tr>
+    <tr><td><code>plot_csv</code></td><td><strong>画像</strong></td><td>「時系列や2変数の関係を見たいときに」</td></tr>
+    <tr><td><code>histogram</code></td><td><strong>画像</strong></td><td>「分布の形や<strong>外れ値の確認</strong>に」</td></tr>
+  </table>
+  <div class="point">
+    テキストと画像のツールが同居できる。そして docstring に「使う場面」を書いておくと、
+    Claude は自然に <strong>describe で下見 → plot / histogram で描画</strong> の順で使う。
+    レベルAで学んだ「docstring が LLM へのインターフェース」の実践形。
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>動かす</h2>
+  <pre><code>pip install "mcp[cli]" matplotlib pandas
+
+claude mcp add plot -- python C:/work_space/skills/learning/level-b/plot-mcp/server.py</code></pre>
+  <p>サンプルデータを同梱してある。</p>
+  <div class="tree">learning/level-b/plot-mcp/
+├── server.py
+└── sample/
+    └── <b>timeseries.csv</b>   ← day, sensor_a, sensor_b の60日分</div>
+  <p class="note">レベルAと同様、<code>--http</code> を付けて起動すれば Streamable HTTP になる。
+  transport が配管でしかないことは画像でも変わらない。</p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>動作確認: 会話に画像が出る</h2>
+  <ol>
+    <li>下見:
+      <pre><code>learning/level-b/plot-mcp/sample/timeseries.csv ってどんなデータ?</code></pre>
+      → <code>describe_csv</code> が呼ばれ、列と統計量が返る</li>
+    <li>描画:
+      <pre><code>センサー2つの推移をグラフにして</code></pre>
+      → <code>plot_csv</code> が呼ばれ、<strong>会話にグラフ画像が表示される</strong></li>
+    <li>考察まで:
+      <pre><code>sensor_b の分布は?外れ値ある?</code></pre>
+      → <code>histogram</code> の画像を Claude 自身が見て、分布の形についてコメントする</li>
+  </ol>
+  <p>手元の実データ CSV に差し替えて試すとよい。</p>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>改造課題</h2>
+  <ol>
+    <li><code>kind</code> に <code>"box"</code>(箱ひげ図)を追加する</li>
+    <li>日本語の列名でラベルが文字化けする場合の対処(matplotlib のフォント設定)を入れる</li>
+    <li><code>save_plot(csv_path, x, y, out_path)</code> を追加し、画像で返すだけでなく
+      ファイルにも保存できるようにする(レポートに貼る用)</li>
+    <li>「describe → 分布 → 関係」の順で下見する手順を <strong>Skill 化</strong>する
+      <ul><li>レベルA Step 3 の応用。道具が増えたら手順書も書ける</li></ul></li>
+  </ol>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>他ツールでの利用と、まとめ</h2>
+  <ul>
+    <li><code>--http</code> で起動すれば OpenWebUI 等からも使える(レベルAと同じ)</li>
+    <li>画像コンテンツの<strong>表示</strong>はクライアントの対応状況に依存する
+      (Claude Code / Claude Desktop は表示できる)</li>
+  </ul>
+  <h3>この章で学んだこと</h3>
+  <ul>
+    <li>ツールの戻り値は <code>Image</code> 型にするだけで画像になる(base64 化は SDK 任せ)</li>
+    <li>LLM は返った画像を<strong>見て考察できる</strong> — 描画+解釈が1往復</li>
+    <li>テキスト・画像のツールは同居でき、docstring で使う順番を誘導できる</li>
+  </ul>
+  <p style="text-align:center; margin-top:24px"><a href="b2-papers.html" style="color:var(--accent); font-weight:700; font-size:20px">→ B-2: ローカル文献ライブラリ MCP へ</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>

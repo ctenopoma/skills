@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レベルC: 本格スキル開発 — 業務を置き換えるスキルを作る</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">レベルC: 本格スキル開発 — 業務を置き換えるスキルを作る</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">LEVEL C</span>
+  <h1>本格スキル開発<br>業務を置き換えるスキルを作る</h1>
+  <p class="lead">部品の作り方は身についた。最終章は<br>
+  「業務をひとつ置き換える規模のスキル」の設計法。<br>
+  実例は、このリポジトリの <strong>html-craft</strong>。</p>
+  <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>題材の選び方: ツール導入型スキル</h2>
+  <p>狙い目は<strong>「既にやっている業務」×「便利だと知っているが、導入・学習コストで使えていないやり方」</strong>の交点。
+  面倒な部分をスキルに吸収させ、良いやり方だけを手に入れる。</p>
+  <table>
+    <tr><th>実例</th><th>置き換える業務</th><th>吸収した面倒</th></tr>
+    <tr><td>quarto-typst-pdf</td><td>技術文書のPDF作成</td><td>Quarto/Typst の環境構築・記法・調整</td></tr>
+    <tr><td><strong>html-craft</strong></td><td>スライド作成 / データ共有 /<br>口頭での原理説明</td><td>HTML/CSS/JS の設計、自己完結化、PDF化</td></tr>
+  </table>
+  <div class="point">
+    html-craft の発想: PowerPoint・Excelスクショ・口頭説明を、ブラウザで直接開ける
+    <strong>自己完結HTML 1ファイル</strong>に置き換える。変換ツールを介さず LLM が直接
+    デザインするので自由度が高い。この教材の紙芝居がそのまま実績サンプル。
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>html-craft の全体像: 1スキル3モード</h2>
+  <table>
+    <tr><th>ユーザーの意図</th><th>モード</th><th>置き換える業務</th></tr>
+    <tr><td>発表・報告・説明資料(ページをめくる)</td><td><strong>slides</strong></td><td>PowerPoint</td></tr>
+    <tr><td>データを眺める・共有する(フィルタ・表・グラフ)</td><td><strong>dashboard</strong></td><td>Excel+スクショ共有</td></tr>
+    <tr><td>原理・挙動を触って見せる(パラメータで変わる)</td><td><strong>demo</strong></td><td>口頭+静止画の説明</td></tr>
+  </table>
+  <h3>共通の要件(コードより先に文章で固めた)</h3>
+  <ul>
+    <li>HTML 1ファイルで完結。CDN・外部フォント・fetch <strong>禁止</strong>(オフラインで開ける)</li>
+    <li>ブラウザ確認を経てから完成とする。PDF化もできる</li>
+  </ul>
+  <p class="note">この要件がそのまま SKILL.md の「ルール」節になる。要件 → ルール、の直結。</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>設計の本体: 知識と処理の「置き場所」</h2>
+  <div class="tree">html-craft/
+├── <b>SKILL.md</b>       常に必要な判断(モード判定)と手順の骨格
+├── references/
+│   ├── design.md     共通デザイン原則(全モード必読)
+│   ├── slides.md     ┐
+│   ├── dashboard.md  ├ モード別パターン集(必要時だけ読む)
+│   └── demo.md       ┘
+├── assets/
+│   ├── deck.css / deck.js   スライド用フレームワーク(実証済み)
+│   └── page.css             ダッシュボード/デモ用ベース
+└── scripts/
+    ├── new_page.py   雛形生成(assets をインライン展開)
+    └── to_pdf.py     PDF化(Edge ヘッドレス印刷)</div>
+  <div class="point">
+    本格スキルの設計とは<strong>「どの知識を・いつ読ませるか」「どの処理を・コードに固めるか」の設計</strong>。
+    レベルAで学んだ段階的開示の、フルサイズ版。
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>置き場所の判断基準</h2>
+  <table>
+    <tr><th>置き場所</th><th>判断基準</th></tr>
+    <tr><td><strong>SKILL.md</strong></td><td>毎回必要な判断と手順の骨格だけ。長くしない</td></tr>
+    <tr><td><strong>references/</strong></td><td>状況によって要る詳細知識。<strong>パターン集</strong>として書く(構成の型、悪い例→良い例、使える部品一覧)。背景説明より判断基準</td></tr>
+    <tr><td><strong>assets/</strong></td><td><strong>実績のある部品</strong>を転用する。html-craft の CSS/JS は、この教材の紙芝居で実際に使って磨いたものをそのまま採用。ゼロから書かせない</td></tr>
+    <tr><td><strong>scripts/</strong></td><td>毎回同じで、LLM にやらせると遅い・不安定な処理だけ。デザイン判断はスクリプト化しない</td></tr>
+  </table>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>description の設計: 統合スキルの発動</h2>
+  <p>3モードを1スキルに統合したので、description に<strong>全モードのトリガー語</strong>を入れる。</p>
+  <pre><code>description: スライド・ダッシュボード・インタラクティブデモを、
+  ブラウザで直接開ける自己完結HTML 1ファイルとして作る。
+  ユーザーが「スライド作って」「発表資料」「紙芝居」「ダッシュボード」
+  「データを見られるページ」「デモ/シミュレータ作って」
+  「HTMLで資料化して」などと言ったときに使う。...</code></pre>
+  <div class="point">
+    <strong>発動は description、分岐は本文</strong>。モードの判定は SKILL.md 冒頭の表
+    (意図 → モード → 必読 references)で行う。1スキルに統合したのは、
+    ユーザーから見て「HTMLの成果物が欲しい」という同じ場面だから。
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>scripts 開発の実話: Edge の非同期書き出し</h2>
+  <p>to_pdf.py(Edge ヘッドレス印刷、追加インストール不要)は、素朴に書くと<strong>動かないことがある</strong>。</p>
+  <ol>
+    <li>既定プロファイルだと、起動済みの Edge に処理が委譲されてすぐ制御が返る<br>
+      → <code>--user-data-dir</code> で専用プロファイルを指定して回避</li>
+    <li>それでも Edge はプロセス終了の<strong>数秒後</strong>に PDF を書き出すことがある<br>
+      → ファイル出現をポーリングして待つ</li>
+  </ol>
+  <div class="point">
+    道具のクセは<strong>一度だけ解いて、コードに焼く</strong>。LLM に毎回この回避策を
+    思い出させるのではなく、スクリプトに封じ込める。これが scripts/ の存在理由。
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>マルチエージェント: 大型デッキの分担執筆</h2>
+  <p>15枚を超えるスライドは分担が速い(手順は references/slides.md に収録)。</p>
+  <div class="flow">
+    <div class="box">親<small>アウトライン確定<br>ユーザーと合意</small></div>
+    <div class="arrow">→<small>章ごとに指示<br>(並列)</small></div>
+    <div class="box alt">サブ×N<small>スライド断片を執筆<br>&lt;section class="slide"&gt;</small></div>
+    <div class="arrow">→<small>結合</small></div>
+    <div class="box">親<small>一貫性の担保<br>用語・デザイン・粒度</small></div>
+  </div>
+  <ul>
+    <li>アウトラインの確定は<strong>分担しない</strong>(輪郭は親が握る)</li>
+    <li>サブエージェントは文脈を共有しない。書式ルール(1枚1メッセージ、
+      タイトルは要約文)を<strong>毎回の指示に含める</strong></li>
+    <li>重複削除・リズム調整・枚数の刈り込みは親の最終責任</li>
+  </ul>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>ハンズオン: html-craft を使う</h2>
+  <p>スキルは既にこのリポジトリ(= <code>~/.claude/skills/html-craft/</code>)にある。再起動して試す。</p>
+  <table>
+    <tr><th>モード</th><th>話しかけ方の例</th></tr>
+    <tr><td>slides</td><td>「レベルAで学んだことを5枚のスライドにして」</td></tr>
+    <tr><td>dashboard</td><td>「plot-mcp の sample/timeseries.csv をダッシュボードにして。センサー切替できるように」</td></tr>
+    <tr><td>demo</td><td>「移動平均の窓幅で滑らかさが変わるデモを作って」</td></tr>
+    <tr><td>PDF化</td><td>「いまのスライドを PDF にして」→ scripts/to_pdf.py が呼ばれる</td></tr>
+  </table>
+  <p class="note">どのモードでも、完成した HTML をブラウザで開いて
+  「1ファイルで動くこと」「外部通信がないこと」を確認する。</p>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>発展課題: レベルA・Bの部品と組み合わせる</h2>
+  <ol>
+    <li><strong>調査報告パイプライン</strong>: paper-library-mcp で検索 → 文献ごとに
+      サブエージェントで要約 → 比較統合 → html-craft (slides) で報告資料に</li>
+    <li><strong>解析報告パイプライン</strong>: plot-mcp で図を量産 → base64 で
+      dashboard に埋め込み</li>
+    <li>自分の業務から<strong>ツール導入型スキルの題材をひとつ選ぶ</strong>。
+      作り始める前に「置き場所マップ」(SKILL.md / references / assets / scripts に
+      何を置くか)を埋める</li>
+  </ol>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2>カリキュラムのまとめ</h2>
+  <div class="flow">
+    <div class="box">A: 基礎<small>Skill=手順書<br>MCP=道具箱<br>連携=名前を書くだけ</small></div>
+    <div class="arrow">→</div>
+    <div class="box">B: 中級<small>入出力は<br>テキストに限らない<br>tools と resources</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">C: 上級<small>置き場所の設計<br>親とサブの分業</small></div>
+  </div>
+  <ul>
+    <li>ここまでの成果物 — ToDoサーバ、plot-mcp、paper-library-mcp、html-craft — は
+      <strong>すべてそのまま業務で使える</strong></li>
+    <li>MCP サーバは他の AI ツール(OpenWebUI 等)からも使える。スキルは手順書として転用できる</li>
+    <li>次の一歩は「自分の業務の置き換え」。題材の選び方は2枚目に戻る</li>
+  </ul>
+  <p style="text-align:center; margin-top:24px"><a href="index.html" style="color:var(--accent); font-weight:700; font-size:20px">→ 目次に戻る</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>

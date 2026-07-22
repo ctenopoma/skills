@@ -2,6 +2,11 @@
 
 Claude Code の個人用スキル(`~/.claude/skills/`)を複数PC間で共有管理するためのリポジトリ。
 
+## 学習教材
+
+[learning/](learning/README.md) に、Agent Skills と MCP サーバの「使い方 → 作り方 → 連携」を
+ハンズオンで学ぶカリキュラムがある(レベルA: 基礎 / B: 中級 / C: 上級)。
+
 ## 構成
 
 各スキルはこの直下にディレクトリを作り、中に `SKILL.md` を置く。
@@ -55,3 +60,4 @@ git push
 | スキル | 用途 |
 | --- | --- |
 | [quarto-typst-pdf](quarto-typst-pdf/) | Markdown / Jupyter Notebook を Quarto × Typst で技術文書PDFにする。環境導入・合本・デザイン指定・目視調整まで |
+| [html-craft](html-craft/) | スライド・ダッシュボード・インタラクティブデモを自己完結HTML 1ファイルで作る。ブラウザ直開き・オフライン動作・PDF書き出し対応 |
