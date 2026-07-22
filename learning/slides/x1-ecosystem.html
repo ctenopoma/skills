@@ -126,9 +126,13 @@
   <strong>登録して預けておく</strong>仕組み。API で Claude を呼ぶときに
   「登録してあるこのスキルを使え」と指定すると、Anthropic のサーバ側でそのスキルが
   読み込まれる。登録し直すたびに版(v1, v2, …)として記録される。</p>
-  <ul>
-    <li>LiteLLM の機能一覧にある「Skills」= この登録・指定をゲートウェイ経由で扱えるようにする対応</li>
-  </ul>
+  <div class="warn">
+    誤解しやすい点: LiteLLM の機能一覧にある「Skills」は、この登録・指定の
+    <strong>リクエストを Anthropic へ中継できる</strong>という意味。
+    スキルの保存も実行もすべて Anthropic のサーバ側で、
+    <strong>LiteLLM 上にスキルのフォルダができるわけではない</strong>
+    (LiteLLM は認可と記録を付けて転送する中継役)。
+  </div>
   <table>
     <tr><th>同じスキルのフォルダを…</th><th>置く場所</th><th>配る方法</th></tr>
     <tr><td>Claude Code で使うなら</td><td>自分の PC</td><td>git / プラグイン</td></tr>
