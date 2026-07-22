@@ -132,9 +132,13 @@
   指定したときにサンドボックス内へ展開される」という仕組み。登録し直すと
   版(v1, v2, …)として記録される。</p>
   <div class="note">
-    LiteLLM の機能一覧にある「Skills」は、<strong>この Skills API へのリクエストを
-    中継できる</strong>という意味(それ以上のものではない)。保存も実行も Anthropic 側で、
-    LiteLLM 上にスキルが置かれるわけではない。
+    LiteLLM のドキュメントで「Skills」は2つの別物を指すので注意:
+    ① <strong>litellm-skills</strong> = LiteLLM 自体を管理する(ユーザー追加・キー発行等)
+    ためのスキル集。GitHub から取ってきて<strong>自分の PC に置く普通の Agent Skills</strong>
+    (仕組みはレベルAの OSS スキル導入と同じ)。
+    ② <strong>/skills エンドポイント対応</strong> = 上記 Skills API へのリクエストを
+    Anthropic へ中継できるという意味。どちらの場合も
+    <strong>LiteLLM 上にスキルが保存されるわけではない</strong>。
   </div>
 </section>
 
