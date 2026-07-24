@@ -1,0 +1,16 @@
+{
+  "//": "対象プロジェクトの .claude/settings.json にマージする hook 設定例",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/skills/legacy-reverse/hooks/guard_tests.py"
+          }
+        ]
+      }
+    ]
+  }
+}

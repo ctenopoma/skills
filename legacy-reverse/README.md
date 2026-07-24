@@ -1,0 +1,64 @@
+# legacy-reverse
+
+レガシーコード（Fortran / C# 等）を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン。
+
+パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析（保留）
+
+## 構成
+
+```
+legacy-reverse/
+  SKILL.md                 # 全体管理（状況表示・次アクション提案・セットアップ）
+  skills/
+    legacy-0-analyze/      # ⓪ 解析 → functions.json・骨子・WBS・規約
+    legacy-1-spec/         # ① 仕様書（レガシーを読める唯一の役割。spec-gap改訂も担当）
+    legacy-2-testspec/     # ② テスト仕様（①のみ入力。人の承認ゲート）
+    legacy-3-testcode/     # ③ テストコード（②のみ入力。freeze でハッシュ固定）
+    legacy-4-impl/         # ④ 実装（①のみ入力。スタブ禁止）
+    legacy-5-test/         # ⑤ 実行・結果収集・トリアージ・ループ管理
+    legacy-6-check/        # ⑥ 完了検証と最終レンダリング
+  scripts/
+    ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証
+    tc_report_plugin.py    # pytest プラグイン（TCマーカー別の結果収集）
+    collect_results.py     # ②と突合して結果報告書を自動生成（実装率・attempt・自動block）
+    check_stubs.py         # ④のスタブ検出（空実装/NotImplementedError/TODO）
+  hooks/
+    guard_tests.py         # PreToolUse: ④⑤中の tests/ 編集を拒否
+    settings-example.json  # 対象プロジェクトへの hook 登録例
+  references/
+    schema.md              # プロジェクト構成・functions.json/ledger.json スキーマ・status遷移
+    workflow.md            # 共通規則（情報遮断・ハッシュ連鎖・ISSUE・承認・ループ）
+  assets/templates/        # 各成果物のテンプレート（フロントマターが台帳の正データ)
+  examples/                # 架空の COBOL 関数 CALC-TAX (F-0123) の記入例一式
+```
+
+## 導入（対象プロジェクト側）
+
+1. このリポジトリの `legacy-reverse/` を対象プロジェクトの `.claude/skills/legacy-reverse` に配置
+2. `legacy-reverse/skills/legacy-*` を `.claude/skills/` 直下にもコピー（skill発見のため）
+3. `hooks/settings-example.json` を対象プロジェクトの `.claude/settings.json` にマージ
+4. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
+
+## 確定事項
+
+- レガシー言語: Fortran / C# など（⓪の解析は言語ごとに都度対応）。新言語: Python＋pytest（将来 JS/Rust 拡張）
+- レガシー実行環境なしが基本前提。②の期待値は 仕様🟢＋人間確認 で確定（実測は環境がある場合のみ）
+- ⓪〜⑤のトリガは人。フェーズごとに skill を分ける
+- ⑤結果報告書は `{func-id}_{YYYYMMDD-HHMMSS}.md` で毎回1から自動生成（履歴はファイルとして蓄積）
+- ⑤の pass 条件は「実装率100%（②の全ケースが③に実装済み）かつ失敗0」
+- PDF: 仕様書・テスト仕様書・テスト結果を種別ごとに個別出力（同一Markdownソースから Quarto で HTML も生成し WBS から導線）。④は Sphinx で HTML のみ
+- ④⑤ループ上限は3回。到達で triage ISSUE 自動起票→人の裁定→`ledger unblock`→人が再トリガ、attempt リセット
+
+## 原則
+
+- 機械可読メタデータは YAML フロントマターに集約。WBS・⑥はフロントマター走査で自動生成（手編集禁止）
+- ハッシュ連鎖 ①→②→③ で改訂の伝搬を機械検知（不一致＝要再生成）
+- ③は「②＋規約」のみ、④は「①＋規約」のみを入力（クリーンルーム。レガシー原文は読まない）
+- ④のスタブ量産は禁止（check_stubs.py が検出し未完了扱い）。詰まったら spec-gap ISSUE →
+  レガシーを読めるのは①改訂エージェントのみ→仕様更新→ハッシュ伝搬→④再開
+- ④⑤中の tests/ 編集は hook で拒否。テスト側の疑義は ISSUE→人承認→②③再生成
+- 仕様の各項目に Confidence（🟢🟡🔴）とレガシー行番号の根拠を必須付与（cc-rsg 流儀）
+- ISSUE は全体通し番号・「仮説＋Yes/Noの問い」形式。人の回答は domain-knowledge.md に蓄積して再質問を防ぐ
+- ⑦（Python前提）: 処理時間計測→PyO3化・ライブラリ導入・静的解析リファクタリングの検討（詳細は保留）
+
+HTML/PDF 出力は quarto-typst-pdf skill を利用。④の詳細仕様は docstring→Sphinx。
