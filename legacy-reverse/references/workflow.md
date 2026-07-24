@@ -26,6 +26,28 @@
 - 必ず「仮説＋Yes/Noで答えられる問い」の形式（templates/issue.md）
 - 人の回答が付いたら status: answered → 成果物へ反映して applied。ドメイン知識なら domain-knowledge.md へ転記
 - kind: spec-gap(④が詰まった) / domain / legacy-bug / triage(⑤ループ上限) / other
+- **回答の受け取り方は2系統**: チャットでの回答（AskUserQuestion 含む）と、人がISSUEファイルの
+  「回答（人が記入）」欄へ直接記入する方法。どちらも同等に扱う
+
+## 人の直接入力（起動時スキャン）
+
+**すべてのフェーズskillは、本処理の前に次を確認する:**
+
+1. open の ISSUE で「回答（人が記入）」欄が埋まっているものがないか → あれば先に
+   反映処理（answered → 成果物更新 → applied → 必要なら domain-knowledge.md 転記）を行う
+2. 人からチャットでドメイン知識・規約変更を告げられたら、その場で
+   domain-knowledge.md（出典:「直接指示 YYYY-MM-DD」）/ conventions.md に反映する
+
+手編集の可否:
+
+| ファイル | 手編集 | 備考 |
+|---|:---:|---|
+| conventions.md / domain-knowledge.md / ISSUEの回答欄 | ⭕ | 人が著者。編集後は quarto render（またはskillに依頼） |
+| specs/ | △ | 編集可。ハッシュ連鎖が②を stale に落とし再確認が走る（設計どおり） |
+| index.qmd / test-results/ / completion-check.md | ❌ | 自動生成。再生成で消える |
+
+- conventions.md を途中で変更した場合は影響が③④の既存成果物に及ぶ。skillは変更を検知したら
+  「どの関数の成果物と不整合になり得るか」を洗い出して人に報告する
 
 ## 人の承認ゲート
 

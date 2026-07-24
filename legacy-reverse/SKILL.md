@@ -16,12 +16,16 @@ user-invocable: true
 
 ## 呼ばれたらすること
 
-1. 対象プロジェクトに `data/functions.json` があるか確認
+1. **人の直接入力のスキャン**（workflow.md「人の直接入力」参照）: open ISSUE の回答欄に
+   記入があれば先に反映する。conventions.md / domain-knowledge.md の手編集にも気づいたら反映確認
+2. 対象プロジェクトに `data/functions.json` があるか確認
    - **ない** → 未セットアップ。下記「セットアップ」を案内し、`/legacy-0-analyze` を勧める
    - **ある** → `ledger status` と `ledger next` を実行し、WBS（docs/index.qmd）の要点
      （進捗サマリ・open ISSUE・⛔ blocked）をまとめて見せ、次の一手を提案する
-2. open ISSUE がある場合は必ず最初に列挙する（人の判断待ちが最優先）
-3. ⛔ blocked の関数は「ISSUE裁定 → 反映 → `ledger unblock <func-id>` → 再トリガ」の手順を添える
+3. open ISSUE がある場合は必ず最初に列挙する（人の判断待ちが最優先）
+4. ⛔ blocked の関数は「ISSUE裁定 → 反映 → `ledger unblock <func-id>` → 再トリガ」の手順を添える
+5. 人から「これ覚えておいて」系の業務知識を聞いたら domain-knowledge.md へ
+   DK-ID付きで追記（出典: 直接指示）し、HTML を再レンダリングする
 
 ## セットアップ（新規プロジェクト）
 
