@@ -110,7 +110,7 @@ def main() -> None:
     for x in sorted((p.docs / "test-results").glob(f"{fid}_*.md")):
         fm = parse_frontmatter(x.read_text(encoding="utf-8-sig"))
         history.append((fm.get("attempt", "?"), fm.get("run", {}).get("date", x.stem),
-                        fm.get("coverage", {}).get("rate", "?"), fm.get("result", "?")))
+                        fm.get("tc-coverage", {}).get("rate", "?"), fm.get("result", "?")))
 
     # --- 本文生成 ---
     name = f["new"].get("name", fid)
@@ -123,7 +123,7 @@ def main() -> None:
         "run:", f'  date: "{now.isoformat(timespec="minutes")}"', f'  env: "python {sys.version.split()[0]}"',
         f"result: {result}", f"attempt: {attempt}",
         f"blocked-by: {blocked_by or 'null'}",
-        "coverage:", f"  spec-cases: {len(spec_cases)}",
+        "tc-coverage:", f"  spec-cases: {len(spec_cases)}",
         f"  implemented: {len(implemented)}", f'  rate: "{rate}"',
         "---", "", "<!-- collect_results.py による自動生成。手編集禁止 -->", "",
         "# サマリ", "",

@@ -11,7 +11,7 @@ result: fail            # pass / fail。判定は「実装率100% かつ 失敗0
 attempt: 1              # ④⑤ループの試行回数。上限(既定:3)到達で自動ISSUE起票(kind:triage)→人にエスカレーション
                         # 人の裁定(ISSUEがapplied)後に人が⑤を再トリガした時点で 1 にリセット（前提が変わったため）
 blocked-by: null        # 上限到達時に起票した ISSUE-ID。null 以外の間、④⑤の再実行は skill が拒否する
-coverage:
+tc-coverage:            # 「coverage」はQuartoの予約キーと衝突するため tc- 接頭辞
   spec-cases: 0         # ②に定義されたケース数
   implemented: 0        # ③に実装が存在するケース数（マーカー @pytest.mark.tc で対応付け）
   rate: "0%"            # implemented / spec-cases

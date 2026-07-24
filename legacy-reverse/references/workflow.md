@@ -48,7 +48,13 @@
 - `NotImplementedError`・本体が pass/... だけの関数・TODO/FIXME は `check_stubs.py` が検出し、④は未完了扱い
 - 実装しきれない場合は spec-gap ISSUE を起票して停止 → ①改訂（レガシー確認・根拠付き）→ ハッシュ伝搬 → ④再開
 
-## 出力・レンダリング
+## 出力・レンダリング（フェーズごとに必ずHTML更新）
 
-- 各フェーズの最後に必ず `ledger.py wbs` で WBS を再生成する
-- HTML/PDF は quarto-typst-pdf skill を使う。PDFは 仕様書/テスト仕様書/テスト結果 の種別ごとに個別、④は Sphinx で HTML のみ
+- 各フェーズの最後に必ず実行する（人がブラウザで途中経過を常に確認できる状態を保つ）:
+  1. `ledger.py wbs` で WBS を再生成
+  2. `quarto render docs` で HTML サイトを更新（`docs/_quarto.yml` はテンプレから⓪で配置済み）
+- Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
+  （`~/.local/quarto/bin/quarto`。PATH 登録不要）
+- 閲覧は `docs/_site/` を静的サーバで配信（例: `python -m http.server 8765 --directory docs/_site`）
+- 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
+- PDF は 仕様書/テスト仕様書/テスト結果 の種別ごとに個別（quarto-typst-pdf skill）、④は Sphinx で HTML のみ

@@ -1,0 +1,32 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - "*.qmd"
+    - "*.md"
+    - "specs/*.md"
+    - "test-specs/*.md"
+    - "test-results/*.md"
+    - "issues/*.md"
+
+website:
+  title: "{{プロジェクト名}} リバースエンジニアリング"
+  navbar:
+    left:
+      - href: index.qmd
+        text: WBS
+      - href: domain-knowledge.md
+        text: ドメイン知識
+      - href: conventions.md
+        text: 規約
+      - href: completion-check.md
+        text: ⑥完了検証
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    lang: ja
+
+# 注意: 成果物フロントマターの独自キーは Quarto の予約キーと衝突させないこと
+# （例: coverage は予約済みのため tc-coverage を使っている）

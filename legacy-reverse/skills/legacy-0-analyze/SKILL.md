@@ -44,6 +44,9 @@ ledger skeletons   # docs/specs/ に骨子（フロントマター＋IO表は⓪
 ledger wbs         # docs/index.qmd
 ```
 
+- `assets/templates/_quarto.yml` を docs/ にコピーしてプロジェクト名を埋め、初回の
+  `quarto render docs` を実行する（以後、全フェーズの最後にHTML更新する。workflow.md 参照）
+
 新関数のシグネチャ（functions.json の new.signature）は型対応表に従って⓪で決める。
 これが③④の共通契約になる。
 

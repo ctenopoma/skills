@@ -433,7 +433,7 @@ def cmd_check(p: Project, args) -> None:
     for fid in order:
         latest = p.latest_result(fid)
         rate = (parse_frontmatter(latest.read_text(encoding="utf-8-sig"))
-                .get("coverage", {}).get("rate", "") if latest else "")
+                .get("tc-coverage", {}).get("rate", "") if latest else "")
         if rate != "100%":
             counts[7] += 1
             rows.append((fid, f"⑤実装率が100%でない ({rate or '未実行'})"))
