@@ -7,7 +7,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 project = "{{プロジェクト名}} 新コード詳細仕様"
 language = "ja"
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.napoleon", "sphinx.ext.viewcode"]
+extensions = ["sphinx.ext.autodoc", "sphinx.ext.autosummary", "sphinx.ext.napoleon",
+              "sphinx.ext.viewcode"]
+autosummary_generate = True  # index.rst は `ledger.py sphinx-index` で functions.json から自動生成
 html_theme = "sphinx_rtd_theme"  # Read the Docs テーマ（Python系docsの定番）
 html_theme_options = {
     "navigation_depth": 3,

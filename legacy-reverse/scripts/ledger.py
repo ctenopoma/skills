@@ -407,6 +407,40 @@ def cmd_phase_end(p: Project, args) -> None:
     print("phase 終了（hook 解除）")
 
 
+def cmd_sphinx_index(p: Project, args) -> None:
+    """functions.json から docs-sphinx/index.rst を生成（ホーム=関数一覧→個別ページ）。"""
+    order, _ = p.topo_order()
+    fmap = {f["func_id"]: f for f in p.funcs()}
+    rows, dotted_list = [], []
+    for fid in order:
+        f = fmap[fid]
+        mod = re.sub(r"\.py$", "", re.sub(r"^src/", "", f["new"]["module"].replace("\\", "/")))
+        dotted = f"{mod.replace('/', '.')}.{f['new']['name']}"
+        dotted_list.append(dotted)
+        rows.append((fid, f["new"]["name"], dotted, f["legacy"]["name"]))
+    name = p.functions.get("project", {}).get("name", "project")
+    title = f"{name} 新コード詳細仕様"
+    lines = [
+        title, "=" * (len(title) * 2), "",
+        "④実装の docstring から自動生成。``Spec:`` 行で関数仕様書へトレースできる。", "",
+        "関数一覧", "-" * 16, "",
+        ".. autosummary::", "   :toctree: functions", "   :nosignatures:", "",
+    ]
+    lines += [f"   {d}" for d in dotted_list]
+    lines += [
+        "", "トレース対応表", "-" * 16, "",
+        ".. list-table::", "   :header-rows: 1", "   :widths: 12 30 22 36", "",
+        "   * - func-id", "     - 新関数", "     - レガシー", "     - 関数仕様書",
+    ]
+    for fid, new_name, dotted, legacy_name in rows:
+        lines += [f"   * - {fid}", f"     - :py:func:`{dotted}`", f"     - {legacy_name}",
+                  f"     - `仕様書 <../specs/{fid}.html>`__"]
+    out = p.root / "docs-sphinx" / "index.rst"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {out}")
+
+
 def cmd_check(p: Project, args) -> None:
     order, cycles = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
@@ -476,12 +510,14 @@ def main() -> None:
     s = sub.add_parser("phase-start"); s.add_argument("phase"); s.add_argument("func_id")
     sub.add_parser("phase-end")
     sub.add_parser("check")
+    sub.add_parser("sphinx-index")
     args = ap.parse_args()
     p = Project(Path(args.root).resolve())
     {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
      "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,
-     "phase-start": cmd_phase_start, "phase-end": cmd_phase_end, "check": cmd_check}[args.cmd](p, args)
+     "phase-start": cmd_phase_start, "phase-end": cmd_phase_end, "check": cmd_check,
+     "sphinx-index": cmd_sphinx_index}[args.cmd](p, args)
 
 
 if __name__ == "__main__":
