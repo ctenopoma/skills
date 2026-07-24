@@ -66,7 +66,7 @@ def parse_frontmatter(text: str) -> dict:
 
 def load_json(path: Path, default=None):
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     return default if default is not None else {}
 
 
@@ -96,7 +96,7 @@ class Project:
 
     def fm(self, relpath: str) -> dict:
         p = self.root / relpath
-        return parse_frontmatter(p.read_text(encoding="utf-8")) if p.exists() else {}
+        return parse_frontmatter(p.read_text(encoding="utf-8-sig")) if p.exists() else {}
 
     def latest_result(self, func_id: str):
         files = sorted((self.docs / "test-results").glob(f"{func_id}_*.md"))
@@ -136,7 +136,7 @@ class Project:
 
         latest = self.latest_result(fid)
         if latest:
-            rfm = parse_frontmatter(latest.read_text(encoding="utf-8"))
+            rfm = parse_frontmatter(latest.read_text(encoding="utf-8-sig"))
             s["test"] = rfm.get("result", "-")
             s["attempt"] = rfm.get("attempt", "?")
             s["result_file"] = str(latest.relative_to(self.docs)).replace("\\", "/")
@@ -182,7 +182,7 @@ def cmd_wbs(p: Project, args) -> None:
 
     issues = []
     for ip in sorted((p.docs / "issues").glob("ISSUE-*.md")):
-        ifm = parse_frontmatter(ip.read_text(encoding="utf-8"))
+        ifm = parse_frontmatter(ip.read_text(encoding="utf-8-sig"))
         if ifm.get("status") == "open":
             issues.append((ip.name[:-3], ifm))
 
@@ -426,13 +426,13 @@ def cmd_check(p: Project, args) -> None:
                 counts[idx] += 1
                 rows.append((fid, msg))
     open_issues = [f.name[:-3] for f in (p.docs / "issues").glob("ISSUE-*.md")
-                   if parse_frontmatter(f.read_text(encoding="utf-8")).get("status") == "open"]
+                   if parse_frontmatter(f.read_text(encoding="utf-8-sig")).get("status") == "open"]
     counts[6] = len(open_issues)
     rows += [("-", f"open ISSUE: {i}") for i in open_issues]
     # 実装率100%チェック（最新⑤の coverage.rate）
     for fid in order:
         latest = p.latest_result(fid)
-        rate = (parse_frontmatter(latest.read_text(encoding="utf-8"))
+        rate = (parse_frontmatter(latest.read_text(encoding="utf-8-sig"))
                 .get("coverage", {}).get("rate", "") if latest else "")
         if rate != "100%":
             counts[7] += 1

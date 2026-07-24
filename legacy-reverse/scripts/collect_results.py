@@ -39,7 +39,7 @@ def main() -> None:
     ts_path = p.docs / "test-specs" / f"{fid}.md"
     if not ts_path.exists():
         sys.exit(f"error: ②が存在しない: {ts_path}")
-    ts_text = ts_path.read_text(encoding="utf-8")
+    ts_text = ts_path.read_text(encoding="utf-8-sig")
     spec_cases = re.findall(r"^##\s+(\S+-TC-\d+)", ts_text, flags=re.M)
     if not spec_cases:
         sys.exit("error: ②からケースIDを抽出できない（## <ID>: 見出し形式か確認）")
@@ -48,7 +48,7 @@ def main() -> None:
     run_path = p.state_dir / "last-run.json"
     if not run_path.exists():
         sys.exit("error: last-run.json がない。pytest を -p tc_report_plugin 付きで実行せよ")
-    runs = json.loads(run_path.read_text(encoding="utf-8"))
+    runs = json.loads(run_path.read_text(encoding="utf-8-sig"))
 
     # --- 突合 ---
     errors = [f"マーカー無しのテスト: {r['nodeid']}" for r in runs if not r["tc"]]
@@ -108,7 +108,7 @@ def main() -> None:
     # --- 試行履歴（過去ファイル走査） ---
     history = []
     for x in sorted((p.docs / "test-results").glob(f"{fid}_*.md")):
-        fm = parse_frontmatter(x.read_text(encoding="utf-8"))
+        fm = parse_frontmatter(x.read_text(encoding="utf-8-sig"))
         history.append((fm.get("attempt", "?"), fm.get("run", {}).get("date", x.stem),
                         fm.get("coverage", {}).get("rate", "?"), fm.get("result", "?")))
 
