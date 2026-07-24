@@ -2,7 +2,7 @@
 
 レガシーコード（Fortran / C# 等）を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン。
 
-パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析（保留）
+パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析・改善（挙動保存）
 
 ## 構成
 
@@ -59,6 +59,8 @@ legacy-reverse/
 - ④⑤中の tests/ 編集は hook で拒否。テスト側の疑義は ISSUE→人承認→②③再生成
 - 仕様の各項目に Confidence（🟢🟡🔴）とレガシー行番号の根拠を必須付与（cc-rsg 流儀）
 - ISSUE は全体通し番号・「仮説＋Yes/Noの問い」形式。人の回答は domain-knowledge.md に蓄積して再質問を防ぐ
-- ⑦（Python前提）: 処理時間計測→PyO3化・ライブラリ導入・静的解析リファクタリングの検討（詳細は保留）
+- ⑦（legacy-7-analyze）: profile_run.py で計測→ NumPy/アルゴリズム/Rust(PyO3)化をエージェントが基準に沿って
+  判断・提案→人の承認→**挙動保存で適用**（③テスト全pass維持が絶対条件。挙動変更は ISSUE→①②経由）。
+  保守性は radon/ruff、セキュリティは bandit/pip-audit。中心文書は docs/analysis.md（OPT-/REF-/SEC- 施策台帳）
 
 HTML/PDF 出力は quarto-typst-pdf skill を利用。④の詳細仕様は docstring→Sphinx。

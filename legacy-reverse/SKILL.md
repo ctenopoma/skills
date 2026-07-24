@@ -45,6 +45,7 @@ user-invocable: true
 | ④ 実装 | legacy-4-impl | src/（スタブなし） |
 | ⑤ テスト | legacy-5-test | docs/test-results/（pass or 裁定ISSUE） |
 | ⑥ 完了検証 | legacy-6-check | docs/completion-check.md |
+| ⑦ 分析・改善 | legacy-7-analyze | docs/perf.md・docs/analysis.md（挙動保存で適用まで） |
 
 ## レンダリング
 

@@ -10,6 +10,7 @@
 | ③ テストコード | ②(approved)、conventions.md | **legacy/**、**①**、src/ |
 | ④ 実装 | ①(reviewed)、conventions.md | **legacy/**、**②**、**tests/** |
 | ⑤ テスト | 結果＋①②（トリアージ判断用）、src/（(a)修正時） | legacy/、tests/ の編集 |
+| ⑦ 分析 | src/・docs/・計測結果（全体を見る） | tests/ の編集（挙動保存が大原則） |
 
 - 「読んではいけない」に触れたくなったら、それは仕様の穴。ISSUE を起票して停止する
 - レガシー原文を読める役割は ⓪ と ①（改訂含む）だけ
