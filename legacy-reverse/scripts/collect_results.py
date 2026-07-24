@@ -40,7 +40,16 @@ def main() -> None:
     if not ts_path.exists():
         sys.exit(f"error: ②が存在しない: {ts_path}")
     ts_text = ts_path.read_text(encoding="utf-8-sig")
-    spec_cases = re.findall(r"^##\s+(\S+-TC-\d+)", ts_text, flags=re.M)
+    spec_cases, case_meta = [], {}
+    for block in re.split(r"^##\s+", ts_text, flags=re.M)[1:]:
+        head = block.splitlines()[0]
+        m = re.match(r"(\S+-TC-\d+)\s*:?\s*(.*?)\s*(?:\{#[^}]*\})?\s*$", head)
+        if not m:
+            continue
+        tc_id, title = m.group(1), m.group(2)
+        cat = re.search(r"\|\s*分類\s*\|\s*([^|]+?)\s*\|", block)
+        spec_cases.append(tc_id)
+        case_meta[tc_id] = {"title": title, "category": cat.group(1) if cat else ""}
     if not spec_cases:
         sys.exit("error: ②からケースIDを抽出できない（## <ID>: 見出し形式か確認）")
 
@@ -132,15 +141,20 @@ def main() -> None:
         f"| {len(spec_cases)} | {len(implemented)} | **{rate}** "
         f"| {len(implemented) - len(failed) - len(skipped)} | {len(failed)} | {len(skipped)} | {dur:.2f}s |",
         "", "# ケース別結果", "",
-        "| ケースID | 実装 | 結果 | 時間 | 詳細 |", "|---------|:---:|:---:|-----:|------|"]
+        "<!-- 内容・分類は②テスト仕様書から突合して転記（本書だけでテスト内容が分かるように） -->", "",
+        "| ケースID | 内容 | 分類 | 実装 | 結果 | 時間 | 詳細 |",
+        "|---------|------|------|:---:|:---:|-----:|------|"]
     for tc in spec_cases:
+        meta = case_meta.get(tc, {"title": "", "category": ""})
+        tc_anchor = tc.split("-", 1)[1].lower() if "-" in tc else tc.lower()
+        info = f"[{meta['title']}](../test-specs/{fid}.md#{tc_anchor}) | {meta['category']}"
         if tc not in by_tc:
-            lines.append(f"| {tc} | － | 未実装 | — | |")
+            lines.append(f"| {tc} | {info} | － | 未実装 | — | |")
         else:
             r = by_tc[tc]
             sym = {"passed": "✅", "failed": "❌", "skipped": "⏭"}[r["outcome"]]
             anchor = f"[詳細](#fail-{tc.lower()})" if r["outcome"] == "failed" else ""
-            lines.append(f"| {tc} | ✅ | {sym} | {r['duration']}s | {anchor} |")
+            lines.append(f"| {tc} | {info} | ✅ | {sym} | {r['duration']}s | {anchor} |")
     lines += ["", "# 失敗詳細", ""]
     if failed:
         for tc in failed:
