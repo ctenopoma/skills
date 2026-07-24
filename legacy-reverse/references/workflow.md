@@ -97,7 +97,8 @@ python <LR>/scripts/pdf_book.py test-results --root . --output pdf/テスト結�
 
 ### ④の詳細仕様（Sphinx）
 
-- `docs-sphinx/`（conf.py: autodoc＋napoleon、index.rst: automodule 列挙）から
-  `python -m sphinx -b html docs-sphinx docs/_site/api` で生成
+- `docs-sphinx/` はテンプレ（assets/templates/sphinx-conf.py, sphinx-index.rst）から⓪で配置。
+  テーマは Read the Docs（依存: `python -m pip install sphinx sphinx-rtd-theme`）
+- `python -m sphinx -b html docs-sphinx docs/_site/api` で生成
 - **順序は必ず「quarto render → sphinx」**（quarto render は _site を作り直すため）。
   WBS のナビバー「新コード詳細(API)」= `api/index.html` から導線が通る
