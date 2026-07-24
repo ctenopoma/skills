@@ -21,6 +21,8 @@ website:
         text: 規約
       - href: completion-check.md
         text: ⑥完了検証
+      - href: api/index.html
+        text: 新コード詳細(API)
 
 format:
   html:

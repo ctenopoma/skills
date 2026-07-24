@@ -77,6 +77,27 @@
   2. `quarto render docs` で HTML サイトを更新（`docs/_quarto.yml` はテンプレから⓪で配置済み）
 - Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
   （`~/.local/quarto/bin/quarto`。PATH 登録不要）
-- 閲覧は `docs/_site/` を静的サーバで配信（例: `python -m http.server 8765 --directory docs/_site`）
+- 閲覧は `docs/_site/` を静的サーバで配信。**cwd を _site の外にして** `--directory` で指定する
+  （例: プロジェクトルートで `python -m http.server 8765 --directory docs/_site`。
+  _site の中を cwd にすると再レンダリング時の削除がロックされて失敗する）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
-- PDF は 仕様書/テスト仕様書/テスト結果 の種別ごとに個別（quarto-typst-pdf skill）、④は Sphinx で HTML のみ
+
+### PDF（種別ごとの合本）
+
+```bash
+python <LR>/scripts/pdf_book.py specs        --root . --output pdf/関数仕様書.pdf     --title 関数仕様書
+python <LR>/scripts/pdf_book.py test-specs   --root . --output pdf/テスト仕様書.pdf   --title テスト仕様書
+python <LR>/scripts/pdf_book.py test-results --root . --output pdf/テスト結果報告書.pdf --title テスト結果報告書
+```
+
+- pdf_book.py は Quarto 1.10 系の book+typst の2つの不具合（章フロントマターの title で
+  テンプレートが落ちる / orange-book の author 既定値で Typst が落ちる）を前処理とパッチで回避する
+- PDF では相対リンク・アンカーは平文化される（HTML版にリンクが残る）
+- 生成後は `qtpdf.py check <pdf>` で豆腐・はみ出しを機械チェックする
+
+### ④の詳細仕様（Sphinx）
+
+- `docs-sphinx/`（conf.py: autodoc＋napoleon、index.rst: automodule 列挙）から
+  `python -m sphinx -b html docs-sphinx docs/_site/api` で生成
+- **順序は必ず「quarto render → sphinx」**（quarto render は _site を作り直すため）。
+  WBS のナビバー「新コード詳細(API)」= `api/index.html` から導線が通る

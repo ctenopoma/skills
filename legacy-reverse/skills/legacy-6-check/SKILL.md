@@ -19,12 +19,11 @@ user-invocable: true
    ハッシュ連鎖整合 / open ISSUE ゼロ / ⑤実装率100%
 2. **fail の場合**: 不備一覧を関数×フェーズで整理し、どのskillで埋めるかの
    作業リストにして人へ報告する（このskillでは直さない）
-3. **pass の場合**: 最終成果物を出す
-   - `ledger wbs` で WBS を最新化
-   - quarto-typst-pdf skill で docs/ を HTMLサイト＋PDF（仕様書・テスト仕様書・
-     テスト結果の種別ごとに個別）にレンダリング
-   - Sphinx（autodoc + napoleon）で src/ の docstring から新コード詳細仕様の HTML を生成し、
-     WBS からリンクが通ることを確認
+3. **pass の場合**: 最終成果物を出す（コマンドは workflow.md「出力・レンダリング」参照）
+   - `ledger wbs` → `quarto render docs` → Sphinx（この順。quarto が _site を作り直すため）
+   - `pdf_book.py` で 関数仕様書 / テスト仕様書 / テスト結果報告書 の3冊のPDFを生成し、
+     各PDFを `qtpdf.py check` で機械チェック
+   - WBS ナビバーの「新コード詳細(API)」リンクが通ることを確認
 4. 完了を報告。⑦（性能分析・静的解析リファクタリング）は別途着手する旨を添える
 
 ## 禁止
