@@ -8,6 +8,7 @@ project:
     - "test-specs/*.md"
     - "test-results/*.md"
     - "issues/*.md"
+    - "improvements/*.md"
 
 website:
   title: "{{プロジェクト名}} リバースエンジニアリング"

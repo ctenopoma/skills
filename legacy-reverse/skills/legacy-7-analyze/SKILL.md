@@ -39,7 +39,7 @@ python -m bandit -r src -q
 python -m pip_audit
 ```
 
-### 3. 施策提案（docs/analysis.md に記入）
+### 3. 候補の洗い出し（docs/analysis.md に記入）
 
 - **性能(OPT-)**: ホットスポットごとに NumPy化 / アルゴリズム / キャッシュ / rust-pyo3 を検討。
   **Rust化の判断基準**（この順で検討し、根拠を提案欄に明記する）:
@@ -52,19 +52,38 @@ python -m pip_audit
   （外部ファイル入力のパス検証・サイズ上限・不正フォーマット時の挙動、エラーのフラグ渡しの見直し）
 - 各施策に期待効果・リスクを書き、**優先順位を付けて人に提示**する
 
-### 4. 承認 → 適用 → 検証（施策ごとに小さく回す）
+### 4. 項目確定（候補 → 施策票への昇格）
 
-1. 人が approved にした施策だけ着手。1施策 = 1コミット
-2. 適用後、必ず: `pytest tests` 全pass維持 → `profile_run.py` 再計測 → 実施ログに before/after 記録
-3. docstring・①仕様書に影響する変更（例: 関数分割）をしたら該当文書も更新し、
+着手する候補を1つ選び、テンプレ `assets/templates/improvement.md` から
+**施策票 `docs/improvements/<ID>.md` を起票**する。票には必ず:
+
+- **目的**（なぜやるか・改善後の姿）
+- **成功基準**（後から機械判定できる指標＋baseline実測値＋目標値。
+  「⑤テスト全pass維持」は全施策共通の基準として必ず入れる）
+- **改善仕様**（何をどう変えるか・挙動保存の根拠）
+
+を書き、**人の承認（status: approved）を得る**。analysis.md は候補台帳として残し、
+昇格した候補には票へのリンクを張る。`ledger wbs` で WBS「⑦改善イタレーション」表に載る。
+
+### 5. イタレーション（1施策 = 1周の DevOps ループ）
+
+approved の施策票1枚に対して:
+
+1. **Do**: 適用する。**1施策 = 1コミット**（票の `commit:` にハッシュを記録）
+2. **Check**: `pytest tests` 全pass確認 → `profile_run.py` 再計測・静的解析再走査 →
+   票の成功基準表に「実測(after)」「判定」を記入
+3. **Act**:
+   - 全基準達成 → `achieved: true` / `status: verified`
+   - 未達 → コミットを revert して `rolled-back`、または基準・仕様を見直して再イタレーション。
+     学びは票の「振り返り」と domain-knowledge.md に残す
+   - テストが落ちた＝挙動が変わった → **無条件で巻き戻し**。「テストが細かすぎる」と
+     感じてもテストは触らない（ISSUEで裁定）
+4. docstring・①仕様書に影響する変更（例: 関数分割）をしたら該当文書も更新し、
    `ledger sphinx-index`＋Sphinx再ビルド
-4. 適用の途中で挙動差が出た（テストが落ちた）ら **その施策を巻き戻す**。
-   「テストの方が細かすぎる」と感じてもテストは触らない（ISSUEで裁定）
+5. 締め: `ledger wbs` → `quarto render docs` → Sphinx。**次の施策票へ**（一度に1票ずつ）
 
-### 5. 仕上げ
-
-- analysis.md の status を done に、WBSナビバーの「⑦分析」リンクから読めることを確認
-- `ledger wbs` → `quarto render docs` → Sphinx（workflow.md の順序）
+これで「項目確定 → WBS → 目的 → 適用 → 検証 → 達成判定」が票1枚の上で完結し、
+WBSからすべての施策の達成状況（✅/❌/—）がトレースできる。
 
 ## 禁止
 

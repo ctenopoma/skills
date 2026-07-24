@@ -244,6 +244,20 @@ def cmd_wbs(p: Project, args) -> None:
             c5 = "☐"
         lines.append(f"| {i} | [{name}](specs/{fid}.md) | {deps} | {c1} | {c2} | {c3} | {c4} | {c5} |")
 
+    imps = sorted((p.docs / "improvements").glob("*.md"))
+    if imps:
+        lines += ["", "# ⑦ 改善イタレーション", "",
+                  "<!-- 1施策=1票=1イタレーション。達成: ✅=基準達成 / ❌=未達 / —=検証前 -->", "",
+                  "| ID | 分類 | 目的 | 対象 | 状態 | 達成 |",
+                  "|----|------|------|------|:---:|:---:|"]
+        for ip in imps:
+            ifm = parse_frontmatter(ip.read_text(encoding="utf-8-sig"))
+            ach = str(ifm.get("achieved", "")).lower()
+            mark = "✅" if ach == "true" else ("❌" if ach == "false" else "—")
+            lines.append(f"| [{ip.stem}](improvements/{ip.name}) | {ifm.get('kind', '')} "
+                         f"| {ifm.get('title', '')} | {ifm.get('func-id', '')} "
+                         f"| {ifm.get('status', '')} | {mark} |")
+
     out = p.docs / "index.qmd"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
