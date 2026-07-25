@@ -225,10 +225,13 @@ project:
 execute:
   enabled: false   # ノートブックは実行せず、保存済みの出力をそのまま組版する
 
-# `- quarto` の後に置くことで Quarto 本体(crossref 等)の後段で走る。
-# numbering.lua は Quarto が float 化しなかった表・図に番号を振るため、
+# number-images.lua だけは `- quarto` より**前**(キャプション付き画像の
+# キャプションを Quarto が退避する前でないと、素の画像と区別できない)。
+# 残りは `- quarto` の後に置くことで Quarto 本体(crossref 等)の後段で走る。
+# numbering.lua は Quarto が float 化しなかった表に番号を振るため、
 # Quarto の処理結果を見てから動く必要がある。
 filters:
+  - {assets}/filters/number-images.lua
   - quarto
   - {assets}/filters/strip-numbers.lua
   - {assets}/filters/pagebreaks.lua

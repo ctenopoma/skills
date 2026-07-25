@@ -7,13 +7,17 @@
 --    Typst の columns: (33.33%, ...) として出力する。結果、内容量と無関係に
 --    等間隔になる。幅指定を落とすと columns: N となり Typst が内容量で配分する。
 --
--- 2) キャプションなしの表・図に番号を振る
---    Quarto はキャプションのあるものだけを float にするため、素の表・図には
+-- 2) キャプションなしの表に番号を振る
+--    Quarto はキャプションのあるものだけを float にするため、素の表には
 --    番号が付かない。ここで Quarto と同じ kind の #figure で包み、番号
 --    カウンタを共有させる。キャプション本文は空なので番号だけが出る
 --    (区切り記号は base.typ の show ルールが落とす)。
 --    Quarto の float はこの時点で class="quarto-scaffold" の Div に入っているため、
 --    その中へは降りない(降りると二重に包んでしまう)。
+--
+--    **画像はここでは扱わない。** Quarto はキャプション付き画像のキャプションを
+--    早期に退避するため、この段階では素の画像と区別が付かない(二重 figure の原因)。
+--    画像の採番は number-images.lua(`- quarto` より前)が担当する。
 
 local tbl_supplement = "Table"
 local fig_supplement = "Figure"
@@ -151,14 +155,6 @@ local function wrap(block, kind, supplement)
   }
 end
 
--- 画像1枚だけの段落。セル出力の中では Para でなく Plain になることがある。
-local function bare_image(block)
-  return (block.t == "Para" or block.t == "Plain")
-    and #block.content == 1
-    and block.content[1].t == "Image"
-    and #block.content[1].caption == 0
-end
-
 -- Quarto が float 化済みの入れ物か。
 -- class では判定できない(quarto-scaffold はセル出力の包みにも付く)。
 -- float の入れ物は直下に Typst の `#figure(` 生片を持つので、それで見分ける。
@@ -198,8 +194,6 @@ local promote = {
         if not (cap and cap.long and #cap.long > 0) then
           wrapped = wrap(b, "quarto-float-tbl", tbl_supplement)
         end
-      elseif bare_image(b) then
-        wrapped = wrap(b, "quarto-float-fig", fig_supplement)
       end
 
       if wrapped then
