@@ -1,5 +1,13 @@
 # 共通ワークフロー規則（全フェーズskillが従う）
 
+## 機械操作の呼び出し方（MCP優先）
+
+mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出てくる
+`ledger.py …`・pytest＋collect_results（⑤）・check_stubs・profile_run・quarto/sphinx/pdf_book は
+**同名相当の MCP ツールで呼ぶこと**（pipeline_status / run_tests / render_site 等。
+構造化された結果が返り、シェル引用の事故と許可プロンプトが減る）。
+未登録の環境では従来どおりスクリプトを直接実行する。両者の実体は同一。
+
 ## 情報遮断（クリーンルーム）
 
 | フェーズ | 読んでよい入力 | 読んではいけないもの |

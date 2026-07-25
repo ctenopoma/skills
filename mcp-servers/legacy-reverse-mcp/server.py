@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""legacy-reverse-mcp — レガシー移植パイプラインの機械操作を MCP ツールとして公開する。
+
+skills（判断・手順）はそのまま、Bash経由で叩いていたスクリプト層を型付きツール化したもの。
+実体は ../../legacy-reverse/scripts/ の各スクリプト（単体でも従来どおり使える）。
+
+登録例（対象プロジェクトの .mcp.json）:
+{
+  "mcpServers": {
+    "legacy-reverse": {
+      "command": "python",
+      "args": ["C:/work_space/skills/mcp-servers/legacy-reverse-mcp/server.py"]
+    }
+  }
+}
+"""
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from mcp.server.fastmcp import FastMCP
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "legacy-reverse" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+from ledger import Project, parse_frontmatter  # noqa: E402
+
+mcp = FastMCP("legacy-reverse")
+
+
+def _run(cmd: list, cwd: str | None = None, env_add: dict | None = None) -> dict:
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    if env_add:
+        env.update(env_add)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", cwd=cwd, env=env)
+    return {"ok": r.returncode == 0, "exit_code": r.returncode,
+            "output": (r.stdout + r.stderr).strip()[-4000:]}
+
+
+def _ledger(root: str, *args: str) -> dict:
+    return _run([sys.executable, str(SCRIPTS / "ledger.py"), "--root", root, *args])
+
+
+# ---------- 台帳（読み取り） ----------
+
+@mcp.tool()
+def pipeline_status(root: str = ".", func_id: str | None = None) -> list:
+    """全関数（または指定関数）の①〜⑤の進捗・stale・blocked状態を返す。"""
+    p = Project(Path(root).resolve())
+    targets = [p.func(func_id)] if func_id else p.funcs()
+    return [p.status_of(f) for f in targets]
+
+
+@mcp.tool()
+def next_action(root: str = ".") -> str:
+    """トポロジカル順（葉から）で、次に着手すべき関数とフェーズを返す。"""
+    return _ledger(root, "next")["output"]
+
+
+@mcp.tool()
+def verify(root: str, func_id: str) -> dict:
+    """ハッシュ連鎖（①→②、③改変、blocked）を検証する。ok=false なら理由が problems に入る。"""
+    r = _ledger(root, "verify", func_id)
+    return {"ok": r["ok"], "problems": [l for l in r["output"].splitlines() if l.startswith("NG")]}
+
+
+@mcp.tool()
+def next_issue_id(root: str = ".") -> str:
+    """次に使う ISSUE 番号（全体通し）を返す。"""
+    return _ledger(root, "next-issue")["output"]
+
+
+# ---------- 台帳（書き込み） ----------
+
+@mcp.tool()
+def generate_wbs(root: str = ".") -> dict:
+    """functions.json＋各成果物フロントマターから docs/index.qmd（WBS）を再生成する。"""
+    return _ledger(root, "wbs")
+
+
+@mcp.tool()
+def generate_skeletons(root: str = ".", force: bool = False) -> dict:
+    """functions.json から docs/specs/ の仕様書骨子を生成する（既存はスキップ）。"""
+    args = ["skeletons"] + (["--force"] if force else [])
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def freeze_tests(root: str, func_id: str) -> dict:
+    """③完了時にテストコードのハッシュを台帳へ記録する（以降の改変を検知可能にする）。"""
+    return _ledger(root, "freeze-tests", func_id)
+
+
+@mcp.tool()
+def block(root: str, func_id: str, issue_id: str) -> dict:
+    """関数を裁定待ち(⛔)にする。"""
+    return _ledger(root, "block", func_id, issue_id)
+
+
+@mcp.tool()
+def unblock(root: str, func_id: str) -> dict:
+    """人の裁定反映後にブロックを解除し、attempt をリセットする。"""
+    return _ledger(root, "unblock", func_id)
+
+
+@mcp.tool()
+def phase_start(root: str, phase: str, func_id: str) -> dict:
+    """フェーズ開始を記録する（4/5 の間は hook が tests/ 編集を拒否する）。"""
+    return _ledger(root, "phase-start", phase, func_id)
+
+
+@mcp.tool()
+def phase_end(root: str = ".") -> dict:
+    """フェーズ終了を記録する（hook 解除）。"""
+    return _ledger(root, "phase-end")
+
+
+@mcp.tool()
+def completion_check(root: str = ".") -> dict:
+    """⑥完了検証を実行し docs/completion-check.md を生成する。ok=true が⑥pass。"""
+    return _ledger(root, "check")
+
+
+@mcp.tool()
+def sphinx_index(root: str = ".") -> dict:
+    """functions.json から docs-sphinx/index.rst（関数一覧＋トレース対応表）を再生成する。"""
+    return _ledger(root, "sphinx-index")
+
+
+# ---------- 実行系 ----------
+
+@mcp.tool()
+def run_tests(root: str, func_id: str) -> dict:
+    """⑤を一括実行する: 事前verify → pytest（tcマーカー収集）→ 結果報告書の自動生成。
+
+    返り値の result: pass / fail / blocked(要裁定) / mismatch(③のマーカー不整合) / verify_ng
+    """
+    rootp = Path(root).resolve()
+    v = _ledger(root, "verify", func_id)
+    if not v["ok"]:
+        return {"result": "verify_ng", "detail": v["output"]}
+    p = Project(rootp)
+    tf = p.func(func_id).get("test_file")
+    t = _run([sys.executable, "-m", "pytest", tf, "-q", "-p", "tc_report_plugin"],
+             cwd=str(rootp), env_add={"PYTHONPATH": str(SCRIPTS)})
+    c = _run([sys.executable, str(SCRIPTS / "collect_results.py"), func_id, "--root", root])
+    result = {0: "pass", 1: "fail", 2: "blocked", 3: "mismatch"}.get(c["exit_code"], "error")
+    out: dict = {"result": result, "detail": c["output"], "pytest_tail": t["output"][-1500:]}
+    latest = p.latest_result(func_id)
+    if latest:
+        fm = parse_frontmatter(latest.read_text(encoding="utf-8-sig"))
+        out.update({"report": str(latest), "rate": fm.get("tc-coverage", {}).get("rate"),
+                    "attempt": fm.get("attempt"), "blocked_by": fm.get("blocked-by")})
+    return out
+
+
+@mcp.tool()
+def check_stubs(root: str, module: str) -> dict:
+    """④のスタブ検出（空実装・NotImplementedError・TODO/FIXME）。ok=true でスタブなし。"""
+    return _run([sys.executable, str(SCRIPTS / "check_stubs.py"),
+                 str(Path(root).resolve() / module)])
+
+
+@mcp.tool()
+def profile(root: str = ".", script: str | None = None) -> dict:
+    """⑦の性能計測。cProfile で src/ 関数別に集計し docs/perf.md を生成する。
+
+    script 未指定はテスト負荷のスモーク計測。ホットスポット判断は代表ワークロードで。
+    """
+    args = [sys.executable, str(SCRIPTS / "profile_run.py"), "--root", root]
+    if script:
+        args += ["--script", script]
+    return _run(args)
+
+
+@mcp.tool()
+def render_site(root: str = ".", with_sphinx: bool = True) -> dict:
+    """docs/ を Quarto で HTML サイト化し、続けて Sphinx API を docs/_site/api に生成する。"""
+    quarto = Path.home() / ".local" / "quarto" / "bin" / "quarto.exe"
+    qcmd = str(quarto) if quarto.exists() else "quarto"
+    r1 = _run([qcmd, "render", str(Path(root).resolve() / "docs")])
+    if not r1["ok"]:
+        return {"ok": False, "step": "quarto", "output": r1["output"]}
+    if with_sphinx and (Path(root).resolve() / "docs-sphinx").exists():
+        r2 = _run([sys.executable, "-m", "sphinx", "-b", "html", "docs-sphinx",
+                   "docs/_site/api", "-q"], cwd=str(Path(root).resolve()))
+        if not r2["ok"]:
+            return {"ok": False, "step": "sphinx", "output": r2["output"]}
+    return {"ok": True, "site": str(Path(root).resolve() / "docs" / "_site")}
+
+
+@mcp.tool()
+def build_pdf(root: str, kind: str, title: str, output: str) -> dict:
+    """種別ごとの合本PDFを生成する。kind: specs / test-specs / test-results。"""
+    return _run([sys.executable, str(SCRIPTS / "pdf_book.py"), kind, "--root", root,
+                 "--output", output, "--title", title])
+
+
+if __name__ == "__main__":
+    mcp.run()
