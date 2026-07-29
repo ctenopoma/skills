@@ -178,10 +178,11 @@ def profile(root: str = ".", script: str | None = None) -> dict:
 
 @mcp.tool()
 def render_site(root: str = ".", with_sphinx: bool = True) -> dict:
-    """docs/ を Quarto で HTML サイト化し、続けて Sphinx API を docs/_site/api に生成する。"""
-    quarto = Path.home() / ".local" / "quarto" / "bin" / "quarto.exe"
-    qcmd = str(quarto) if quarto.exists() else "quarto"
-    r1 = _run([qcmd, "render", str(Path(root).resolve() / "docs")])
+    """docs/ を Quarto で HTML サイト化し、続けて Sphinx API を docs/_site/api に生成する。
+
+    quarto を直接呼ばず render_site.py を通す（Mermaid を効かせるための影コピーを作る）。
+    """
+    r1 = _run([sys.executable, str(SCRIPTS / "render_site.py"), "--root", root])
     if not r1["ok"]:
         return {"ok": False, "step": "quarto", "output": r1["output"]}
     if with_sphinx and (Path(root).resolve() / "docs-sphinx").exists():

@@ -49,6 +49,9 @@ user-invocable: true
 
 ## レンダリング
 
-- HTML/PDF が欲しいと言われたら quarto-typst-pdf skill を使う。PDFは 仕様書 / テスト仕様書 /
-  テスト結果 の種別ごとに個別、HTMLは docs/ 一式を1サイト（WBSがトップ）
+- HTML は `python <LR>/scripts/render_site.py --root .`（docs/ 一式を1サイト、WBSがトップ）。
+  **`quarto render docs` を直接叩かない**（Mermaid が描画されない。理由は render_site.py 冒頭）
+- PDF は `pdf_book.py` で 仕様書 / テスト仕様書 / テスト結果 の種別ごとに個別
+  （実体は quarto-typst-pdf skill）
 - ④の詳細仕様（docstring）は Sphinx で HTML のみ
+- 図は成果物（.md）に GitHub 流の ```mermaid で書く。```{mermaid} は render を落とす

@@ -171,6 +171,51 @@ class Project:
 
 # ---------- サブコマンド ----------
 
+def call_graph(order: list, fmap: dict, stats: dict) -> list:
+    """コールグラフを Mermaid で描く（呼ぶ側 → 呼ばれる側）。
+
+    GitHub 流の ```mermaid で書く。HTML サイトは render_site.py が影コピーで
+    ```{mermaid} に変換し、PDF は qtpdf.py が同じ変換をする。
+    """
+    if not order:
+        return []
+    if len(order) > 60:
+        return ["# コールグラフ", "",
+                f"関数 {len(order)} 件のため図は省略（依存は下表の「依存」列を参照）。", ""]
+
+    def nid(fid):
+        return fid.replace("-", "")
+
+    def cls(s):
+        if s["blocked_by"]:
+            return "blocked"
+        if s["test_ok"]:
+            return "done"
+        return "wip" if s["spec_ok"] else "todo"
+
+    body = ["::: {.column-screen-inset}", "```mermaid", "graph LR"]
+    for fid in order:
+        f, s = fmap[fid], stats[fid]
+        label = f["new"].get("name", fid)
+        body.append(f'  {nid(fid)}["{label}"]:::{cls(s)}')
+        body.append(f'  click {nid(fid)} "specs/{fid}.html"')
+    for fid in order:
+        for callee in fmap[fid].get("calls", []):
+            if callee in fmap:
+                body.append(f"  {nid(fid)} --> {nid(callee)}")
+    body += [
+        "  classDef done fill:#d4edda,stroke:#28a745,color:#155724",
+        "  classDef wip fill:#fff3cd,stroke:#ffc107,color:#856404",
+        "  classDef todo fill:#f1f3f5,stroke:#adb5bd,color:#495057",
+        "  classDef blocked fill:#f8d7da,stroke:#dc3545,color:#721c24",
+        "```",
+        ":::",
+    ]
+    return ["# コールグラフ", "",
+            "<!-- 緑=⑤pass / 黄=着手中 / 灰=未着手 / 赤=⛔blocked。ノードをクリックで仕様書へ -->",
+            ""] + body + [""]
+
+
 def cmd_wbs(p: Project, args) -> None:
     order, cycles = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
@@ -190,6 +235,7 @@ def cmd_wbs(p: Project, args) -> None:
         "---",
         f'title: "{p.functions.get("project", {}).get("name", "project")} リバースエンジニアリング WBS"',
         "date: last-modified",
+        "page-layout: full",   # 関数一覧は列が多い。既定の800px幅だと関数名が何行にも折れる
         "---",
         "",
         "<!-- ledger.py wbs による自動生成。手編集禁止 -->",
@@ -206,6 +252,8 @@ def cmd_wbs(p: Project, args) -> None:
         lines += ["::: {.callout-warning}", "コールグラフに循環があります: "
                   + " / ".join("→".join(c) for c in cycles), ":::", ""]
 
+    lines += call_graph(order, fmap, stats)
+
     lines += ["# Open ISSUES（要人間判断）", ""]
     if issues:
         lines += ["| ID | 種別 | 関数 | 内容 |", "|----|------|------|------|"]
@@ -215,7 +263,9 @@ def cmd_wbs(p: Project, args) -> None:
                 f"| {ifm.get('func-id','')} | {ifm.get('title','')} |")
     else:
         lines.append("なし 🎉")
-    lines += ["", "# 関数一覧（推奨着手順）", "",
+    # column-screen-inset = 画面幅いっぱいに広げる Quarto の仕組み（本文の800px枠から出す）。
+    # .wbs-funcs は wbs.css で列幅を制御する（関数名は折り返さず、依存列に幅を譲らせる）
+    lines += ["", "# 関数一覧（推奨着手順）", "", "::: {.wbs-funcs .column-screen-inset}",
               "| # | 関数 | 依存 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
               "|:-:|------|------|:---:|:---:|:---:|:---:|:---:|"]
 
@@ -243,6 +293,7 @@ def cmd_wbs(p: Project, args) -> None:
         else:
             c5 = "☐"
         lines.append(f"| {i} | [{name}](specs/{fid}.md) | {deps} | {c1} | {c2} | {c3} | {c4} | {c5} |")
+    lines.append(":::")
 
     imps = sorted((p.docs / "improvements").glob("*.md"))
     if imps:
@@ -297,6 +348,9 @@ def cmd_skeletons(p: Project, args) -> None:
             f'  signature: "{f["new"].get("signature", "")}"',
             "---",
             "", "# 概要", "", "<!-- ①で充填 -->", "",
+            "# 処理フロー", "",
+            "<!-- 分岐が3本以上ある場合のみ①が ```mermaid の flowchart を書く"
+            "（```{mermaid} は render を落とす）。不要なら節ごと削除 -->", "",
             "# インタフェース", "", "## 入力", "",
             "| # | 名前 | レガシー型 | 新型 | 説明 | Confidence |",
             "|---|------|-----------|------|------|:---:|",

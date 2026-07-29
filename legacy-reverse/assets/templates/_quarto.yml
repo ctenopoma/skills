@@ -30,8 +30,15 @@ website:
 format:
   html:
     theme: cosmo
+    css: wbs.css        # 関数一覧の列幅（assets/templates/wbs.css を docs/ にコピーする）
     toc: true
     lang: ja
+    mermaid:
+      theme: neutral
 
-# 注意: 成果物フロントマターの独自キーは Quarto の予約キーと衝突させないこと
-# （例: coverage は予約済みのため tc-coverage を使っている）
+# 注意1: レンダリングは `python <LR>/scripts/render_site.py --root .` で行う。
+#   Mermaid は .qmd でしか描けないため、成果物(.md)の影コピーを _sitework/ に作ってから
+#   render している。`quarto render docs` を直接叩くと図が出ない（詳細は render_site.py）。
+#   成果物には GitHub 流の ```mermaid で書くこと（```{mermaid} と書くと render が落ちる）。
+# 注意2: 成果物フロントマターの独自キーは Quarto の予約キーと衝突させないこと
+#   （例: coverage は予約済みのため tc-coverage を使っている）

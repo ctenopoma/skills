@@ -1,0 +1,35 @@
+/* WBS（docs/index.qmd）の関数一覧テーブル用。ledger.py wbs が ::: {.wbs-funcs} で囲む。
+   狙い: 関数名を折り返させない。列が多いので、既定のままだと関数名が1文字ずつ縦積みになる。
+   ページ側は page-layout: full（ledger.py が付与）で画面幅を使う。 */
+
+.wbs-funcs {
+  overflow-x: auto;          /* 名前が極端に長い場合はページではなく表だけを横スクロール */
+}
+
+.wbs-funcs table {
+  width: 100%;
+  table-layout: auto;
+}
+
+/* # 列と関数名の列は折り返さない（幅は内容が決める） */
+.wbs-funcs td:nth-child(1),
+.wbs-funcs th:nth-child(1),
+.wbs-funcs td:nth-child(2),
+.wbs-funcs th:nth-child(2) {
+  white-space: nowrap;
+}
+
+/* 依存（func-id の羅列）は幅を譲る側。折り返しは id 単位（id の途中では折らない） */
+.wbs-funcs td:nth-child(3) {
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: 0.85em;
+  line-height: 1.35;
+  word-break: normal;
+}
+
+/* ①〜⑤の状態列は中身が記号だけなので詰める */
+.wbs-funcs td:nth-child(n + 4),
+.wbs-funcs th:nth-child(n + 4) {
+  white-space: nowrap;
+  width: 1%;
+}

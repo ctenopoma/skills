@@ -20,7 +20,7 @@ user-invocable: true
 2. **fail の場合**: 不備一覧を関数×フェーズで整理し、どのskillで埋めるかの
    作業リストにして人へ報告する（このskillでは直さない）
 3. **pass の場合**: 最終成果物を出す（コマンドは workflow.md「出力・レンダリング」参照）
-   - `ledger wbs` → `quarto render docs` → Sphinx（この順。quarto が _site を作り直すため）
+   - `ledger wbs` → `render_site.py` → Sphinx（この順。render_site が _site を作り直すため）
    - `pdf_book.py` で 関数仕様書 / テスト仕様書 / テスト結果報告書 の3冊のPDFを生成し、
      各PDFを `qtpdf.py check` で機械チェック
    - WBS ナビバーの「新コード詳細(API)」リンクが通ることを確認

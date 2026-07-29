@@ -63,4 +63,6 @@ legacy-reverse/
   判断・提案→人の承認→**挙動保存で適用**（③テスト全pass維持が絶対条件。挙動変更は ISSUE→①②経由）。
   保守性は radon/ruff、セキュリティは bandit/pip-audit。中心文書は docs/analysis.md（OPT-/REF-/SEC- 施策台帳）
 
-HTML/PDF 出力は quarto-typst-pdf skill を利用。④の詳細仕様は docstring→Sphinx。
+HTML は `scripts/render_site.py`（Mermaid を効かせるため .qmd 影コピーを経由する。
+`quarto render docs` の直叩きは不可）、PDF は `scripts/pdf_book.py`＋quarto-typst-pdf skill。
+④の詳細仕様は docstring→Sphinx。
