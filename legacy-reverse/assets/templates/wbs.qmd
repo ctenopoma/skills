@@ -1,6 +1,7 @@
 ---
 title: "{{プロジェクト名}} リバースエンジニアリング WBS"
 date: last-modified
+page-layout: full   # 関数一覧は列が多い。既定の800px幅だと関数名が折り返る
 ---
 
 <!--
@@ -21,6 +22,25 @@ date: last-modified
 
 **⑥ 完了検証**: 未実施（全関数の①〜⑤完了後に [completion-check](completion-check.md) を実行）
 
+# コールグラフ
+
+<!--
+functions.json の calls から自動生成。緑=⑤pass / 黄=着手中 / 灰=未着手 / 赤=⛔blocked。
+図は GitHub 流の ```mermaid で書く（```{mermaid} と書くと .md の render が落ちる）。
+-->
+
+::: {.column-screen-inset}
+```mermaid
+graph LR
+  F0001["{{new_name}}"]:::todo
+  click F0001 "specs/{{func_id}}.html"
+  classDef done fill:#d4edda,stroke:#28a745,color:#155724
+  classDef wip fill:#fff3cd,stroke:#ffc107,color:#856404
+  classDef todo fill:#f1f3f5,stroke:#adb5bd,color:#495057
+  classDef blocked fill:#f8d7da,stroke:#dc3545,color:#721c24
+```
+:::
+
 # Open ISSUES（要人間判断）
 
 <!-- open のものだけをここに出す。人が見るべきものを常に最上部に -->
@@ -36,7 +56,9 @@ date: last-modified
 ⑤列は pass=✅ / fail=❌(試行回数) を表示。
 -->
 
+::: {.wbs-funcs .column-screen-inset}
 | # | 関数 | 依存 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |
 |:-:|------|------|:---:|:---:|:---:|:---:|:---:|
 | 1 | [{{new_name}}](specs/{{func_id}}.md) | なし | [✅](specs/{{func_id}}.md) | [✅](test-specs/{{func_id}}.md) | ✅ | ✅ | [❌ 2回目](test-results/{{func_id}}.md) |
 | 2 | | | ☐ | ☐ | ☐ | ☐ | ☐ |
+:::

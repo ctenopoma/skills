@@ -80,7 +80,7 @@ approved の施策票1枚に対して:
      感じてもテストは触らない（ISSUEで裁定）
 4. docstring・①仕様書に影響する変更（例: 関数分割）をしたら該当文書も更新し、
    `ledger sphinx-index`＋Sphinx再ビルド
-5. 締め: `ledger wbs` → `quarto render docs` → Sphinx。**次の施策票へ**（一度に1票ずつ）
+5. 締め: `ledger wbs` → `render_site.py` → Sphinx。**次の施策票へ**（一度に1票ずつ）
 
 これで「項目確定 → WBS → 目的 → 適用 → 検証 → 達成判定」が票1枚の上で完結し、
 WBSからすべての施策の達成状況（✅/❌/—）がトレースできる。

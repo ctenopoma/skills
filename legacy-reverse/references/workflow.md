@@ -51,7 +51,7 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 
 | ファイル | 手編集 | 備考 |
 |---|:---:|---|
-| conventions.md / domain-knowledge.md / ISSUEの回答欄 | ⭕ | 人が著者。編集後は quarto render（またはskillに依頼） |
+| conventions.md / domain-knowledge.md / ISSUEの回答欄 | ⭕ | 人が著者。編集後は render_site.py（またはskillに依頼） |
 | specs/ | △ | 編集可。ハッシュ連鎖が②を stale に落とし再確認が走る（設計どおり） |
 | index.qmd / test-results/ / completion-check.md | ❌ | 自動生成。再生成で消える |
 
@@ -83,13 +83,44 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 
 - 各フェーズの最後に必ず実行する（人がブラウザで途中経過を常に確認できる状態を保つ）:
   1. `ledger.py wbs` で WBS を再生成
-  2. `quarto render docs` で HTML サイトを更新（`docs/_quarto.yml` はテンプレから⓪で配置済み）
+  2. `python <LR>/scripts/render_site.py --root .` で HTML サイトを更新
+     （`docs/_quarto.yml` はテンプレから⓪で配置済み）
+- **`quarto render docs` を直接叩かない。** Quarto は Mermaid を `.qmd` でしか描けないため、
+  render_site.py が `docs/_sitework/` に `.qmd` の影コピーを作ってから render する
+  （出力先は従来どおり `docs/_site/`）
 - Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
   （`~/.local/quarto/bin/quarto`。PATH 登録不要）
 - 閲覧は `docs/_site/` を静的サーバで配信。**cwd を _site の外にして** `--directory` で指定する
   （例: プロジェクトルートで `python -m http.server 8765 --directory docs/_site`。
   _site の中を cwd にすると再レンダリング時の削除がロックされて失敗する）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
+
+### WBS の横幅（列が多い表への対処）
+
+Quarto の既定は本文800px固定で、関数名が長いと8列の表に押されて何行にも折り返る。
+`ledger.py wbs` は次の3点をセットで出す（手で index.qmd を直さないこと。上書きされる）:
+
+- フロントマターに `page-layout: full`（ページ枠を画面幅に広げる）
+- 関数一覧とコールグラフを `::: {.column-screen-inset}` で囲む（本文枠の外に出す）
+- 関数一覧に `.wbs-funcs` クラス。`docs/wbs.css`（テンプレからコピー）が
+  「関数名は折り返さない／依存(func-id)列が幅を譲る／状態列は最小幅」を決める
+
+`docs/wbs.css` が無い場合は render_site.py がテンプレのCSSで代替する（警告を出す）。
+仕様書など他のページは既定の記事レイアウトのまま（本文の可読性を優先）。
+
+### 図（Mermaid）
+
+- 成果物（`.md`）には **GitHub 流の ```mermaid** で書く。HTML は render_site.py、
+  PDF は qtpdf.py が同じ変換（→ ```{mermaid}）をしてから render する
+- **`.md` に ```{mermaid} と書いてはいけない。** サイト全体の render が
+  "You must use the .qmd extension for documents with executable code." で落ちる
+  （`.md` に ```mermaid をそのまま置いて `quarto render docs` した場合は、逆に
+  render は通るが mermaid.js が読み込まれず図にならない。どちらも実機確認済み）
+- 描く対象の目安: WBS＝コールグラフ（ledger.py wbs が自動生成）、
+  ①仕様書＝分岐が3本以上ある処理の flowchart、ISSUE＝データの流れ。
+  表で足りるものを無理に図にしない
+- Mermaid の PDF 化には Chromium 系ブラウザが要る（`qtpdf.py doctor` で確認できる）。
+  HTML はブラウザ側で描画するので不要
 
 ### PDF（種別ごとの合本）
 
@@ -109,5 +140,5 @@ python <LR>/scripts/pdf_book.py test-results --root . --output pdf/テスト結�
 - `docs-sphinx/` はテンプレ（assets/templates/sphinx-conf.py, sphinx-index.rst）から⓪で配置。
   テーマは Read the Docs（依存: `python -m pip install sphinx sphinx-rtd-theme`）
 - `python -m sphinx -b html docs-sphinx docs/_site/api` で生成
-- **順序は必ず「quarto render → sphinx」**（quarto render は _site を作り直すため）。
+- **順序は必ず「render_site.py → sphinx」**（render_site.py が _site を作り直すため）。
   WBS のナビバー「新コード詳細(API)」= `api/index.html` から導線が通る

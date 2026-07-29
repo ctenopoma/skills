@@ -68,6 +68,8 @@ cp -r skills/legacy-reverse/skills/* <project>/.claude/skills/
 
 - **Quarto**（HTML/PDF出力）: 未導入なら quarto-typst-pdf skill の
   `qtpdf.py install` でポータブル導入（管理者権限不要）
+- **Chromium 系ブラウザ**（Chrome/Edge 等）: PDF に Mermaid 図を焼き込むのに使います。
+  HTML だけなら不要（`qtpdf.py doctor` で有無を確認できます）
 - **Python パッケージ**: `pip install pytest sphinx sphinx-rtd-theme`
   （⑦では追加で `radon ruff bandit pip-audit`）
 
@@ -141,7 +143,8 @@ ISSUE は必ず「仮説＋Yes/Noの問い」の形で来ます。白紙の質�
 python -m http.server 8765 --directory docs/_site
 ```
 
-- **トップ = WBS**: 進捗サマリ、Open ISSUE（あなたへの質問が常に最上部）、
+- **トップ = WBS**: 進捗サマリ、コールグラフ図（緑=完了/黄=着手中/灰=未着手/赤=判断待ち。
+  ノードをクリックで仕様書へ）、Open ISSUE（あなたへの質問が常に最上部）、
   関数一覧（各✅から成果物へリンク）、⑦改善イタレーションの達成状況
 - ナビバー: ドメイン知識 / 規約 / ⑥完了検証 / ⑦分析 / 新コード詳細(API)
 - API ページ（Sphinx）: 関数一覧 → 個別ページ。`Spec:` 行で仕様書へ、
@@ -191,6 +194,9 @@ Rust(PyO3) 化のような大きな施策も、AIが4段階基準（CPUバウン
 | WBS に ⚠改変 | freeze 後にテストコードが変わった | 意図した変更なら③で再freeze。心当たりがなければ調査 |
 | tests/ 編集が拒否された | hook が正常動作している | テスト側の疑義は ISSUE 経由で（正規経路） |
 | 再レンダリングが失敗する | 配信サーバが _site をロック | サーバの cwd を _site の外にして `--directory` 指定 |
+| 図がソースのまま表示される | `quarto render docs` を直接叩いた | `render_site.py` で出し直す（Mermaid は影コピー経由でのみ描画される） |
+| WBS の関数名が何行にも折れる | `docs/wbs.css` が無い／index.qmd を手編集した | `ledger wbs` で作り直す。CSS はテンプレ（assets/templates/wbs.css）から docs/ にコピー |
+| PDF だけ図が出ない | Mermaid の画像化に Chromium 系ブラウザが要る | `qtpdf.py doctor` で確認。HTML 側はブラウザが描くので影響なし |
 
 # PDF 出力
 

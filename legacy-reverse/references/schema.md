@@ -11,7 +11,10 @@
   tests/                # ③ テストコード（⑤ループ中は hook が編集拒否）
   docs/
     _quarto.yml         # HTMLサイト＋PDF出力設定
+    wbs.css             # WBS 関数一覧の列幅（テンプレからコピー）
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
+    _site/              # HTML出力（render_site.py が作り直す。git 管理外）
+    _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
     conventions.md      # プロジェクト規約（⓪で確定）
     domain-knowledge.md
     specs/F-xxxx.md
