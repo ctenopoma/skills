@@ -68,3 +68,10 @@ HTML は `scripts/render_site.py`（Mermaid を効かせるため .qmd 影コピ
 ④の詳細仕様は docstring→Sphinx。
 閲覧は `scripts/serve_site.py`（127.0.0.1 のみ・プロジェクトごとに固定ポート・`--watch` で自動再レンダリング）、
 レビュアーへの配布は `scripts/build_viewer.py`（サイト同梱の単体実行ファイル。相手に Python も Quarto も不要）。
+
+`MANUAL.md` を直したら `MANUAL.pdf` も作り直す（quarto-typst-pdf skill を使う。
+日本語フォントと絵文字フォントが入った環境で実行すること）:
+
+```bash
+python <quarto-typst-pdf>/scripts/qtpdf.py build . MANUAL.md --design engineering-note
+```
