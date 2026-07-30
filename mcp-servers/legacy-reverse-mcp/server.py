@@ -200,5 +200,26 @@ def build_pdf(root: str, kind: str, title: str, output: str) -> dict:
                  "--output", output, "--title", title])
 
 
+@mcp.tool()
+def build_viewer(root: str = ".", name: str | None = None, port: int | None = None,
+                 render: bool = True, onedir: bool = False) -> dict:
+    """WBS/仕様書サイトを同梱した単体実行ファイル（EXE）を dist/ に作る。
+
+    レビュアーに渡すと、各自のローカルホストでブラウザが開く（相手に Python も Quarto も不要）。
+    PyInstaller が必要（`pip install pyinstaller`）。1〜2分かかるので呼び出し側のタイムアウトに注意。
+    配信そのもの（serve_site.py）は常駐プロセスなので MCP ツールにはしていない。
+    """
+    cmd = [sys.executable, str(SCRIPTS / "build_viewer.py"), "--root", root]
+    if name:
+        cmd += ["--name", name]
+    if port is not None:
+        cmd += ["--port", str(port)]
+    if not render:
+        cmd.append("--no-render")
+    if onedir:
+        cmd.append("--onedir")
+    return _run(cmd)
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -66,3 +66,5 @@ legacy-reverse/
 HTML は `scripts/render_site.py`（Mermaid を効かせるため .qmd 影コピーを経由する。
 `quarto render docs` の直叩きは不可）、PDF は `scripts/pdf_book.py`＋quarto-typst-pdf skill。
 ④の詳細仕様は docstring→Sphinx。
+閲覧は `scripts/serve_site.py`（127.0.0.1 のみ・プロジェクトごとに固定ポート・`--watch` で自動再レンダリング）、
+レビュアーへの配布は `scripts/build_viewer.py`（サイト同梱の単体実行ファイル。相手に Python も Quarto も不要）。
