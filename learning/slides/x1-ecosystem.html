@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>付録: 周辺エコシステム — 配布・運用・開発支援</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">付録: 周辺エコシステム — 配布・運用・開発支援</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">APPENDIX</span>
+  <h1>周辺エコシステム<br>配布・運用・開発支援</h1>
+  <p class="lead">「自分の手元で動く」から「チームに配って運用する」へ。<br>
+  スキルと MCP サーバの周辺技術を役割で整理する。</p>
+  <p class="hint">ツール名・記法はバージョンで変わる。ここでは役割と選び方を押さえる。</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>全体地図: 作る → 試す → 配る → 運用する → 使う</h2>
+  <div class="flow">
+    <div class="box">作る<small>mcp SDK<br>(FastMCP)</small></div>
+    <div class="arrow">→</div>
+    <div class="box">試す<small>MCP Inspector</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">配る<small>git / pip・npm<br>Docker / ゲートウェイ</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">運用する<small>LiteLLM Proxy<br>キー・コスト・制御</small></div>
+    <div class="arrow">→</div>
+    <div class="box">使う<small>Claude Code / Desktop<br>OpenWebUI / Cursor</small></div>
+  </div>
+  <p>教材のレベルA〜Cは「作る」「試す」まで。この付録は右半分の話。</p>
+  <div class="point">
+    先に大事な整理: <strong>Skill はクライアント側のファイル、MCP はサーバ</strong>。
+    だから配布の仕組みがまったく違う(次の2枚)。
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>Skills の配布 = ファイルを配る問題</h2>
+  <table>
+    <tr><th>形態</th><th>やり方</th><th>向き</th></tr>
+    <tr><td>個人用を git 共有</td><td><code>~/.claude/skills</code> を git リポジトリにする(<strong>このリポジトリ方式</strong>)</td><td>個人の複数PC、少人数</td></tr>
+    <tr><td>プロジェクト同梱</td><td><code>&lt;repo&gt;/.claude/skills/</code> に入れてコミット</td><td>そのプロジェクトの全員</td></tr>
+    <tr><td>Claude Code プラグイン</td><td>スキル・コマンド・MCP設定を束ね、マーケットプレイスとして配布。利用者は <code>/plugin</code> で導入。マーケットプレイスの置き場は git リポジトリ、または <strong>LiteLLM の Skills Gateway</strong>(社内レジストリ機能)</td><td>部署・組織への本格配布</td></tr>
+  </table>
+  <div class="note">
+    どの形態でも、<strong>実行時にスキルを読むのは各自の PC</strong>(インストールした
+    手元のコピー)。Skills Gateway の詳細は9枚目。
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>MCP サーバの配布 = 4形態</h2>
+  <table>
+    <tr><th>形態</th><th>やり方</th><th>特徴</th></tr>
+    <tr><td>① ソース+git</td><td>clone して <code>python server.py</code> を登録(<strong>教材方式</strong>)</td><td>一番単純。環境構築は利用者任せ</td></tr>
+    <tr><td>② パッケージ</td><td>pip / npm で配布し <code>uvx</code> / <code>npx</code> で実行</td><td>依存ごと隔離実行。ミラーがあれば楽</td></tr>
+    <tr><td>③ Docker</td><td>イメージ化して実行(STDIO or HTTP)</td><td>依存を完全に封じる</td></tr>
+    <tr><td>④ 中央ゲートウェイ</td><td>HTTP で1箇所に立て、全員が URL を登録</td><td>各PCへのインストール不要</td></tr>
+  </table>
+  <p class="note">④は教材の <code>--http</code> の延長。②は <code>pyproject.toml</code> の
+  <code>[project.scripts]</code> でエントリポイントを切ると <code>uvx your-mcp-server</code> の一発で配れる。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>LiteLLM Proxy — 社内 LLM ゲートウェイ</h2>
+  <p>OSS の LLM ゲートウェイ。社内に1台立てて、<strong>全員がそこ経由で LLM API を使う</strong>構成にする。
+  プロキシ環境の社内 AI 基盤として定番。</p>
+  <ul>
+    <li><strong>仮想キー</strong>: 本物の API キーはゲートウェイだけが持つ。利用者には仮想キーを発行</li>
+    <li><strong>コスト管理</strong>: ユーザー/チーム別の使用量集計・予算・レート制限</li>
+    <li><strong>モデル振り分け</strong>: 複数プロバイダを1つの OpenAI 互換 API に集約</li>
+  </ul>
+  <div class="flow">
+    <div class="box">Claude Code<small>ANTHROPIC_BASE_URL を<br>ゲートウェイに向ける</small></div>
+    <div class="box">社内アプリ<small>OpenAI互換の<br>接続先として登録</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">LiteLLM Proxy<small>仮想キー・コスト・ログ</small></div>
+    <div class="arrow">→</div>
+    <div class="box">各社 LLM API</div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>LiteLLM の MCP Gateway — MCP の一元配布</h2>
+  <p>近年の LiteLLM には <strong>MCP ゲートウェイ機能</strong>があり、MCP サーバを
+  ゲートウェイに登録して配布できる。</p>
+  <ul>
+    <li>利用者はゲートウェイの MCP エンドポイント<strong>1つ</strong>をクライアントに登録するだけ</li>
+    <li>どのツール群を誰に見せるかを<strong>仮想キー単位でアクセス制御</strong>できる</li>
+    <li>ツール呼び出しのログ・監査もゲートウェイに集まる</li>
+  </ul>
+  <div class="point">
+    位置づけ: 「HTTP化(レベルA ハンズオン3)」を組織規模にしたもの。
+    <strong>内製 MCP サーバの社内配布の本命</strong>。
+  </div>
+  <p class="warn">機能の有無・設定記法はバージョン依存が大きい領域。導入時に必ず当該バージョンのドキュメントで確認する。</p>
+</section>
+
+<!-- 6b -->
+<section class="slide">
+  <h2>ハンズオン: LiteLLM を手元で立てる</h2>
+  <pre><code>pip install "litellm[proxy]"</code></pre>
+  <p>作業フォルダに設定ファイルを作る:</p>
+  <span class="filename">litellm-config.yaml</span>
+  <pre><code>model_list:
+  - model_name: claude
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  master_key: sk-handson-1234        <span class="dim"># お試し用の管理キー</span>
+
+mcp_servers:
+  data:                              <span class="dim"># レベルC-2 で作った data-mcp をぶら下げる</span>
+    url: http://127.0.0.1:8000/mcp
+    transport: http</code></pre>
+  <pre><code><span class="cm"># ターミナル1: data-mcp を HTTP で起動</span>
+python mcp-servers/data-mcp/server.py --http
+
+<span class="cm"># ターミナル2: LiteLLM を起動</span>
+PYTHONUTF8=1 litellm --config litellm-config.yaml --port 4000</code></pre>
+  <div class="warn">Windows の日本語環境では <code>PYTHONUTF8=1</code> が必須
+    (無いと起動バナーが cp932 でエンコードできず起動失敗する)。
+    PowerShell では <code>$env:PYTHONUTF8="1"</code>。</div>
+</section>
+
+<!-- 6c -->
+<section class="slide">
+  <h2>ハンズオン: ゲートウェイの認証と MCP 中継を試す</h2>
+  <p><strong>① 仮想キー認証の体験</strong>(キーが無いと通らないことを確認):</p>
+  <pre><code>curl http://127.0.0.1:4000/v1/models
+<span class="dim">→ 拒否される</span>
+curl -H "Authorization: Bearer sk-handson-1234" http://127.0.0.1:4000/v1/models
+<span class="dim">→ {"data":[{"id":"claude",...}]} が返る</span></code></pre>
+  <p><strong>② MCP Gateway 経由で自作サーバを使う</strong>:</p>
+  <pre><code>claude mcp add --transport http gw http://127.0.0.1:4000/mcp \
+  --header "Authorization: Bearer sk-handson-1234"</code></pre>
+  <ul>
+    <li>再起動して <code>/mcp</code> → gw が Connected。ツール名が
+      <code>data-load</code> のように<strong>「サーバ名-ツール名」</strong>で見える
+      (ゲートウェイが複数サーバを束ねるための名前空間)</li>
+    <li>「experiment.csv を load して」→ ゲートウェイ経由で実呼び出しできる</li>
+    <li>終わったら後片付け: <code>claude mcp remove gw</code>(直登録の data と重複するため)</li>
+  </ul>
+  <p class="note">LLM 中継そのもの(チャット補完)を試すには本物の API キーが必要。
+  キーがあるなら model_list のキーを本物にし、クライアントの接続先
+  (<code>ANTHROPIC_BASE_URL</code> 等)を <code>http://127.0.0.1:4000</code> に向ける。</p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>LiteLLM Skills Gateway — スキルの社内配布レジストリ</h2>
+  <p>LiteLLM には、スキルの<strong>社内配布所(レジストリ)</strong>になる機能がある。
+  3枚目のプラグイン配布で使うマーケットプレイスの置き場を、
+  git リポジトリの代わりに LiteLLM が担うもの。</p>
+  <div class="flow">
+    <div class="box">作る人<small>スキルを登録・公開<br>POST /claude-code/plugins</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">LiteLLM<small>社内スキルハブ<br>(一覧・検索・公開管理)</small></div>
+    <div class="arrow">→</div>
+    <div class="box">使う人<small>/plugin marketplace add で追加<br>→ インストールして手元で実行</small></div>
+  </div>
+  <ul>
+    <li>スキルの保存(マスター)は <strong>LiteLLM 側</strong>。チーム共有は
+      「登録 → 公開 → 各自がインストール」の流れで実現する</li>
+    <li>実行時に読まれるのは<strong>各自の PC にインストールされたコピー</strong>。
+      リモート参照ではなく、アプリストアと同じモデル</li>
+    <li>Anthropic は関与しない。Claude Code のプラグイン配布の仕組みに、
+      社内向けの置き場を提供しているだけ</li>
+  </ul>
+  <div class="point">
+    位置づけ: MCP Gateway が「MCP サーバの社内配布」なら、Skills Gateway は
+    「スキルの社内配布」。ゲートウェイ1台で LLM アクセス・MCP・スキルの
+    配布をまとめられる。
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>MCP Inspector — 内製開発の必携デバッガ</h2>
+  <pre><code>npx @modelcontextprotocol/inspector python server.py</code></pre>
+  <ul>
+    <li>ブラウザの GUI が立ち上がり、ツール一覧・呼び出しテスト・resources 閲覧ができる</li>
+    <li>docstring がどう見えているか、引数スキーマが意図どおりかを目視確認できる</li>
+  </ul>
+  <div class="point">
+    使いどころ: <strong>Claude Code に繋ぐ前に Inspector で叩く</strong>。
+    動かないとき「サーバの問題か、クライアントの問題か」を一発で切り分けられる。
+    教材レベルBの改造課題をやるときにも便利。
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>FastMCP 2.x と uv/uvx</h2>
+  <h3>FastMCP 2.x(jlowin/fastmcp)</h3>
+  <ul>
+    <li>教材で使った公式 SDK 同梱の FastMCP の<strong>発展版 OSS</strong></li>
+    <li>認証、複数サーバの合成 (mount)、既存サーバのプロキシ化、クライアントライブラリなど</li>
+    <li>使い分け: 学習・小規模運用は <code>mcp[cli]</code> で十分。
+      認証付きで公開する段階になったら検討</li>
+  </ul>
+  <h3>uv / uvx</h3>
+  <ul>
+    <li>Python の高速パッケージマネージャ。<code>uvx</code> は「インストールせず隔離実行」</li>
+    <li>MCP サーバの配布・実行の事実上の標準になりつつある(Node 側の <code>npx</code> に対応)</li>
+  </ul>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>まとめ: 教材との接続マップ</h2>
+  <table>
+    <tr><th>教材で作った物</th><th>そのままの配布先</th></tr>
+    <tr><td>スキル(task-planner, html-craft 等)</td><td>このリポジトリ(git)→ プラグイン化(置き場は git または Skills Gateway)</td></tr>
+    <tr><td>todo / plot / paper-library サーバ</td><td>ソース+git → パッケージ化 → HTTP 化 → ゲートウェイ登録、と段階的に格上げ</td></tr>
+    <tr><td>紙芝居教材(slides/)</td><td>ファイル配布のみで完結(それが html-craft の思想)</td></tr>
+  </table>
+  <div class="point">
+    次の実務ステップの候補:
+    ① MCP Inspector を入れて内製サーバの開発ループを速くする
+    ② LiteLLM Proxy を立てて LLM アクセスを一元化する
+    ③ その上で MCP Gateway に内製サーバを登録して配布する
+  </div>
+  <p style="text-align:center; margin-top:24px"><a href="index.html" style="color:var(--accent); font-weight:700; font-size:20px">→ 目次に戻る</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>

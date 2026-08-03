@@ -1,0 +1,154 @@
+/* html-craft: ダッシュボード / デモ用ベースCSS(外部依存なし・自己完結前提) */
+
+:root {
+  --ink: #1e293b;
+  --ink-soft: #475569;
+  --bg: #eef2f7;
+  --card: #ffffff;
+  --accent: #4f46e5;
+  --accent-soft: #eef2ff;
+  --teal: #0d9488;
+  --amber: #b45309;
+  --green: #15803d;
+  --red: #b91c1c;
+  --line: #e2e8f0;
+  --code-bg: #0f172a;
+  --code-ink: #e2e8f0;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.8;
+  padding: 24px 16px 60px;
+}
+
+main { max-width: 1080px; margin: 0 auto; }
+
+/* ---------- ヘッダ ---------- */
+
+.page-header { margin: 8px 0 20px; }
+.page-header h1 { font-size: 28px; line-height: 1.4; }
+.page-header .meta { color: var(--ink-soft); font-size: 14px; margin-top: 4px; }
+
+/* ---------- カード / グリッド ---------- */
+
+.grid { display: grid; gap: 16px; margin: 16px 0; }
+.grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 22px;
+  box-shadow: 0 4px 14px rgba(30, 41, 59, .06);
+}
+
+.card h2 {
+  font-size: 17px;
+  color: var(--ink-soft);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+
+/* KPI(数字の大きい表示) */
+.kpi .value { font-size: 34px; font-weight: 700; line-height: 1.2; }
+.kpi .label { font-size: 13px; color: var(--ink-soft); }
+.kpi .delta.up { color: var(--green); }
+.kpi .delta.down { color: var(--red); }
+
+/* ---------- コントロール類 ---------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 20px;
+  margin: 16px 0;
+}
+
+.controls label { font-size: 14px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
+
+.controls input[type="range"] { accent-color: var(--accent); width: 160px; }
+
+.controls select, .controls input[type="number"], .controls input[type="text"] {
+  font: inherit;
+  font-size: 14px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.controls button, button.btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.controls button.ghost, button.btn.ghost {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.value-readout { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 3.5em; text-align: right; }
+
+/* ---------- 表 ---------- */
+
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; }
+th { background: var(--accent-soft); cursor: default; }
+th.sortable { cursor: pointer; }
+th.sortable:hover { color: var(--accent); }
+tr:nth-child(even) td { background: #f8fafc; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- 図版 ---------- */
+
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; max-width: 100%; height: auto; }
+
+figcaption, .caption { font-size: 13px; color: var(--ink-soft); margin-top: 6px; }
+
+/* ---------- その他 ---------- */
+
+code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: .92em;
+  background: #f1f5f9;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 7px;
+}
+
+.note {
+  background: #eff6ff;
+  border-left: 5px solid #1d4ed8;
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin: 14px 0;
+  font-size: 15px;
+}
+
+@media print {
+  body { background: #fff; padding: 0; }
+  .card { box-shadow: none; }
+  .controls { display: none; }
+}

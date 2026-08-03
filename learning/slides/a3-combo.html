@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 3: Skills × MCP 連携 — 手順書が道具を使う</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">Step 3: Skills × MCP 連携 — 手順書が道具を使う</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">STEP 3</span>
+  <h1>Skills × MCP 連携<br>手順書が道具を使う</h1>
+  <p class="lead">Step 1 で手順書、Step 2 で道具を作った。<br>
+  この章のポイントはひとつだけ。</p>
+  <p style="font-size:22px; font-weight:700; margin-top:8px">連携に特別な仕組みは何もない。<br>SKILL.md に「この MCP ツールをこの順で使え」と書くだけ。</p>
+  <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>役割分担のおさらい</h2>
+  <table>
+    <tr><th></th><th>担当</th><th>この教材での例</th></tr>
+    <tr><td><strong>MCP サーバ</strong></td><td>データと操作(<em>できること</em>)</td><td>タスクの追加・一覧・完了</td></tr>
+    <tr><td><strong>Skill</strong></td><td>ワークフロー(<em>いつ何をどの順で</em>)</td><td>「作業分解 → 登録 → 進捗報告」の段取り</td></tr>
+  </table>
+  <ul>
+    <li>MCP だけ → 道具は持っているが「良い作業計画の立て方」を知らない</li>
+    <li>Skill だけ → 段取りは知っているがタスクを記録する場所がない</li>
+    <li>両方 → <strong>「この作業、タスクに分解して」の一言で計画立案から登録まで完了</strong></li>
+  </ul>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>連携の正体: ツールをフルネームで指名する</h2>
+  <p>Claude Code から見た MCP ツールの名前は次の形式。</p>
+  <div class="flow">
+    <div class="box"><code style="background:none;border:none;color:var(--accent)">mcp__todo__add_task</code><small>mcp__&lt;サーバ名&gt;__&lt;ツール名&gt;</small></div>
+  </div>
+  <p>SKILL.md の手順の中でこの名前を指名すれば、Claude は迷わずそのツールを使う。</p>
+  <pre><code>3. 分解案を一覧で提示し、ユーザーの合意を得る
+4. 合意後、mcp__todo__add_task で1件ずつ登録する
+5. 着手順と「最初の一歩」を提案する</code></pre>
+  <div class="point">
+    「分解」は LLM の判断、「登録」はツールの操作。
+    <strong>その分担・順序・チェックポイントを規定しているのが手順書</strong>。
+    サーバは作業計画のことを何も知らない。
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>ハンズオン: task-planner を自分で書く</h2>
+  <p><code>~/.claude/skills/task-planner/SKILL.md</code> を新規作成し、
+  次の仕様を満たす手順書を<strong>自分で書く</strong>(完成例は次ページで答え合わせ):</p>
+  <table>
+    <tr><th>要素</th><th>仕様</th></tr>
+    <tr><td>description</td><td>「タスクに分解して」「作業計画を立てて」「進捗をまとめて」の言い回しで発動する</td></tr>
+    <tr><td>計画モード</td><td>目標を確認 → <strong>2〜7個のタスクに分解</strong>(半日以内の粒度・動詞で言い切る)→
+      分解案を提示して<strong>合意を得てから</strong> <code>mcp__todo__add_task</code> で1件ずつ登録 → 着手順を提案</td></tr>
+    <tr><td>進捗モード</td><td><code>mcp__todo__list_tasks</code> を <code>status="all"</code> で呼び、
+      「完了 / 残り / 次の一歩」の形式でまとめる</td></tr>
+    <tr><td>ルール</td><td>合意前に登録しない / タスクの文言を書き換えない / 未完了6件超で見直しを提案</td></tr>
+  </table>
+  <p class="note">書き方のポイント: MCP ツールは<strong>フルネーム
+  (mcp__サーバ名__ツール名)で指名</strong>する。手順の番号と形式を具体的に書くほど動きが安定する。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>ハンズオン: 動作確認と答え合わせ</h2>
+  <pre><code><span class="cm"># todo サーバが登録済みか確認(Step 2 でやった)</span>
+claude mcp list</code></pre>
+  <ol>
+    <li>Claude Code を再起動する</li>
+    <li>計画モードを試す:
+      <pre><code>グラフ描画の MCP サーバを作る。タスクに分解して</code></pre>
+      → 分解案の提示 → <strong>合意する前に登録が始まらないか</strong>を見る →
+      合意すると <code>add_task</code> が件数分呼ばれる → 着手順の提案</li>
+    <li>いくつか完了させたあとで進捗モード:
+      <pre><code>進捗まとめて</code></pre>
+      → <code>list_tasks</code> が呼ばれ、自分が書いた形式でレポートが出る</li>
+    <li><strong>答え合わせ</strong>: 完成例
+      <code>learning/level-a/03-skills-x-mcp/examples/task-planner/SKILL.md</code> と見比べる。
+      観点: 合意チェックポイントの置き方 / 形式をコードブロックで示しているか /
+      ルールが禁止形で明確か</li>
+  </ol>
+  <p class="note">お題は自分の実作業に置き換えてよい。分解の粒度が合わないと感じたら
+  自分の SKILL.md の粒度ルールを直す — それが「手順書を育てる」ことそのもの。</p>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>発動の全体像: description の連鎖</h2>
+  <div class="flow">
+    <div class="box">ユーザーの依頼<small>「タスクに分解して」</small></div>
+    <div class="arrow">→<small>description に<br>マッチ</small></div>
+    <div class="box alt">Skill 発動<small>SKILL.md の手順を読む</small></div>
+    <div class="arrow">→<small>手順がツールを<br>指名</small></div>
+    <div class="box">MCP ツール呼び出し<small>docstring を見て引数を組む</small></div>
+  </div>
+  <ul>
+    <li>Skill の <strong>description</strong>(Step 1)→ 発動するかを決める</li>
+    <li>MCP の <strong>docstring</strong>(Step 2)→ 正しく呼べるかを決める</li>
+  </ul>
+  <div class="point">つまり<strong>自然言語で書いた2つの説明文が全体の品質を決める</strong>。コードよりも文章設計。</div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>設計原則: 疎結合を保つ</h2>
+  <h3>1. サーバとスキルは独立に差し替えられる</h3>
+  <ul>
+    <li>サーバを SQLite 版に改造しても(Step 2 改造課題)、スキルは無変更で動く</li>
+    <li>分解の粒度やレポート形式を変えたいときはサーバに触らない</li>
+  </ul>
+  <h3>2. MCP 側に業務手順を書かない</h3>
+  <ul>
+    <li>サーバの docstring は「このツール<strong>単体</strong>の使い方」まで</li>
+    <li>複数ツールをまたぐ業務手順(分解の粒度、合意の取り方、レポート形式)は Skill に書く</li>
+  </ul>
+  <div class="warn">
+    逆転させると、サーバがクライアント固有の事情を抱え込み、
+    他のツールから使いにくくなる。「道具は汎用、手順は個別」を守る。
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>改造課題</h2>
+  <ol>
+    <li>Step 2 の改造課題(<code>due</code> 追加)と連動させ、計画時に期限も聞いて登録する</li>
+    <li>進捗レポートを Step 1 の daily-log スキルの当日ログにも追記させる
+      <ul><li>スキルがスキルの成果物を参照する例。SKILL.md にどう書けば安定するか考える</li></ul></li>
+    <li>「分解の粒度ルール」を <code>references/planning-rules.md</code> に分離する
+      <ul><li>SKILL.md を触らずにルールを育てられる構成(Step 1 の段階的開示の応用)</li></ul></li>
+  </ol>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>他ツールでの活用と、レベルAの締め</h2>
+  <table>
+    <tr><th>部品</th><th>可搬性</th></tr>
+    <tr><td>MCP サーバ(道具)</td><td><strong>完全にポータブル</strong>。どの MCP 対応ツールでもそのまま(Step 2 §他ツール)</td></tr>
+    <tr><td>Skill(手順書)</td><td><strong>ほぼポータブル</strong>。システムプロンプト等に転用できるが、ツール名の表記(<code>mcp__todo__add_task</code>)だけクライアントの方言に読み替える</td></tr>
+  </table>
+  <h3>レベルAで学んだこと</h3>
+  <ul>
+    <li>Skill = 手順書(SKILL.md、段階的開示、description が命)</li>
+    <li>MCP = 道具箱(OSS 利用 → 内製50行 → transport は配管)</li>
+    <li>連携 = 手順書に道具の名前と使う順番を書くだけ。判断は LLM、操作はツール、合意は人間</li>
+  </ul>
+  <div class="point">
+    次のレベルBでは、道具の入出力をテキスト以外(画像・PDF)に広げる。
+    レベルCでは、手順書を「複数エージェントの分業設計」に育てる。
+  </div>
+  <p style="text-align:center; margin-top:24px"><a href="index.html" style="color:var(--accent); font-weight:700; font-size:20px">→ 目次に戻る</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>

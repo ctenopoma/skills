@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 1: Agent Skills — 使い方・作り方</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">← 目次</a>
+  <span class="deck-title">Step 1: Agent Skills — 使い方・作り方</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">STEP 1</span>
+  <h1>Agent Skills<br>使い方・作り方</h1>
+  <p class="lead">Skill は Claude への「手順書」。実体はただの Markdown。<br>
+  この章では最小のスキルを手で書き、動かし、段階的に育てる。</p>
+  <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>Skill の仕組み — 置き場所</h2>
+  <p>Claude Code は起動時に、次の場所から <code>SKILL.md</code> を探して読み込む。</p>
+  <table>
+    <tr><th>置き場所</th><th>スコープ</th></tr>
+    <tr><td><code>~/.claude/skills/&lt;スキル名&gt;/SKILL.md</code></td><td>個人用(全プロジェクト共通)</td></tr>
+    <tr><td><code>&lt;プロジェクト&gt;/.claude/skills/&lt;スキル名&gt;/SKILL.md</code></td><td>そのプロジェクト専用</td></tr>
+  </table>
+  <div class="tree">skills/
+└── <b>my-skill/</b>
+    ├── SKILL.md        ← これだけあれば動く
+    ├── references/     ← (任意)詳細資料
+    └── scripts/        ← (任意)同梱スクリプト</div>
+  <p class="note">スキルは<strong>起動時</strong>に読み込まれる。追加・変更したら Claude Code を再起動する。</p>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>SKILL.md の構造</h2>
+  <p>frontmatter(<code>name</code> と <code>description</code>)+ 本文。これだけ。</p>
+  <span class="filename">SKILL.md</span>
+  <pre><code>---
+name: my-skill
+description: いつ発動してほしいかを書く。
+  Claude はこの文を見て「使うか」を判断する
+---
+
+ここに手順を書く(ふつうの Markdown)</code></pre>
+  <ul>
+    <li><strong>name</strong>: スキル名(フォルダ名と合わせる)</li>
+    <li><strong>description</strong>: 発動条件。<em>ここだけが常に Claude に見えている</em></li>
+    <li><strong>本文</strong>: 実際の手順。使うと判断されて初めて読まれる</li>
+  </ul>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>いちばん大事な設計原則: 段階的開示</h2>
+  <div class="flow">
+    <div class="box">description<small>常時コンテキストに載る<br>(軽い)</small></div>
+    <div class="arrow">→<small>発動と判断</small></div>
+    <div class="box">SKILL.md 本文<small>使うときだけ読む</small></div>
+    <div class="arrow">→<small>必要になったら</small></div>
+    <div class="box alt">references/<small>さらに詳しい資料</small></div>
+  </div>
+  <p>常に見えているのは description の1〜2文だけ。本文や資料は必要になった段階で読み込まれる。
+  これを <strong>段階的開示 (progressive disclosure)</strong> と呼ぶ。</p>
+  <div class="point">
+    書き分けの指針:<br>
+    ・description には「何をするか」+「どんな依頼のときに使うか」を具体的に<br>
+    ・本文は多少長くても他のタスクの邪魔にならない(読まれるのは発動時だけ)<br>
+    ・さらに大きい資料は references/ に分け、本文から「必要なら読め」と誘導
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>ハンズオン1: 最小のスキルを作る</h2>
+  <p class="lead">お題: コミットメッセージを Conventional Commits 形式で書かせる</p>
+  <p>ファイル1個で完結する最小構成。まずフォルダを作る。</p>
+  <pre><code>mkdir -p ~/.claude/skills/commit-message</code></pre>
+  <p>続いて <code>~/.claude/skills/commit-message/SKILL.md</code> を自分で書いてみる。
+  次のページに完成例があるが、<strong>先に自分で書いてから</strong>見比べるのがおすすめ。</p>
+  <p>書く内容のヒント:</p>
+  <ul>
+    <li>description: 「コミットメッセージを書いて」と言われたときに発動してほしい</li>
+    <li>手順: ① ステージ済みの diff を確認 → ② 変更の種類 (type) を選ぶ → ③ 形式に沿って書く</li>
+  </ul>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>ハンズオン1: 完成例</h2>
+  <span class="filename">~/.claude/skills/commit-message/SKILL.md</span>
+  <pre><code>---
+name: commit-message
+description: git のコミットメッセージを Conventional Commits
+  形式で作成する。ユーザーが「コミットメッセージを書いて」
+  「コミットして」など、変更のコミットに関する依頼をしたときに使う。
+---
+
+# コミットメッセージ作成
+
+## 手順
+1. `git diff --staged` でステージ済みの変更を確認する
+2. 変更内容から type を選ぶ:
+   feat / fix / docs / refactor / test / chore
+3. 次の形式でメッセージを作る:
+   &lt;type&gt;: &lt;変更の要約(50文字以内、言い切り形)&gt;
+
+## ルール
+- 要約は「この変更で何がどうなるか」を書く
+- 無関係な変更が混ざっていたらコミット分割を提案する</code></pre>
+  <p>ファイル一式は <code>learning/level-a/01-skills/examples/commit-message/</code> にもある。</p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>ハンズオン1: 動作確認</h2>
+  <ol>
+    <li>Claude Code を<strong>再起動</strong>する(スキルは起動時に読み込まれる)</li>
+    <li>適当なファイルを変更して <code>git add</code> しておく</li>
+    <li>Claude に話しかける:
+      <pre><code>コミットメッセージ書いて</code></pre></li>
+    <li>スキルの手順どおり(diff を見る → type を選ぶ → 形式に沿う)に動けば成功</li>
+  </ol>
+  <div class="warn">
+    うまく発動しないときは <strong>description を疑う</strong>。<br>
+    「ユーザーの依頼文」と「description の文面」が結びつくか?という観点で書き直す。
+    発動条件のチューニングがスキル開発の勘所。
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>ハンズオン2: references/ で拡張する</h2>
+  <p class="lead">お題: 今日の作業ログを記録する daily-log スキル</p>
+  <p>ログのテンプレートが長くなるので <code>references/</code> に分離し、段階的開示を体験する。</p>
+  <div class="tree">daily-log/
+├── SKILL.md              ← 手順(短い)
+└── references/
+    └── format.md         ← ログのテンプレート(長い)</div>
+  <p>完成例: <code>learning/level-a/01-skills/examples/daily-log/</code>。
+  これを <code>~/.claude/skills/daily-log/</code> にコピーして使う。</p>
+  <pre><code>cp -r learning/level-a/01-skills/examples/daily-log ~/.claude/skills/</code></pre>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>ハンズオン2: 分離のポイント</h2>
+  <p>SKILL.md 本文にはこう書いてある。</p>
+  <pre><code>3. ログの形式は references/format.md のテンプレートに従う</code></pre>
+  <ul>
+    <li>Claude は<strong>実際にログを書く段になって初めて</strong> format.md を読む</li>
+    <li>テンプレートを差し替えたいときも SKILL.md には触らなくて済む</li>
+  </ul>
+  <h3>動作確認</h3>
+  <pre><code>今日のログをつけて。MCP教材のStep1をやった</code></pre>
+  <p><code>~/daily-logs/2026-07-22.md</code> のような日付ファイルが、
+  format.md の形式どおりに作られれば成功。</p>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>ハンズオン3: OSS のスキルを使う</h2>
+  <p>スキルは自作だけでなく、公開されているものを取ってきて使える。
+  公式のサンプル集が GitHub にある(git clone で取得できる)。</p>
+  <pre><code><span class="cm"># 公式スキル集を clone(任意の作業フォルダで)</span>
+git clone https://github.com/anthropics/skills.git anthropic-skills
+
+<span class="cm"># 中を眺めて、使いたいスキルをコピー</span>
+ls anthropic-skills/
+cp -r anthropic-skills/&lt;スキル名&gt; ~/.claude/skills/</code></pre>
+  <ul>
+    <li>導入は「フォルダを置いて再起動」だけ。<strong>インストールという概念がない</strong></li>
+    <li>取ってきたスキルの SKILL.md を読むのが最良の教材。description の書き方、
+    references/ や scripts/ の使い方など、自作の手本になる</li>
+  </ul>
+  <h3>代表的な OSS スキル集</h3>
+  <table>
+    <tr><th>リポジトリ(GitHub)</th><th>中身</th></tr>
+    <tr><td><code>anthropics/skills</code></td><td>公式サンプル集。Word / Excel / PowerPoint / PDF などの文書系スキル</td></tr>
+    <tr><td><code>K-Dense-AI/scientific-agent-skills</code></td><td>科学研究向けの約150スキル(MIT)。データ解析・機械学習・バイオ/ケモインフォマティクス・文献レビュー・科学文書の作成など</td></tr>
+    <tr><td><code>obra/superpowers</code></td><td>開発ワークフロー集(MIT)。TDD・体系的デバッグ・実装計画・コードレビューの型。Claude Code プラグインとしても導入できる</td></tr>
+  </table>
+  <p class="note">スキルの実体はただのフォルダなので、社内共有も「git リポジトリに置く」だけで済む
+  (このリポジトリ自体がその実例)。導入前に SKILL.md を一読してから使うこと。</p>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2>さらに先へ: scripts/ パターン</h2>
+  <p>手順の中に「決まりきった処理」があるなら、スクリプトを同梱して
+  SKILL.md から実行を指示できる。</p>
+  <pre><code>4. 変換は scripts/convert.py を実行する:
+   python scripts/convert.py &lt;入力&gt; &lt;出力&gt;</code></pre>
+  <ul>
+    <li>LLM に毎回コードを書かせるより<strong>速く、結果も安定する</strong></li>
+    <li>「判断は LLM、定型処理はスクリプト」という分担</li>
+  </ul>
+  <p>フル活用の実例として、このリポジトリの <code>quarto-typst-pdf/</code> は
+  references/ + scripts/ + assets/ を備えた本格構成。
+  今日作った最小構成との差分を眺めると、スキルがどこまで育てられるかが分かる。</p>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2>改造課題</h2>
+  <ol>
+    <li>commit-message に「メッセージの言語をユーザーの使用言語に合わせる」ルールを足す</li>
+    <li>daily-log のテンプレートに「明日やること」欄を足す
+      <ul><li><code>format.md</code> だけの変更で済むことを確認する(段階的開示の効能)</li></ul></li>
+    <li>自分の定型作業をひとつ選んでスキル化する
+      <ul><li>週報、レビュー観点、環境構築手順など、「毎回同じ説明をしているもの」が狙い目</li></ul></li>
+  </ol>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <h2>他ツールでの活用</h2>
+  <p>Skill の実体は「発動条件つきの手順書 Markdown」。Claude Code 以外でも流用できる。</p>
+  <table>
+    <tr><th>ツール</th><th>使い方</th></tr>
+    <tr><td>Claude Desktop / claude.ai</td><td>Skills 機能に同じ SKILL.md 形式でアップロードできる</td></tr>
+    <tr><td>OpenWebUI などのチャット UI</td><td>SKILL.md 本文をシステムプロンプトやカスタム指示に貼れば、同じ手順書として機能する(自動発動はないので常時適用 or 手動)</td></tr>
+  </table>
+  <div class="point">
+    ツール固有の機能ではなく「手順の文書化」なので、資産として腐りにくい。
+    これが Skill の本質的な利点。
+  </div>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <h2>Step 1 まとめ</h2>
+  <ul>
+    <li>Skill = <strong>SKILL.md 1枚から始まる手順書</strong>。コード不要、置いて再起動するだけ</li>
+    <li>常時見えるのは description だけ → <strong>発動条件の書き方が品質を決める</strong></li>
+    <li>大きくなったら references/(資料)と scripts/(定型処理)に分ける</li>
+    <li>OSS スキルは git clone → コピーで導入。読むと自作の手本になる</li>
+  </ul>
+  <div class="flow" style="margin-top:40px">
+    <div class="box">Step 1<small>Skill = 手順書 ✓</small></div>
+    <div class="arrow">→</div>
+    <div class="box alt">Step 2<small>MCP = 道具箱</small></div>
+    <div class="arrow">→</div>
+    <div class="box">Step 3<small>連携</small></div>
+  </div>
+  <p style="text-align:center; margin-top:24px"><a href="a2-mcp.html" style="color:var(--accent); font-weight:700; font-size:20px">→ Step 2: MCP サーバへ</a></p>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>

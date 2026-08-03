@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP &amp; Skills 学習カリキュラム</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="home">
+<main>
+  <div class="hero">
+    <span class="chip">ハンズオン教材</span>
+    <h1>MCP &amp; Skills 学習カリキュラム</h1>
+    <p class="lead">Agent Skills と MCP サーバの「使い方 → 作り方 → 連携」を<br>
+    Claude Code を題材に、動かしながら学ぶ。</p>
+  </div>
+
+  <section class="block">
+    <h2>この教材の使い方</h2>
+    <ul>
+      <li>各章の HTML を<strong>ブラウザで直接開くだけ</strong>。サーバも外部通信も不要</li>
+      <li>紙芝居形式: <kbd>→</kbd> / <kbd>←</kbd> キー、または画面下のボタンでめくる</li>
+      <li>右上の「一覧表示」で全ページを縦に並べて読むこともできる(印刷もこのモードで)</li>
+      <li>進め方はどの章も同じ: <strong>動かす → 中身を読む → 自分で改造する</strong></li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2>レベルA: 基礎(ToDo 題材)</h2>
+    <div class="cards">
+      <a class="card" href="a1-skills.html">
+        <span class="step">STEP 1</span>
+        <h3>Agent Skills</h3>
+        <p>Skill = Claude への「手順書」。最小の SKILL.md を手で書き、references/ での拡張、OSS スキルの導入まで。</p>
+      </a>
+      <a class="card" href="a2-mcp.html">
+        <span class="step">STEP 2</span>
+        <h3>MCP サーバ</h3>
+        <p>OSS サーバの利用 → Python 50行で ToDo サーバを内製(STDIO)→ 同じコードを HTTP 化。</p>
+      </a>
+      <a class="card" href="a3-combo.html">
+        <span class="step">STEP 3</span>
+        <h3>Skills × MCP 連携</h3>
+        <p>目標をタスク分解して ToDo MCP に登録する「作業分解プランナー」を作る。連携の正体は SKILL.md にツール名を書くだけ。</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>レベルB: 中級(入出力をテキスト以外に広げる)</h2>
+    <div class="cards">
+      <a class="card" href="b1-plot.html">
+        <span class="step">LEVEL B-1</span>
+        <h3>画像を返す MCP</h3>
+        <p>CSV を渡すとグラフを PNG で返す plot-mcp。LLM が描いたグラフを自分で見て考察する。</p>
+      </a>
+      <a class="card" href="b2-papers.html">
+        <span class="step">LEVEL B-2</span>
+        <h3>ローカル文献ライブラリ MCP</h3>
+        <p>手元の PDF フォルダを全文検索。入力がバイナリのパターンと resources 機能を学ぶ。</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>レベルC: 上級(本格スキル開発)</h2>
+    <div class="cards">
+      <a class="card" href="c1-skill-dev.html">
+        <span class="step">LEVEL C-1</span>
+        <h3>html-craft を触りながら学ぶ</h3>
+        <p>スライド/ダッシュボード/デモを作らせ、SKILL.md と scripts を読み、references に自分の部品を足して、自分のスキルの設計図を書く。</p>
+      </a>
+      <a class="card" href="c2-ds-toolkit.html">
+        <span class="step">LEVEL C-2</span>
+        <h3>データ分析支援セットを動かす</h3>
+        <p>サンプルデータで分析を一巡→答え合わせ→ログで設計原則を確認→箱ひげ図を道具と手順書にセットで追加する改造まで。</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>付録</h2>
+    <div class="cards">
+      <a class="card" href="x1-ecosystem.html">
+        <span class="step">APPENDIX</span>
+        <h3>周辺エコシステム</h3>
+        <p>配布(git/プラグイン/パッケージ/ゲートウェイ)、LiteLLM Proxy と MCP Gateway・Skills Gateway、MCP Inspector。</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>前提環境</h2>
+    <ul>
+      <li>Claude Code が動作すること(LLM への API 通信が可能なこと)</li>
+      <li>Python 3.10+ / pip、Node.js / npm、git(GitHub からの clone に使用)</li>
+      <li>外部 Web API へのアクセスは<strong>不要</strong>。教材はすべてローカルで完結する</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2>最初にこれだけ: 用語の整理</h2>
+    <table>
+      <tr><th style="width:9.5em">Agent Skills</th>
+          <td>Claude への「手順書」。<code>SKILL.md</code> という Markdown に、いつ発動するか(description)と何をどの順でやるか(本文)を書く。コード不要</td></tr>
+      <tr><th>MCP</th>
+          <td>Model Context Protocol。LLM アプリに「道具」を生やす標準プロトコル。MCP サーバがツール(関数)やリソース(データ)を提供し、Claude Code などが呼ぶ</td></tr>
+      <tr><th>両者の関係</th>
+          <td><strong>Skill は手順書、MCP は道具箱。</strong>道具の使い方・使う順番を手順書に書くと連携する(→ Step 3)</td></tr>
+    </table>
+  </section>
+</main>
+</body>
+</html>
