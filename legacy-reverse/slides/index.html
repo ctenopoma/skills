@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>legacy-reverse 操作ガイド — ⓪から⑦まで進めながら覚える</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .shot { max-width: 100%; max-height: 46vh; display: block; margin: 12px auto 4px;
+          border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 2px 8px rgba(15,23,42,.08); }
+  .shot-cap { text-align: center; font-size: 13px; color: var(--ink-soft); margin: 0; }
+  .you { border-left: 4px solid var(--accent); background: #fffbeb; padding: 12px 16px;
+         border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .you b:first-child { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a href="../MANUAL.md">MANUAL.md</a>
+  <span class="deck-title">legacy-reverse 操作ガイド（スライド版）</span>
+  <button id="modeToggle">一覧表示</button>
+</header>
+<div class="progress"><div id="bar"></div></div>
+
+<main>
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <span class="chip" style="align-self:center">操作ガイド</span>
+  <h1>legacy-reverse<br>⓪から⑦まで進めながら覚える</h1>
+  <p class="lead">レガシーコード（Fortran 等）を Python へ仕様ベースで移植するパイプライン。<br>
+  このスライドは<strong>実際に1関数を進める順番どおり</strong>に、あなたの操作だけを説明する。</p>
+  <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る / 右上「一覧表示」で通し読み</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>全体像 — あなたの仕事は4つだけ</h2>
+  <div class="flow">
+    <div class="box">⓪ 解析<small>関数リスト</small></div>
+    <div class="arrow">→</div>
+    <div class="box">① 仕様書<small>人がOK</small></div>
+    <div class="arrow">→</div>
+    <div class="box">② テスト仕様<small>人が承認</small></div>
+    <div class="arrow">→</div>
+    <div class="box">③ テストコード</div>
+    <div class="arrow">→</div>
+    <div class="box">④ 実装</div>
+    <div class="arrow">→</div>
+    <div class="box alt">⑤ テスト<small>突き合わせ</small></div>
+  </div>
+  <p style="text-align:center; margin:6px 0">…全関数が終わったら → ⑥ 完了検証 → ⑦ 分析・改善</p>
+  <table>
+    <tr><th>あなたの仕事</th><th>具体的には</th></tr>
+    <tr><td>トリガを引く</td><td>各フェーズをスラッシュコマンドで起動する（AIは勝手に進まない）</td></tr>
+    <tr><td>質問に答える</td><td>ISSUE（仮説＋Yes/No形式）に回答する</td></tr>
+    <tr><td>承認する</td><td>①の仕様書・②のテスト仕様に OK を出す</td></tr>
+    <tr><td>裁定する</td><td>⑤でテストが落ちたとき原因の種類を決める</td></tr>
+  </table>
+  <p class="note">役割分担: <strong>AIが書く、機械（スクリプト）が検証する、人が決める。</strong>
+  コードや文書をあなたが直接書く必要は基本ない。</p>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>セットアップ（最初に1回だけ）</h2>
+  <ol>
+    <li>skill を対象プロジェクトへコピー:
+      <pre><code>cp -r skills/legacy-reverse          &lt;project&gt;/.claude/skills/
+cp -r skills/legacy-reverse/skills/*  &lt;project&gt;/.claude/skills/</code></pre></li>
+    <li><strong>hook を登録（必須）</strong>: <code>hooks/settings-example.json</code> の内容を
+      <code>&lt;project&gt;/.claude/settings.json</code> へマージ。
+      「AIがテストを書き換えて通す」事故を仕組みで防ぐ安全装置</li>
+    <li>MCP サーバを登録（推奨）: <code>&lt;project&gt;/.mcp.json</code> に
+      <code>mcp-servers/legacy-reverse-mcp/server.py</code> を追加。許可プロンプトが減る</li>
+    <li>Quarto 未導入なら <code>qtpdf.py install</code>（管理者権限不要）。
+      <code>pip install pytest sphinx sphinx-rtd-theme</code></li>
+  </ol>
+  <div class="point">準備ができたら Claude Code で <code>/legacy-reverse</code> と打つ。
+  セットアップ状態を確認して、次にやることを案内してくれる。</div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>⓪ 解析 — 関数リストを作る</h2>
+  <pre><code>/legacy-0-analyze</code></pre>
+  <div class="you"><b>あなたがやること:</b> ヒアリングに答える。
+    <ul style="margin:6px 0 0">
+      <li>レガシーコードの場所と言語 / 新しいパッケージ名</li>
+      <li>型対応表（例: <code>REAL*8</code>→<code>float</code>）と命名規則 →
+        規約（conventions.md）として提示されるので <strong>OK を出す</strong></li>
+    </ul>
+  </div>
+  <p>関数の列挙そのものは <strong>静的解析プログラムが機械抽出</strong>する（Fortran）。
+  引数・COMMON・呼び出し関係・外部ファイルまで自動で、AIは説明の充填だけを行う。</p>
+  <ul>
+    <li><strong>完了のサイン</strong>: 関数一覧（functions.json）と WBS サイトができ、
+      関数数・循環の有無・推奨着手順が報告される</li>
+    <li>数え漏れは2系統カウントの突合で機械検知。不明点は ISSUE としてあなたに来る</li>
+    <li><strong>途中でやり直しても安全</strong>: 再実行はマージ動作（関数IDは変わらない）</li>
+  </ul>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>WBS — 進捗のホーム画面</h2>
+  <p>⓪が終わると HTML の進捗サイトができる。以後、全フェーズの最後に自動更新される。</p>
+  <pre><code>python -m http.server 8765 --directory docs/_site</code></pre>
+  <img class="shot" src="../assets/manual/wbs.png" alt="WBS">
+  <p class="shot-cap">トップ = 進捗サマリ・あなたへの質問（Open ISSUES）・関数一覧・コールグラフ</p>
+  <table>
+    <tr><th>記号</th><th>意味</th><th>あなたの対応</th></tr>
+    <tr><td>✅ / ▲ / ☐</td><td>完了 / 作業中 / 未着手</td><td>なし（眺めるだけ）</td></tr>
+    <tr><td>⛔</td><td>裁定待ちで停止中</td><td><strong>ISSUE に回答する（最優先）</strong></td></tr>
+    <tr><td>⚠</td><td>上流が改訂され要再確認</td><td>該当フェーズの再生成を指示</td></tr>
+  </table>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>① 関数仕様書 — 最初の承認ゲート</h2>
+  <pre><code>/legacy-1-spec F-0001</code></pre>
+  <p>AIがレガシー原文を読み、仕様書を書く。各項目には
+  <strong>Confidence</strong>（🟢確認済 / 🟡推測 / 🔴仮定）と根拠の行番号が付く。</p>
+  <img class="shot" src="../assets/manual/spec.png" alt="関数仕様書">
+  <div class="you"><b>あなたがやること:</b> レビューして「OK」と返す（→ reviewed になる）。
+    🟡🔴の質問には Yes/No で答える。答えられなければ「保留」でよい（ISSUEとして残る）。</div>
+  <div class="point">提示される仕様書は<strong>機械レビュー通過済み</strong>:
+    引用行の実在・記入漏れ・根拠なし🟢は機械が先に落としている。
+    あなたは「<strong>意味が正しいか</strong>」だけを見ればよい。</div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>ISSUE の答え方 — 白紙の質問は来ない</h2>
+  <p>AIが判断に迷うと ISSUE を起票する。必ず<strong>「仮説＋Yes/Noで答えられる問い」</strong>の形。</p>
+  <img class="shot" src="../assets/manual/issue.png" alt="ISSUE">
+  <ul>
+    <li><strong>答え方は2通り、どちらでも同じ</strong>:
+      チャットで答える / ISSUE ファイルの「回答（人が記入）」欄に書く</li>
+    <li>回答はドメイン知識集（domain-knowledge.md）に転記され、<strong>同じ質問は二度と来ない</strong></li>
+    <li>未回答の ISSUE は WBS の最上部に出続ける。急がなくてよいが、
+      ⛔ が付いた関数はあなたの回答待ちで止まっている</li>
+  </ul>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>② テスト仕様書 — 2つ目の承認ゲート</h2>
+  <pre><code>/legacy-2-testspec F-0001</code></pre>
+  <p>AIが「①の仕様書<strong>だけ</strong>」からテストケースを設計する
+  （レガシー原文は見ない = クリーンルーム）。</p>
+  <div class="you"><b>あなたがやること:</b>
+    <ul style="margin:6px 0 0">
+      <li>ケース一覧（正常系・境界値・異常系…）と質問一覧を見る</li>
+      <li>期待値が決められないケース（⚠未確定）の質問に答える</li>
+      <li>問題なければ「OK」→ approved になる（<strong>⚠未確定が残ったままの承認は機械が拒否</strong>）</li>
+    </ul>
+  </div>
+  <p class="note">「全🟢仕様項目にテストがあるか」「①に無い仕様IDをでっち上げていないか」は
+  トレーサビリティ突合で機械検証済み。あなたは期待値の妥当性だけを見る。</p>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>③ テストコード / ④ 実装 — 見守りフェーズ</h2>
+  <pre><code>/legacy-3-testcode F-0001
+/legacy-4-impl     F-0001</code></pre>
+  <p>この2つは基本的に<strong>見守るだけ</strong>。それぞれ独立に作られる:</p>
+  <div class="flow">
+    <div class="box">③ テストコード<small>入力は「②＋規約」だけ</small></div>
+    <div class="arrow">⇄<small>互いを見ない</small></div>
+    <div class="box">④ 実装<small>入力は「①＋規約」だけ</small></div>
+  </div>
+  <ul>
+    <li>③完了時にテストは <strong>freeze</strong>（ハッシュ記録）。以後の改変は hook が拒否し、
+      変更されれば WBS に ⚠ が出る</li>
+    <li>④の<strong>スタブ（空実装・TODO）は機械検知</strong>されるので「実装したふり」はできない</li>
+    <li>④が「①だけでは実装を決められない」と気づくと <strong>spec-gap ISSUE</strong> を起票して停止する
+      → あなたは ISSUE に答えて①の改訂を指示するだけ（伝搬は自動検知）</li>
+  </ul>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>⑤ テスト — 独立に作った両者を突き合わせる</h2>
+  <pre><code>/legacy-5-test F-0001</code></pre>
+  <img class="shot" src="../assets/manual/test-result.png" alt="テスト結果報告書">
+  <p><strong>pass</strong> なら完了（WBS が ✅ になる）。<strong>fail</strong> のときだけ、あなたの出番:</p>
+  <table>
+    <tr><th>分類</th><th>原因</th><th>あなたの操作</th></tr>
+    <tr><td>(a) 実装バグ</td><td>実装が①を満たしていない</td><td><strong>何もしない</strong>（AIが修正→再実行を自走）</td></tr>
+    <tr><td>(b) テストのバグ</td><td>③が②とズレている</td><td>ISSUE の証拠を見て承認 → ③再生成</td></tr>
+    <tr><td>(c) 仕様が誤り</td><td>②①自体が間違い</td><td>ISSUE で裁定 → ①改訂を指示</td></tr>
+  </table>
+  <p class="note">(b)(c) をAIが勝手にやることはない（テスト改変は hook が物理的に拒否）。</p>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2>⑤ で ⛔ が出たら — 復帰は3ステップ</h2>
+  <p>(a) の自動修正ループは<strong>3回で自動停止</strong>し、WBS に ⛔ と triage ISSUE が出る。
+  AIの失敗分析（何を試し、なぜ駄目で、(a)/(b)/(c) のどれと考えるか）が書かれている。</p>
+  <ol>
+    <li>ISSUE を読んで裁定し、回答欄（またはチャット）で答える</li>
+    <li>AIが反映したら「<code>F-0001 をアンブロックして</code>」と言う</li>
+    <li><code>/legacy-5-test F-0001</code> を再トリガ（試行回数は1から）</li>
+  </ol>
+  <div class="warn">⛔ はあなたの回答待ちで完全に止まっている状態。
+  WBS の「要対応」に出続けるので、見かけたら最優先で裁定する。</div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2>関数のループを回す — 次はどの関数？</h2>
+  <p>1関数が ✅ になったら、次の関数で ①→⑤ を繰り返す。順番は迷わなくてよい:</p>
+  <ul>
+    <li>WBS の「次の一手」（依存の葉から並ぶ推奨着手順）に従う</li>
+    <li>チャットなら <code>/legacy-reverse</code> と打てば次の一手を提案してくる</li>
+  </ul>
+  <img class="shot" src="../assets/manual/wbs-large.png" alt="大規模WBSダッシュボード">
+  <p class="shot-cap">数百〜2000関数の大規模でも、トップは「要対応・次の一手・ファイル別進捗」のダッシュボード（300関数の例）</p>
+  <div class="point"><strong>中断・再開も同じ操作。</strong>セッションが切れても日をまたいでも、
+  <code>/legacy-reverse</code> と打つだけ。進捗はすべてファイル側にあり、1からやり直しにはならない。</div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <h2>⑥ 完了検証 — 全関数が終わったら1回</h2>
+  <pre><code>/legacy-6-check</code></pre>
+  <ul>
+    <li>全関数の ①〜⑤・ハッシュ連鎖・open ISSUE ゼロ・実装率100% を機械検証し、
+      ①②の根拠引用とトレーサビリティも総点検する</li>
+    <li><strong>fail</strong>: 「どの関数の何が足りないか」の作業リストが出る →
+      該当フェーズのコマンドで埋める（⑥の中で直すことはしない）</li>
+    <li><strong>pass</strong>: 最終成果物が出る — WBS/仕様書のHTMLサイト、
+      関数仕様書・テスト仕様書・テスト結果報告書の3冊のPDF、API詳細（Sphinx）</li>
+  </ul>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <h2>⑦ 分析・改善 — テスト資産を安全網に</h2>
+  <pre><code>/legacy-7-analyze</code></pre>
+  <p>移植完了後の高速化・リファクタリング。1施策 = 1票 = 1イタレーション。</p>
+  <div class="you"><b>あなたがやること:</b>
+    <ul style="margin:6px 0 0">
+      <li><strong>代表ワークロード（実データ規模の入力）を用意する</strong> — 計測の質が決まる</li>
+      <li>施策票（目的・成功基準 baseline→目標）を<strong>承認する</strong></li>
+    </ul>
+  </div>
+  <ul>
+    <li>適用は「テスト全pass維持」が絶対条件（挙動保存）。達成状況は WBS の
+      ⑦表で ✅/❌/— がトレースできる</li>
+  </ul>
+  <img class="shot" src="../assets/manual/improvement.png" alt="施策票" style="max-height:36vh">
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <h2>まとめ — 覚えるのはこれだけ</h2>
+  <table>
+    <tr><th>場面</th><th>操作</th></tr>
+    <tr><td>迷ったら・再開するとき</td><td><code>/legacy-reverse</code>（状況と次の一手を教えてくれる）</td></tr>
+    <tr><td>フェーズを進める</td><td><code>/legacy-0-analyze</code> 〜 <code>/legacy-7-analyze</code> ＋ 関数ID</td></tr>
+    <tr><td>質問（ISSUE）が来たら</td><td>Yes/No で答える（チャット or 回答欄）</td></tr>
+    <tr><td>⛔ を見つけたら</td><td>裁定 → アンブロック → ⑤再トリガ</td></tr>
+    <tr><td>WBS を見る</td><td><code>python -m http.server 8765 --directory docs/_site</code></td></tr>
+  </table>
+  <ul style="margin-top:20px">
+    <li>コマンド即引き: <a href="../QUICKREF.md" style="color:var(--accent)">QUICKREF.md</a>（1枚）</li>
+    <li>背景・トラブル対処の詳説: <a href="../MANUAL.md" style="color:var(--accent)">MANUAL.md</a> / MANUAL.pdf</li>
+  </ul>
+  <div class="point">原則をひとつだけ覚えるなら:
+  <strong>AIが書く、機械が検証する、あなたが決める。</strong>
+  あなたのOKなしに仕様は確定しないし、機械の検証なしにあなたへ届かない。</div>
+</section>
+
+</main>
+
+<footer class="nav">
+  <button id="prev">←</button>
+  <span class="counter" id="counter"></span>
+  <button id="next">→</button>
+</footer>
+<script src="assets/deck.js"></script>
+</body>
+</html>
