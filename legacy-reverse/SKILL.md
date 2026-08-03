@@ -20,8 +20,10 @@ user-invocable: true
    記入があれば先に反映する。conventions.md / domain-knowledge.md の手編集にも気づいたら反映確認
 2. 対象プロジェクトに `data/functions.json` があるか確認
    - **ない** → 未セットアップ。下記「セットアップ」を案内し、`/legacy-0-analyze` を勧める
-   - **ある** → `ledger status` と `ledger next` を実行し、WBS（docs/index.qmd）の要点
-     （進捗サマリ・open ISSUE・⛔ blocked）をまとめて見せ、次の一手を提案する
+   - **ある** → `ledger status --summary` と `ledger next --all --limit 10` を実行し、
+     進捗サマリ・open ISSUE・⛔ blocked をまとめて見せ、次の一手を提案する。
+     **大規模（数百〜2000関数）でも全関数リストは読まない**（summary で足りる。
+     workflow.md「再開（レジューム）」参照）
 3. open ISSUE がある場合は必ず最初に列挙する（人の判断待ちが最優先）
 4. ⛔ blocked の関数は「ISSUE裁定 → 反映 → `ledger unblock <func-id>` → 再トリガ」の手順を添える
 5. 人から「これ覚えておいて」系の業務知識を聞いたら domain-knowledge.md へ

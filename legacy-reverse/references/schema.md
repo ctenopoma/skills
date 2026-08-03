@@ -13,6 +13,7 @@
     _quarto.yml         # HTMLサイト＋PDF出力設定
     wbs.css             # WBS 関数一覧の列幅（テンプレからコピー）
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
+    wbs/                # 200関数超で自動生成されるファイル別明細ページ（手編集禁止）
     _site/              # HTML出力（render_site.py が作り直す。git 管理外）
     _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
     conventions.md      # プロジェクト規約（⓪で確定）
@@ -23,7 +24,8 @@
     issues/ISSUE-xxx.md
     completion-check.md # ⑥（ledger.py check で自動生成）
   data/
-    functions.json      # ⓪の解析結果（正データ）
+    functions.json      # ⓪の解析結果（正データ。Fortran は extract_fortran.py が生成・マージ）
+    extract-report.json # ⓪機械抽出の監査ログ（完全性突合・推定呼出・未解決名・マージ差分）
     ledger.json         # ハッシュ・ブロック状態の台帳（スクリプトのみが書く）
   .legacy-reverse/
     state.json          # 実行中フェーズ（hook の判定に使う）

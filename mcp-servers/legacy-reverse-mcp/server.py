@@ -25,6 +25,8 @@ from mcp.server.fastmcp import FastMCP
 SCRIPTS = Path(__file__).resolve().parents[2] / "legacy-reverse" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from ledger import Project, parse_frontmatter  # noqa: E402
+import extract_fortran  # noqa: E402
+import review_checks  # noqa: E402
 
 mcp = FastMCP("legacy-reverse")
 
@@ -61,6 +63,26 @@ def next_action(root: str = ".") -> str:
 
 
 @mcp.tool()
+def next_actions(root: str = ".", limit: int = 20) -> str:
+    """着手可能な関数を推奨順に最大 limit 件返す（fid<TAB>次フェーズ）。バッチ計画用。"""
+    return _ledger(root, "next", "--all", "--limit", str(limit))["output"]
+
+
+@mcp.tool()
+def progress_summary(root: str = ".") -> dict:
+    """進捗の要約（各フェーズの完了数・blocked・stale・改変・fail の一覧）を返す。
+
+    2000関数規模でも全関数リストを読まずに状況把握と再開判断ができる。
+    """
+    import json as _json
+    r = _ledger(root, "status", "--summary")
+    try:
+        return _json.loads(r["output"])
+    except ValueError:
+        return {"ok": False, "output": r["output"]}
+
+
+@mcp.tool()
 def verify(root: str, func_id: str) -> dict:
     """ハッシュ連鎖（①→②、③改変、blocked）を検証する。ok=false なら理由が problems に入る。"""
     r = _ledger(root, "verify", func_id)
@@ -71,6 +93,46 @@ def verify(root: str, func_id: str) -> dict:
 def next_issue_id(root: str = ".") -> str:
     """次に使う ISSUE 番号（全体通し）を返す。"""
     return _ledger(root, "next-issue")["output"]
+
+
+# ---------- ⓪ 機械抽出 ----------
+
+@mcp.tool()
+def extract_functions(root: str = ".", legacy_dir: str = "legacy",
+                      package: str | None = None, write: bool = True,
+                      infer_calls: bool = True) -> dict:
+    """⓪の機械抽出: Fortran ソースを静的解析し functions.json を生成/マージする。
+
+    再実行は常にマージ（func_id 不変・手修正保持）なので途中再開しても安全。
+    返り値に完全性突合の差分・推定呼び出し・未解決名の件数が入る。
+    詳細は data/extract-report.json（監査ログ）を読むこと。
+    """
+    return extract_fortran.extract(root, legacy_dir, package,
+                                   write=write, infer_calls=infer_calls)
+
+
+# ---------- 機械レビュー（ハルシネーション・省略の検知） ----------
+
+@mcp.tool()
+def review_spec(root: str, func_id: str) -> dict:
+    """①仕様書の機械レビュー: 根拠 file:lines の実在、🟢なのに根拠なし、
+    プレースホルダ残存（省略）、必須節欠落、原本ハッシュ鮮度を検証する。
+    ①draft 後・人レビュー依頼前に必ず実行し、ok=true にしてから人に出す。"""
+    return review_checks.check_spec(root, func_id)
+
+
+@mcp.tool()
+def review_testspec(root: str, func_id: str) -> dict:
+    """②テスト仕様書の機械レビュー: トレーサビリティ（全🟢仕様項目にケースありか・
+    参照先の実在）、期待値の根拠の規定準拠、⚠未確定件数、spec-hash 鮮度を検証する。
+    approved 依頼前に必ず実行し、ok=true にしてから人に出す。"""
+    return review_checks.check_testspec(root, func_id)
+
+
+@mcp.tool()
+def review_all(root: str = ".") -> dict:
+    """全関数の①②を一括機械レビューする（skeleton は除外）。⑥前の総点検に使う。"""
+    return review_checks.check_all(root)
 
 
 # ---------- 台帳（書き込み） ----------

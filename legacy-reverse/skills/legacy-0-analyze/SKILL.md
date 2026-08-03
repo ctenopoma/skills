@@ -19,22 +19,33 @@ user-invocable: true
   命名規則、モック方針。テンプレ `assets/templates/conventions.md` を埋めて
   **docs/conventions.md として確定させ、人のOKをもらう**
 
-### 2. 解析（言語ごとに方法を選ぶ）
+### 2. 解析（機械抽出が正。LLMは意味づけのみ）
 
 抽出する情報は schema.md の functions.json スキーマが正。関数ごとに:
 入力 / 出力 / グローバル状態（読み書き別）/ 参照外部ファイル / 呼び出しサブルーチン。
 
-- **Fortran**: `subroutine`/`function`/`entry` を列挙。COMMON ブロック・module 変数・
-  EQUIVALENCE がグローバル状態。`open/read/write` 文が外部ファイル。`call` が呼び出し
+- **Fortran**: **必ず機械抽出を使う**（LLMで列挙しない）:
+  ```bash
+  python <LR>/scripts/extract_fortran.py --root . --package <pkg> --write
+  ```
+  （MCP登録済みなら `extract_functions` ツール。）subroutine/function/entry の列挙、
+  引数と型/intent、COMMON、USE、`open/inquire` の外部ファイル、call と関数参照の
+  呼び出し推定まで自動。**再実行は常にマージ（func_id 不変・手修正保持）なので、
+  中断してもやり直しにならない。** LLMの仕事はこの後だけ:
+  1. `data/extract-report.json` を読み、`completeness_mismatches`（2系統カウントの
+     差分）と `inferred_calls`（関数参照からの推定。配列参照の誤検知があり得る）と
+     `unresolved_calls`（外部/ベンダー関数の疑い）をレビューして functions.json を確定
+  2. 各関数・引数の desc を充填し、型対応表に従って new.signature を決める
 - **C#**: public/internal メソッドを列挙。static フィールド・シングルトンがグローバル状態。
-  `File.*`/`Stream` 系が外部ファイル
+  `File.*`/`Stream` 系が外部ファイル（機械抽出器が未整備のため従来手順。
+  抽出方法を設計したらスクリプト化して scripts/ に足すこと）
 - その他の言語: 同じ抽出項目を満たす方法をその場で設計する（grep→LLM読解の併用）
 
-大規模なら Explore サブエージェントでファイル分割して並列抽出し、結果をマージする。
+### 3. 完全性チェック
 
-### 3. 完全性チェック（必須）
-
-関数定義の機械カウント（grep 等）と functions.json の件数を突合する。
+Fortran は extract_fortran.py が内蔵（状態機械パースと素朴カウントの2系統突合。
+`completeness_mismatches` が空なら OK）。それ以外の言語は関数定義の機械カウント
+（grep 等）と functions.json の件数を突合する。
 不一致は原因を特定。判断がつかないものは ISSUE 起票（`ledger next-issue` で採番）。
 
 ### 4. 生成

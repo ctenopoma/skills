@@ -23,6 +23,7 @@ import datetime
 import hashlib
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -198,7 +199,8 @@ def call_graph(order: list, fmap: dict, stats: dict) -> list:
         f, s = fmap[fid], stats[fid]
         label = f["new"].get("name", fid)
         body.append(f'  {nid(fid)}["{label}"]:::{cls(s)}')
-        body.append(f'  click {nid(fid)} "specs/{fid}.html"')
+        if s["spec"] != "-":                    # 仕様書（骨子含む）がある時だけリンク
+            body.append(f'  click {nid(fid)} "specs/{fid}.html"')
     for fid in order:
         for callee in fmap[fid].get("calls", []):
             if callee in fmap:
@@ -214,6 +216,58 @@ def call_graph(order: list, fmap: dict, stats: dict) -> list:
     return ["# コールグラフ", "",
             "<!-- 緑=⑤pass / 黄=着手中 / 灰=未着手 / 赤=⛔blocked。ノードをクリックで仕様書へ -->",
             ""] + body + [""]
+
+
+WBS_SPLIT = 200   # 関数一覧を1ページに載せる上限。超えるとレガシーファイル別のサブページへ分割
+
+
+def _mark(ok, link=None, note=""):
+    sym = "✅" if ok else ("▲" if note else "☐")
+    body = f"{sym}{(' ' + note) if note else ''}"
+    return f"[{body}]({link})" if link and (ok or note) else body
+
+
+FUNC_TABLE_HEAD = [
+    "| # | 関数 | 依存 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
+    "|:-:|------|------|:---:|:---:|:---:|:---:|:---:|"]
+
+
+def _spec_ref(label: str, s: dict, pre: str = "") -> str:
+    """仕様書（骨子含む）が存在する場合のみリンクにする（⓪途中のリンク切れ防止）。"""
+    if s["spec"] != "-":
+        return f"[{label}]({pre}specs/{s['func_id']}.md)"
+    return label
+
+
+def _func_row(i: int, f: dict, s: dict, pre: str = "") -> str:
+    fid = s["func_id"]
+    name = f["new"].get("name", fid)
+    deps = ", ".join(f.get("calls", [])) or "なし"
+    c1 = _mark(s["spec_ok"], f"{pre}specs/{fid}.md",
+               "" if s["spec_ok"] or s["spec"] == "-" else s["spec"])
+    c2 = _mark(s["test_spec_ok"], f"{pre}test-specs/{fid}.md",
+               "stale⚠" if s["test_spec_stale"]
+               else ("" if s["test_spec_ok"] or s["test_spec"] == "-" else s["test_spec"]))
+    c3 = "⚠改変" if s["test_code_tampered"] else ("✅" if s["test_code_ok"] else "☐")
+    c4 = "✅" if s["impl_ok"] else "☐"
+    if s["blocked_by"]:
+        c5 = f"[⛔ {s['blocked_by']}]({pre}issues/{s['blocked_by']}.md)"
+    elif s["test"] == "pass":
+        c5 = f"[✅]({pre}{s['result_file']})"
+    elif s["test"] == "fail":
+        c5 = f"[❌ {s['attempt']}回目]({pre}{s['result_file']})"
+    else:
+        c5 = "☐"
+    return f"| {i} | {_spec_ref(name, s, pre)} | {deps} | {c1} | {c2} | {c3} | {c4} | {c5} |"
+
+
+def _next_phase(s: dict):
+    for key, label in (("spec_ok", "①spec"), ("test_spec_ok", "②test-spec"),
+                       ("test_code_ok", "③test-code"), ("impl_ok", "④impl"),
+                       ("test_ok", "⑤test")):
+        if not s[key]:
+            return label
+    return None
 
 
 def cmd_wbs(p: Project, args) -> None:
@@ -242,15 +296,35 @@ def cmd_wbs(p: Project, args) -> None:
         "",
         "# 進捗サマリ",
         "",
-        "| ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
-        "|:---:|:---:|:---:|:---:|:---:|",
-        f"| {count('spec_ok')}/{n} | {count('test_spec_ok')}/{n} | {count('test_code_ok')}/{n}"
+        "| 関数数 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
+        "|:---:|:---:|:---:|:---:|:---:|:---:|",
+        f"| {n} | {count('spec_ok')}/{n} | {count('test_spec_ok')}/{n} | {count('test_code_ok')}/{n}"
         f" | {count('impl_ok')}/{n} | {count('test_ok')}/{n} |",
         "",
     ]
     if cycles:
         lines += ["::: {.callout-warning}", "コールグラフに循環があります: "
                   + " / ".join("→".join(c) for c in cycles), ":::", ""]
+
+    # ---- 要対応（人が最初に見るべきもの。大規模でもここだけ見れば良い） ----
+    blocked = [(fid, stats[fid]["blocked_by"]) for fid in order if stats[fid]["blocked_by"]]
+    stale = [fid for fid in order if stats[fid]["test_spec_stale"]]
+    tampered = [fid for fid in order if stats[fid]["test_code_tampered"]]
+    failing = [fid for fid in order
+               if stats[fid]["test"] == "fail" and not stats[fid]["blocked_by"]]
+    if blocked or stale or tampered or failing:
+        lines += ["# 要対応", "", "| 種別 | 関数 | 詳細 |", "|------|------|------|"]
+        for fid, iss in blocked:
+            lines.append(f"| ⛔ 裁定待ち | {_spec_ref(fid, stats[fid])} | [{iss}](issues/{iss}.md) |")
+        for fid in stale:
+            lines.append(f"| ⚠ ②stale | {_spec_ref(fid, stats[fid])} | ①改訂済み → ②要再確認 |")
+        for fid in tampered:
+            lines.append(f"| ⚠ ③改変 | {_spec_ref(fid, stats[fid])} | freeze後にテストが変更されている |")
+        for fid in failing:
+            s = stats[fid]
+            lines.append(f"| ❌ ⑤fail | {_spec_ref(fid, s)} "
+                         f"| [{s['attempt']}回目]({s['result_file']}) |")
+        lines.append("")
 
     lines += call_graph(order, fmap, stats)
 
@@ -263,37 +337,74 @@ def cmd_wbs(p: Project, args) -> None:
                 f"| {ifm.get('func-id','')} | {ifm.get('title','')} |")
     else:
         lines.append("なし 🎉")
+
+    # ---- 次の一手（トポロジカル順で着手可能なもの） ----
+    todo = [(fid, _next_phase(stats[fid])) for fid in order
+            if not stats[fid]["blocked_by"] and _next_phase(stats[fid])]
+    lines += ["", "# 次の一手（推奨着手順 上位10）", ""]
+    if todo:
+        lines += ["| # | 関数 | 次フェーズ |", "|:-:|------|------|"]
+        for i, (fid, ph) in enumerate(todo[:10], 1):
+            name = fmap[fid]["new"].get("name", fid)
+            lines.append(f"| {i} | {_spec_ref(name, stats[fid])} | {ph} |")
+        if len(todo) > 10:
+            lines.append(f": 残り {len(todo) - 10} 件は関数一覧を参照")
+    else:
+        lines.append("全関数完了。⑥ check へ 🎉")
+
+    # ---- 関数一覧（小規模: 1ページ / 大規模: レガシーファイル別サブページ） ----
     # column-screen-inset = 画面幅いっぱいに広げる Quarto の仕組み（本文の800px枠から出す）。
     # .wbs-funcs は wbs.css で列幅を制御する（関数名は折り返さず、依存列に幅を譲らせる）
-    lines += ["", "# 関数一覧（推奨着手順）", "", "::: {.wbs-funcs .column-screen-inset}",
-              "| # | 関数 | 依存 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
-              "|:-:|------|------|:---:|:---:|:---:|:---:|:---:|"]
+    wbs_dir = p.docs / "wbs"
+    if n <= WBS_SPLIT:
+        if wbs_dir.exists():
+            shutil.rmtree(wbs_dir)
+        lines += ["", "# 関数一覧（推奨着手順）", "",
+                  "::: {.wbs-funcs .column-screen-inset}"] + FUNC_TABLE_HEAD
+        for i, fid in enumerate(order, 1):
+            lines.append(_func_row(i, fmap[fid], stats[fid]))
+        lines.append(":::")
+    else:
+        # ファイル別に分割（トポロジカル順の通し番号は保つ）
+        topo_idx = {fid: i for i, fid in enumerate(order, 1)}
+        groups: dict = {}
+        for fid in order:
+            groups.setdefault(fmap[fid]["legacy"]["file"], []).append(fid)
+        if wbs_dir.exists():
+            shutil.rmtree(wbs_dir)
+        wbs_dir.mkdir(parents=True)
+        slugs: dict = {}
+        lines += ["", f"# 関数一覧（{n} 件・レガシーファイル別）", "",
+                  "| レガシーファイル | 関数数 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test | 要対応 |",
+                  "|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"]
+        for lf, fids in groups.items():
+            slug = re.sub(r"\W+", "-", lf).strip("-").lower()
+            while slug in slugs.values():
+                slug += "-2"
+            slugs[lf] = slug
+            g = [stats[fid] for fid in fids]
+            m = len(fids)
 
-    def mark(ok, link=None, note=""):
-        sym = "✅" if ok else ("▲" if note else "☐")
-        body = f"{sym}{(' ' + note) if note else ''}"
-        return f"[{body}]({link})" if link and (ok or note) else body
+            def gcount(key):
+                return sum(1 for s in g if s[key])
 
-    for i, fid in enumerate(order, 1):
-        f, s = fmap[fid], stats[fid]
-        name = f["new"].get("name", fid)
-        deps = ", ".join(f.get("calls", [])) or "なし"
-        spec_link = f"specs/{fid}.md"
-        c1 = mark(s["spec_ok"], spec_link, "" if s["spec_ok"] or s["spec"] == "-" else s["spec"])
-        c2 = mark(s["test_spec_ok"], f"test-specs/{fid}.md",
-                  "stale⚠" if s["test_spec_stale"] else ("" if s["test_spec_ok"] or s["test_spec"] == "-" else s["test_spec"]))
-        c3 = "⚠改変" if s["test_code_tampered"] else ("✅" if s["test_code_ok"] else "☐")
-        c4 = "✅" if s["impl_ok"] else "☐"
-        if s["blocked_by"]:
-            c5 = f"[⛔ {s['blocked_by']}](issues/{s['blocked_by']}.md)"
-        elif s["test"] == "pass":
-            c5 = f"[✅]({s['result_file']})"
-        elif s["test"] == "fail":
-            c5 = f"[❌ {s['attempt']}回目]({s['result_file']})"
-        else:
-            c5 = "☐"
-        lines.append(f"| {i} | [{name}](specs/{fid}.md) | {deps} | {c1} | {c2} | {c3} | {c4} | {c5} |")
-    lines.append(":::")
+            warn = sum(1 for s in g if s["blocked_by"] or s["test_spec_stale"]
+                       or s["test_code_tampered"] or s["test"] == "fail")
+            lines.append(
+                f"| [{lf}](wbs/{slug}.qmd) | {m} | {gcount('spec_ok')}/{m} "
+                f"| {gcount('test_spec_ok')}/{m} | {gcount('test_code_ok')}/{m} "
+                f"| {gcount('impl_ok')}/{m} | {gcount('test_ok')}/{m} "
+                f"| {'⚠ ' + str(warn) if warn else '—'} |")
+            page = ["---", f'title: "WBS: {lf}"', "date: last-modified",
+                    "page-layout: full", "---", "",
+                    "<!-- ledger.py wbs による自動生成。手編集禁止 -->", "",
+                    "[← WBS トップ](../index.qmd)", "",
+                    f"# {lf}（{m} 関数・#はプロジェクト全体の推奨着手順）", "",
+                    "::: {.wbs-funcs .column-screen-inset}"] + FUNC_TABLE_HEAD
+            for fid in fids:
+                page.append(_func_row(topo_idx[fid], fmap[fid], stats[fid], pre="../"))
+            page.append(":::")
+            (wbs_dir / f"{slug}.qmd").write_text("\n".join(page) + "\n", encoding="utf-8")
 
     imps = sorted((p.docs / "improvements").glob("*.md"))
     if imps:
@@ -406,6 +517,19 @@ def cmd_verify(p: Project, args) -> None:
 def cmd_status(p: Project, args) -> None:
     targets = [p.func(args.func_id)] if args.func_id else p.funcs()
     out = [p.status_of(f) for f in targets]
+    if args.summary:
+        n = len(out)
+        summary = {"n": n}
+        for key in ("spec_ok", "test_spec_ok", "test_code_ok", "impl_ok", "test_ok"):
+            summary[key] = sum(1 for s in out if s[key])
+        summary["blocked"] = [{"func_id": s["func_id"], "issue": s["blocked_by"]}
+                              for s in out if s["blocked_by"]]
+        summary["stale"] = [s["func_id"] for s in out if s["test_spec_stale"]]
+        summary["tampered"] = [s["func_id"] for s in out if s["test_code_tampered"]]
+        summary["failing"] = [s["func_id"] for s in out
+                              if s["test"] == "fail" and not s["blocked_by"]]
+        print(json.dumps(summary, ensure_ascii=False, indent=1))
+        return
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:
@@ -421,16 +545,26 @@ def cmd_status(p: Project, args) -> None:
 def cmd_next(p: Project, args) -> None:
     order, _ = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
+    todo = []
     for fid in order:
         s = p.status_of(fmap[fid])
         if s["blocked_by"]:
             continue
-        if not all([s["spec_ok"], s["test_spec_ok"], s["test_code_ok"], s["impl_ok"], s["test_ok"]]):
-            phase = ("①spec" if not s["spec_ok"] else "②test-spec" if not s["test_spec_ok"]
-                     else "③test-code" if not s["test_code_ok"] else "④impl" if not s["impl_ok"] else "⑤test")
-            print(f"{fid} → 次フェーズ: {phase}")
-            return
-    print("全関数完了。⑥ check を実行せよ")
+        phase = _next_phase(s)
+        if phase:
+            todo.append((fid, phase))
+            if not getattr(args, "all", False):
+                break
+    if not todo:
+        print("全関数完了。⑥ check を実行せよ")
+        return
+    if getattr(args, "all", False):
+        for fid, phase in todo[:args.limit]:      # ドライバ/並列バッチ用: fid<TAB>phase
+            print(f"{fid}\t{phase}")
+        if len(todo) > args.limit:
+            print(f"...（残り {len(todo) - args.limit} 件）")
+    else:
+        print(f"{todo[0][0]} → 次フェーズ: {todo[0][1]}")
 
 
 def cmd_next_issue(p: Project, args) -> None:
@@ -569,8 +703,8 @@ def main() -> None:
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
-    s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true")
-    sub.add_parser("next")
+    s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
+    s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20)
     sub.add_parser("next-issue")
     s = sub.add_parser("freeze-tests"); s.add_argument("func_id")
     s = sub.add_parser("block"); s.add_argument("func_id"); s.add_argument("issue_id")

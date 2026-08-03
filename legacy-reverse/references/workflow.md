@@ -29,6 +29,38 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 - `python <LR>/scripts/ledger.py verify <func-id>` で連鎖を検証。不一致＝上流が改訂された＝下流は「要再生成」
 - ハッシュは `ledger.py hash <path>`（sha256 先頭8桁）
 
+## 機械レビュー（ハルシネーション・省略の検知ゲート）
+
+LLM 成果物は人に見せる前に `review_checks.py`（MCP: review_spec / review_testspec /
+review_all）で機械検証する。**NG が残る成果物を「できました」と報告してはいけない。**
+
+| フェーズ | ゲート | 検知するもの |
+|---|---|---|
+| ① draft後 | `review_checks.py spec <fid>` | 実在しない `file:lines` の引用、🟢なのに根拠なし、プレースホルダ残存（省略）、必須節欠落、原本ハッシュ不一致 |
+| ② 承認依頼前 | `review_checks.py testspec <fid>` | 🟢仕様項目のケース漏れ、①に無いSPEC-IDの参照（捏造）、TC参照先の不在、根拠の規定外表記、spec-hash 鮮度 |
+| ③ freeze前 | `pytest --collect-only` ＋ marker突合（collect_results が exit 3） | ケースIDとテスト関数の過不足 |
+| ④ 完了前 | `check_stubs.py` | 空実装・NotImplementedError・TODO/FIXME（スタブ化の検知） |
+| ⑤ | `ledger verify` ＋ collect_results | ②stale・テスト改変・blocked |
+| ⑥ 前 | `review_checks.py all` | 全関数の①②の総点検 |
+
+機械で検知できない「意味のすり替え」（式は書いてあるがレガシーと違う等）は、
+人レビューと④→⑤の失敗ループが受け持つ。疑わしければ ISSUE。
+
+## 再開（レジューム）
+
+進捗の正はすべてファイル（functions.json / ledger.json / 各フロントマター）にあり、
+会話コンテキストには無い。**どのタイミングで中断しても、次の3コマンドから再開する**:
+
+```bash
+python <LR>/scripts/ledger.py status --summary   # 全体状況（2000関数でも数行）
+python <LR>/scripts/ledger.py next --all --limit 20   # 着手可能な関数の一覧
+python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
+```
+
+やり直し・再列挙は禁止。⓪の再実行も extract_fortran.py がマージ動作
+（func_id 不変・手修正保持）なので安全。全関数を列挙した長大な出力をコンテキストに
+読み込まないこと（summary と next --all で足りる）。
+
 ## ISSUE 運用
 
 - 採番は全体通し。`docs/issues/` の最大番号+1（`ledger.py next-issue` が返す）
@@ -88,12 +120,27 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 - **`quarto render docs` を直接叩かない。** Quarto は Mermaid を `.qmd` でしか描けないため、
   render_site.py が `docs/_sitework/` に `.qmd` の影コピーを作ってから render する
   （出力先は従来どおり `docs/_site/`）
+- **⓪の時点でもリンク切れは出ない**: ナビバーが参照する未生成ページ
+  （domain-knowledge / completion-check / analysis / api）は render_site.py が
+  「いつ生成されるか」を書いたプレースホルダを影コピー側に自動で置く（成果物 docs/ は汚さない）。
+  WBS 側も、仕様書ファイルが存在しない関数はリンクにしない（ledger.py `_spec_ref`）
 - Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
   （`~/.local/quarto/bin/quarto`。PATH 登録不要）
 - 閲覧は `docs/_site/` を静的サーバで配信。**cwd を _site の外にして** `--directory` で指定する
   （例: プロジェクトルートで `python -m http.server 8765 --directory docs/_site`。
   _site の中を cwd にすると再レンダリング時の削除がロックされて失敗する）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
+
+### WBS の大規模対応（200関数超で自動分割）
+
+`ledger.py wbs` は 200 関数を超えると自動でページを分割する:
+
+- **index.qmd はダッシュボード**: 進捗サマリ・要対応（⛔blocked / ⚠stale / ⚠改変 /
+  ❌fail）・Open ISSUE・次の一手（上位10）・レガシーファイル別の進捗表
+- **全関数の明細は docs/wbs/<ファイル別>.qmd**（自動生成・手編集禁止）。
+  `_quarto.yml` の render に `wbs/*.qmd` が必要（テンプレは対応済み。旧プロジェクトは
+  render_site.py が影コピー側で自動追記する）
+- 200 以下では従来どおり1ページに全関数表
 
 ### WBS の横幅（列が多い表への対処）
 

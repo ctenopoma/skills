@@ -52,6 +52,9 @@ def transform_doc(text: str) -> str:
 
 def transform_yml(text: str) -> str:
     text = re.sub(r"\.md\b", ".qmd", text)          # render グロブと navbar href
+    if "wbs/*.qmd" not in text:                     # 旧テンプレ救済: WBS分割ページを render 対象に
+        text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
+                      "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
@@ -86,9 +89,50 @@ def build_shadow(docs: Path, work: Path) -> int:
     yml = docs / "_quarto.yml"
     if not yml.exists():
         sys.exit(f"error: {yml} がない（assets/templates/_quarto.yml を docs/ に配置する）")
-    (work / "_quarto.yml").write_text(
-        transform_yml(yml.read_text(encoding="utf-8-sig")), encoding="utf-8", newline="\n")
+    yml_text = transform_yml(yml.read_text(encoding="utf-8-sig"))
+    (work / "_quarto.yml").write_text(yml_text, encoding="utf-8", newline="\n")
+    n += make_placeholders(work, yml_text)
     return n
+
+
+# ナビバーが参照するがまだ生成されていないページ（⓪の時点では⑥⑦等が無い）。
+# リンク切れにせず「いつできるか」を書いたプレースホルダを影コピー側にだけ置く。
+PLACEHOLDER_NOTE = {
+    "domain-knowledge": "人の裁定・業務知識がここに蓄積されます（ISSUE の回答が転記されます）。",
+    "conventions": "プロジェクト規約。⓪（/legacy-0-analyze）で人と確定します。",
+    "completion-check": "⑥完了検証（/legacy-6-check）を実行すると自動生成されます。",
+    "analysis": "⑦分析（/legacy-7-analyze）で生成されます。",
+}
+
+
+def make_placeholders(work: Path, yml_text: str) -> int:
+    made = 0
+    for href in re.findall(r"href:\s*([\w\-./]+\.qmd)", yml_text):
+        dst = work / href
+        if dst.exists():
+            continue
+        note = PLACEHOLDER_NOTE.get(Path(href).stem, "該当フェーズの実行時に生成されます。")
+        title = Path(href).stem
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(
+            f'---\ntitle: "{title}"\n---\n\n'
+            "::: {.callout-note}\n"
+            f"このページはまだ作成されていません。{note}\n"
+            ":::\n", encoding="utf-8", newline="\n")
+        made += 1
+    return made
+
+
+API_PLACEHOLDER = """<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<title>新コード詳細(API)</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:80px auto;color:#334155;line-height:1.8}
+a{color:#4f46e5}</style></head><body>
+<h1>新コード詳細(API) はまだ生成されていません</h1>
+<p>④実装の docstring から Sphinx で生成されます。④が進んでから
+<code>python -m sphinx -b html docs-sphinx docs/_site/api</code>
+（render_site.py の後に実行）で作成されます。</p>
+<p><a href="../index.html">← WBS へ戻る</a></p></body></html>
+"""
 
 
 def main() -> None:
@@ -108,6 +152,10 @@ def main() -> None:
         shutil.rmtree(work, ignore_errors=True)
     if r.returncode != 0:
         sys.exit(f"error: quarto render 失敗（exit={r.returncode}）")
+    api_index = docs / "_site" / "api" / "index.html"
+    if not api_index.exists():                   # ④前でもナビバーの API リンクを切らさない
+        api_index.parent.mkdir(parents=True, exist_ok=True)
+        api_index.write_text(API_PLACEHOLDER, encoding="utf-8", newline="\n")
     print(f"wrote {docs / '_site'}（{n} ページ）")
 
 

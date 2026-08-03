@@ -14,9 +14,11 @@ user-invocable: true
 1. 検証を実行:
    ```bash
    ledger check     # docs/completion-check.md を生成。不備ありなら exit 1
+   python <LR>/scripts/review_checks.py all --root .   # ①②の機械レビュー総点検
    ```
    チェック内容: ①reviewed / ②approved / ③hash一致 / ④存在 / ⑤pass /
-   ハッシュ連鎖整合 / open ISSUE ゼロ / ⑤実装率100%
+   ハッシュ連鎖整合 / open ISSUE ゼロ / ⑤実装率100% ＋
+   review_checks で根拠引用・トレーサビリティの総点検（両方 exit 0 が⑥pass）
 2. **fail の場合**: 不備一覧を関数×フェーズで整理し、どのskillで埋めるかの
    作業リストにして人へ報告する（このskillでは直さない）
 3. **pass の場合**: 最終成果物を出す（コマンドは workflow.md「出力・レンダリング」参照）

@@ -32,8 +32,15 @@ user-invocable: true
    - cc-rsg が導入済みならその調査フェーズを流用してよい。出力は必ずこのテンプレ形式に合わせる
 3. 🟡🔴 のうち、テストの期待値に影響しそうなものは ISSUE 起票
    （`ledger next-issue` で採番、**仮説＋Yes/Noの問い**の形式）
-4. status を draft にし、**人へレビュー依頼**: 変更点サマリ＋🟡🔴一覧＋open ISSUE を提示
-5. 人のOKが出たら status: reviewed に更新 → `ledger wbs`
+4. **機械レビュー（必須ゲート）**: status を draft にしたら
+   ```bash
+   python <LR>/scripts/review_checks.py spec <func-id> --root .
+   ```
+   （MCP なら `review_spec`）を実行し、**NG ゼロにしてから**人に出す。
+   検知対象: 根拠 `file:lines` の実在（存在しない行の引用＝ハルシネーション）、
+   🟢なのに根拠なし、プレースホルダ残存（＝記入の省略）、必須節欠落、原本ハッシュ不一致
+5. **人へレビュー依頼**: 変更点サマリ＋🟡🔴一覧＋open ISSUE を提示
+6. 人のOKが出たら status: reviewed に更新 → `ledger wbs`
 
 ## 改訂モード（spec-gap ISSUE 対応）
 
