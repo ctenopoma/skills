@@ -126,9 +126,15 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
   WBS 側も、仕様書ファイルが存在しない関数はリンクにしない（ledger.py `_spec_ref`）
 - Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
   （`~/.local/quarto/bin/quarto`。PATH 登録不要）
-- 閲覧は `docs/_site/` を静的サーバで配信。**cwd を _site の外にして** `--directory` で指定する
-  （例: プロジェクトルートで `python -m http.server 8765 --directory docs/_site`。
-  _site の中を cwd にすると再レンダリング時の削除がロックされて失敗する）
+- 閲覧は `python <LR>/scripts/serve_site.py --root .`
+  - 127.0.0.1 のみに bind（仕様書は社内資料。LAN に出すのは `--host 0.0.0.0` を明示したときだけ）
+  - ポートはプロジェクト名から決まる固定値（8100-8899）。複数プロジェクトを同時に立てても
+    ぶつからず、埋まっていれば空きへずらす。URL はブックマークできる
+  - キャッシュ無効なので、再レンダリング後はブラウザの更新だけで最新になる
+  - `--render` で配信前に作り直す。`--watch` は docs/ の変更を検知して自動再レンダリング
+  - 素の `python -m http.server` を使う場合は **cwd を _site の外にして** `--directory` で指定する
+    （_site の中を cwd にすると再レンダリング時の削除がロックされて失敗する。
+    serve_site.py は cwd を動かさないのでこの問題は起きない）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
 
 ### WBS の大規模対応（200関数超で自動分割）
@@ -141,6 +147,26 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
   `_quarto.yml` の render に `wbs/*.qmd` が必要（テンプレは対応済み。旧プロジェクトは
   render_site.py が影コピー側で自動追記する）
 - 200 以下では従来どおり1ページに全関数表
+
+### 配布（単体実行ファイル / EXE）
+
+レビュアーや管理側に進捗を見せるのに、共有サーバを立てたり社内公開したりしなくてよい。
+サイトを同梱した実行ファイルを渡し、**各自が自分のローカルホストで開く**。
+
+```bash
+pip install pyinstaller                                  # 初回のみ
+python <LR>/scripts/build_viewer.py --root .             # → <root>/dist/<プロジェクト>-wbs[.exe]
+```
+
+- 中身は「render_site.py で作った `docs/_site` ＋ serve_site.py」を PyInstaller で1ファイル化したもの。
+  起動すると同梱サイトを一時展開して 127.0.0.1 で配信し、既定ブラウザを開く。
+  **渡す相手に Python も Quarto も要らない**（4MB のサイト込みで 9MB 程度）
+- 外部フォント（Google Fonts）への参照はビルド時に除去するので、
+  閉じたネットワークの PC でも待たされず、開いただけで外に通信も飛ばない
+- **クロスコンパイル不可**。Windows 用 `.exe` は Windows 上でビルドする（PyInstaller の仕様）
+- 中身はビルド時点のスナップショット。進捗が動いたら作り直す（`--no-render` で再レンダリング省略）
+- 署名なし1ファイル EXE が SmartScreen 等に止められる環境では `--onedir`（フォルダ配布）にする。
+  サイトを別配布したい場合は `--no-embed`（実行ファイルの隣の `_site` を配信するビューアになる）
 
 ### WBS の横幅（列が多い表への対処）
 

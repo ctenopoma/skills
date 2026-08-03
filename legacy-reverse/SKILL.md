@@ -53,6 +53,11 @@ user-invocable: true
 
 - HTML は `python <LR>/scripts/render_site.py --root .`（docs/ 一式を1サイト、WBSがトップ）。
   **`quarto render docs` を直接叩かない**（Mermaid が描画されない。理由は render_site.py 冒頭）
+- 閲覧は `python <LR>/scripts/serve_site.py --root .`（127.0.0.1 のみ／プロジェクトごとに固定ポート）。
+  `--render` で作り直してから配信、`--watch` で docs/ の変更を監視して自動再レンダリング
+- 人に渡すときは `python <LR>/scripts/build_viewer.py --root .` で
+  サイト同梱の単体実行ファイル（EXE）にする。渡した相手は Python も Quarto も要らず、
+  各自のローカルホストで開くだけ（詳細は [references/workflow.md](references/workflow.md) の「配布」）
 - PDF は `pdf_book.py` で 仕様書 / テスト仕様書 / テスト結果 の種別ごとに個別
   （実体は quarto-typst-pdf skill）
 - ④の詳細仕様（docstring）は Sphinx で HTML のみ

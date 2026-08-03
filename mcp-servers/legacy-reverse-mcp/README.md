@@ -19,7 +19,7 @@
 
 全ツールが `root`（対象プロジェクトのルート、既定 "."）を取る。
 
-## ツール一覧（24）
+## ツール一覧（25）
 
 | 分類 | ツール | 対応スクリプト |
 |------|--------|---------------|
@@ -29,7 +29,7 @@
 | 台帳(書) | generate_wbs / generate_skeletons / freeze_tests / block / unblock / phase_start / phase_end / completion_check / sphinx_index | ledger.py |
 | 実行系 | **run_tests**（verify→pytest→報告書生成の⑤一括） | tc_report_plugin.py + collect_results.py |
 | 実行系 | check_stubs / profile | check_stubs.py / profile_run.py |
-| 出力系 | render_site（Quarto→Sphinxの正順を内包） / build_pdf | quarto / sphinx / pdf_book.py |
+| 出力系 | render_site（Quarto→Sphinxの正順を内包） / build_pdf / build_viewer（配布用EXE） | quarto / sphinx / pdf_book.py / build_viewer.py |
 
 大規模（2000関数級）での再開は `progress_summary`（数行の要約）と
 `next_actions`（着手可能リスト）から。全関数リストをコンテキストに読み込まない。
@@ -37,5 +37,7 @@
 ## 設計メモ
 
 - 戻り値は構造化（dict/list）。`pipeline_status` は WBS と同じ判定ロジックの生データを返す
+- 配信（`serve_site.py`）は常駐プロセスなので MCP 化していない（人が端末で立てる）。
+  `build_viewer` は有限時間で終わるが 1〜2分かかるので呼び出し側のタイムアウトに注意
 - `run_tests` の result: `pass / fail / blocked(要裁定) / mismatch(③マーカー不整合) / verify_ng`
 - hook（tests/ 編集拒否）は MCP 化しない。ツール呼び出しの強制ガードは hook の役割のまま
