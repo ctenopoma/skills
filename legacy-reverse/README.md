@@ -4,6 +4,16 @@
 
 パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析・改善（挙動保存）
 
+## ドキュメント
+
+| 文書 | 対象読者 |
+|------|---------|
+| [slides/index.html](slides/index.html) | 初見の操作者（⓪→⑦を進めながら覚えるチュートリアル） |
+| [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
+| [MANUAL.md](MANUAL.md) / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処） |
+| [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
+| [references/workflow.md](references/workflow.md) / [schema.md](references/schema.md) | フェーズskill・スクリプト（規則とデータの正） |
+
 ## 構成
 
 ```
@@ -17,8 +27,11 @@ legacy-reverse/
     legacy-4-impl/         # ④ 実装（①のみ入力。スタブ禁止）
     legacy-5-test/         # ⑤ 実行・結果収集・トリアージ・ループ管理
     legacy-6-check/        # ⑥ 完了検証と最終レンダリング
+    legacy-7-analyze/      # ⑦ 分析・改善（挙動保存）
   scripts/
+    extract_fortran.py     # ⓪ Fortran機械抽出 → functions.json 生成/マージ（再実行=マージで再開安全）
     ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証
+    review_checks.py       # ①②の機械レビュー（引用実在・省略・トレーサビリティのハルシネーション検知）
     tc_report_plugin.py    # pytest プラグイン（TCマーカー別の結果収集）
     collect_results.py     # ②と突合して結果報告書を自動生成（実装率・attempt・自動block）
     check_stubs.py         # ④のスタブ検出（空実装/NotImplementedError/TODO）
