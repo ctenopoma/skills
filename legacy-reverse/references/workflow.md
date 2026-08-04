@@ -46,6 +46,25 @@ review_all）で機械検証する。**NG が残る成果物を「できまし�
 機械で検知できない「意味のすり替え」（式は書いてあるがレガシーと違う等）は、
 人レビューと④→⑤の失敗ループが受け持つ。疑わしければ ISSUE。
 
+## 無人バッチ実行（pipeline.py ドライバ）
+
+①の全件実行（2000件規模）はエージェントの会話内ループでは行わない
+（コンテキスト上限・コンパクション劣化のため）。`scripts/pipeline.py` を使う:
+
+```bash
+python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20]
+```
+
+- **1関数 = 1つの新しい headless Claude プロセス**（`claude -p "/legacy-1-spec F-xxxx"`）。
+  コンテキストが積み上がらず、1関数あたりのトークンは常に一定
+- 各関数の完了は LLM の申告でなく**ファイル状態で契約検証**
+  （status: draft ＋ 機械レビューNGゼロ）。NG はリトライ→スキップ記録、連続失敗で停止
+- チャンクごとに WBS・一斉レビュー表を自動更新。人は**溜まった draft を随時レビュー**してよい
+- 中断（Ctrl-C・電源断）はどこでも安全。同じコマンドで続きから再開
+- 実行ログ: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト・所要）
+- 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
+  `.claude/settings.json` で allow（または `--skip-permissions` を明示）
+
 ## 再開（レジューム）
 
 進捗の正はすべてファイル（functions.json / ledger.json / 各フロントマター）にあり、

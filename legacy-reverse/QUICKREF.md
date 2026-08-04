@@ -62,15 +62,24 @@ python <LR>/scripts/review_checks.py all --root . [--json]     # 総点検（⑥
 
 ## ①のバッチ実行と一斉レビュー（全件・2000件規模対応）
 
-「仕様書をまとめて10件進めて」「①を全件進めて」→ AIが
-`next --all --phase 1 --skip-draft` で対象を選び（draft=レビュー待ちは除外）、
-機械レビューNGゼロの draft を連続生成 → `spec-review.md`（一斉レビュー表）へ誘導してくる。
+数十件までは会話で「仕様書をまとめて10件進めて」でよい。
+**全件（数百件〜）は無人ドライバで回す**（1関数=1 headless プロセス。
+エージェントのトークン上限に依存しない）:
+
+```bash
+python <LR>/scripts/pipeline.py spec --root .                  # ①を全件 draft まで無人実行
+python <LR>/scripts/pipeline.py spec --root . --max-funcs 200  # 今日は200件だけ
+python <LR>/scripts/pipeline.py spec --root . --dry-run        # 対象の確認のみ
+```
+
+どちらの方式でも draft は `spec-review.md`（一斉レビュー表）に溜まり、
 あなたは表を見て「全部OK」か「F-xxxx は修正: 〜」と返すだけ。
 
-- **途中で止まっても同じ指示で再開できる**（書きかけ draft は report の機械NGとして
+- **途中で止まっても同じコマンド/指示で再開できる**（書きかけ draft は機械NGとして
   検出され先に直される。処理済み draft は二重に書き直されない）
 - 全件を待たずに、溜まった draft を随時レビューして reviewed 化してよい
 - draft の書き直しは何度でも頼める（reviewed の書き直しは②が要再承認になる旨を確認される）
+- ドライバの記録: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト）
 
 ## ⓪ 機械抽出（Fortran）
 

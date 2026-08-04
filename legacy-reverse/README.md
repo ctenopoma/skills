@@ -30,6 +30,7 @@ legacy-reverse/
     legacy-7-analyze/      # ⑦ 分析・改善（挙動保存）
   scripts/
     extract_fortran.py     # ⓪ Fortran機械抽出 → functions.json 生成/マージ（再実行=マージで再開安全）
+    pipeline.py            # ①の無人バッチドライバ（1関数=1 headlessプロセス。トークン上限なしで全件実行）
     ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証
     review_checks.py       # ①②の機械レビュー（引用実在・省略・トレーサビリティのハルシネーション検知）
     tc_report_plugin.py    # pytest プラグイン（TCマーカー別の結果収集）

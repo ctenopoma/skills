@@ -551,29 +551,43 @@ PHASE_LABEL = {"1": "①spec", "2": "②test-spec", "3": "③test-code",
                "4": "④impl", "5": "⑤test"}
 
 
-def cmd_next(p: Project, args) -> None:
+def actionable(p: Project, phase: str = None, skip_wait: bool = False) -> list:
+    """着手可能な (func_id, 次フェーズ) をトポロジカル順で返す。
+
+    skip_wait=True は人のレビュー/承認待ち（①draft・②generated）を除外し
+    「AIの作業が残っているもの」だけにする——バッチ全件モードの再開時、
+    draft を二重に書き直さないための機械的な区別。pipeline.py も共用する。
+    """
     order, _ = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
-    want = PHASE_LABEL.get(getattr(args, "phase", None) or "", getattr(args, "phase", None))
-    skip_wait = getattr(args, "skip_draft", False)
+    want = PHASE_LABEL.get(phase or "", phase)
     todo = []
     for fid in order:
         s = p.status_of(fmap[fid])
         if s["blocked_by"]:
             continue
-        phase = _next_phase(s)
-        # --skip-draft: 人のレビュー/承認待ちを除外し「AIの作業が残っているもの」だけにする
-        # （バッチ全件モードの再開時、draft を二重に書き直さないための機械的な区別）
-        if skip_wait and ((phase == "①spec" and s["spec"] == "draft")
-                          or (phase == "②test-spec" and s["test_spec"] == "generated"
+        ph = _next_phase(s)
+        if not ph:
+            continue
+        if skip_wait and ((ph == "①spec" and s["spec"] == "draft")
+                          or (ph == "②test-spec" and s["test_spec"] == "generated"
                               and not s["test_spec_stale"])):
             continue
-        if phase and (not want or phase == want):
-            todo.append((fid, phase))
-            if not getattr(args, "all", False):
-                break
+        if want and ph != want:
+            continue
+        todo.append((fid, ph))
+    return todo
+
+
+def cmd_next(p: Project, args) -> None:
+    todo = actionable(p, getattr(args, "phase", None), getattr(args, "skip_draft", False))
+    if not getattr(args, "all", False):
+        todo = todo[:1]
     if not todo:
-        print("全関数完了。⑥ check を実行せよ")
+        if getattr(args, "phase", None) or getattr(args, "skip_draft", False):
+            print("対象なし（フィルタ該当ゼロ。レビュー/承認待ちは status --summary や WBS を参照）")
+        else:
+            print("全関数完了。⑥ check を実行せよ")
         return
     if getattr(args, "all", False):
         for fid, phase in todo[:args.limit]:      # ドライバ/並列バッチ用: fid<TAB>phase

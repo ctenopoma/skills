@@ -117,6 +117,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | scripts/ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有）。200関数超で WBS を自動分割 |
 | scripts/review_checks.py | ①②の機械レビュー | LLM不使用。書式はテンプレ（assets/templates）に依存 |
 | scripts/render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで**⓪時点でもリンク切れゼロ** |
+| scripts/pipeline.py | ①の無人バッチドライバ | **1関数=1 headless Claude プロセス**（毎回まっさらなコンテキスト＝トークン上限に依存しない）。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止 |
 | scripts/collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号（0 pass / 1 fail / 2 blocked / 3 mismatch）。attempt 上限3で自動 block |
 | scripts/pdf_book.py | 種別ごとの合本PDF | quarto-typst-pdf skill に委譲 |
 | hooks/guard_tests.py | フェーズ4/5中の tests/ 編集拒否 | state.json（phase-start/end）を見て判定 |
@@ -136,7 +137,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | 拡張 | 方法 |
 |---|---|
 | 新レガシー言語（C# 等） | extract_fortran.py と同じ出力契約（functions.json スキーマ＋ extract-report）で抽出器を追加し、MCP ツールに登録 |
-| 完全自動運転 | 状態遷移は全部ファイルにあるため、外部ドライバ（headless `claude -p` を1フェーズ1プロセスで回す）を被せられる。`next --all`・機械ゲート・exit code がそのまま部品になる。情報遮断はフェーズ別 permission deny に落とせる |
+| 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格（対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ）にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント（①と legacy だけを読む）をドライバ段に挿入 |
 
 # 9. 関連ドキュメント
