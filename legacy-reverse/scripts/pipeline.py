@@ -12,6 +12,15 @@
 検証 NG はリトライし、それでも駄目なら記録してスキップ（このセッション中は再選定しない）。
 連続失敗が閾値を超えたら環境異常とみなして停止する。
 
+タイムアウト・レートリミット耐性:
+  - 1関数ごとに --timeout（既定30分）で子プロセスを打ち切る（ハング対策）。
+    タイムアウトは通常のリトライ経路に乗る
+  - レートリミット/過負荷/利用枠上限（429・529・usage limit 等の応答）は「失敗」に
+    数えず、指数バックオフ（--backoff-base 60s → 2倍ずつ → --backoff-max 15分）で
+    待って同じ関数をやり直す。利用枠の時間リセットを人手なしで跨げる。
+    待機の累計が --rate-wait-total（既定6時間）を超えたら安全に停止する
+  - 予防的に間隔を空けたい環境では --pause N 秒
+
 進捗の正は従来どおりファイル側にあるので、Ctrl-C・電源断のどこで止めても
 同じコマンドで続きから再開できる（処理済み draft は --skip-draft 相当で除外、
 書きかけ draft は機械レビュー NG として検出し先に修復される）。
@@ -31,6 +40,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -49,6 +59,12 @@ def find_claude(explicit: str = None) -> str:
     return cand
 
 
+# レートリミット・過負荷・利用枠上限の検知（これらは「失敗」でなく「待って再試行」）
+RATE_LIMIT_PAT = re.compile(
+    r"rate.?limit|too many requests|\b429\b|overloaded|\b529\b|usage limit"
+    r"|quota|capacity|resets at|out of (credits|tokens)|limit reached", re.I)
+
+
 def run_claude(claude_cmd: str, prompt: str, root: Path, max_turns: int,
                extra: list, timeout: int) -> dict:
     """headless Claude を1プロセス起動し、JSON 結果を返す。"""
@@ -60,7 +76,8 @@ def run_claude(claude_cmd: str, prompt: str, root: Path, max_turns: int,
         r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"timeout {timeout}s"}
+        return {"ok": False, "timeout": True, "cost_usd": 0.0,
+                "tail": f"timeout {timeout}s", "err": ""}
     out = {}
     for line in reversed(r.stdout.strip().splitlines() or [""]):
         try:
@@ -68,12 +85,16 @@ def run_claude(claude_cmd: str, prompt: str, root: Path, max_turns: int,
             break
         except ValueError:
             continue
-    return {"ok": r.returncode == 0 and not out.get("is_error", False),
-            "exit_code": r.returncode,
-            "cost_usd": out.get("total_cost_usd") or out.get("cost_usd") or 0.0,
-            "num_turns": out.get("num_turns"),
-            "duration_ms": out.get("duration_ms"),
-            "tail": (out.get("result") or r.stdout or r.stderr or "")[-500:]}
+    res = {"ok": r.returncode == 0 and not out.get("is_error", False),
+           "exit_code": r.returncode,
+           "cost_usd": out.get("total_cost_usd") or out.get("cost_usd") or 0.0,
+           "num_turns": out.get("num_turns"),
+           "duration_ms": out.get("duration_ms"),
+           "tail": (out.get("result") or r.stdout or "")[-500:],
+           "err": (r.stderr or "")[-500:]}
+    res["rate_limited"] = bool(not res["ok"]
+                               and RATE_LIMIT_PAT.search(res["tail"] + " " + res["err"]))
+    return res
 
 
 def verify_spec(root: str, fid: str) -> tuple:
@@ -122,6 +143,7 @@ def cmd_spec(args) -> None:
     done = failed = 0
     consecutive_fail = 0
     cost_total = 0.0
+    rate_waited = 0
     skip: set = set()
 
     def targets(rep: dict = None) -> list:
@@ -158,11 +180,34 @@ def cmd_spec(args) -> None:
 
             prompt = args.prompt_template.format(fid=fid)
             ok, why = False, ""
-            for attempt in range(1, args.retries + 2):
+            attempt, backoff = 0, args.backoff_base
+            while attempt <= args.retries:
                 t0 = time.time()
                 r = run_claude(claude_cmd, prompt, root, args.max_turns, extra, args.timeout)
                 cost_total += r.get("cost_usd") or 0.0
+
+                # レートリミット/過負荷/利用枠上限: 失敗に数えず、待って同じ関数をやり直す
+                # （利用枠は時間で回復する。夜間無人実行が人手なしで再開するための要）
+                if r.get("rate_limited"):
+                    if rate_waited >= args.rate_wait_total:
+                        print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。"
+                              f"停止する（再開は同じコマンド）")
+                        raise KeyboardInterrupt
+                    wait = min(backoff, args.backoff_max)
+                    print(f"  {fid}: レートリミット/利用枠を検知 → {wait}s 待機"
+                          f"（累計 {rate_waited}s）: {r.get('tail', '')[:80]}")
+                    log_line(root, {"func_id": fid, "rate_limited": True, "wait_sec": wait,
+                                    "tail": r.get("tail", "")[:200]})
+                    time.sleep(wait)
+                    rate_waited += wait
+                    backoff *= 2
+                    continue                      # attempt は消費しない
+
+                attempt += 1
+                backoff = args.backoff_base       # 正常応答が返ったらバックオフをリセット
                 ok, why = verify_spec(str(args.root), fid)
+                if r.get("timeout") and not ok:
+                    why = f"タイムアウト（{args.timeout}s）: " + why
                 log_line(root, {"func_id": fid, "attempt": attempt, "ok": ok,
                                 "why": why, "cost_usd": r.get("cost_usd"),
                                 "claude_ok": r.get("ok"), "num_turns": r.get("num_turns"),
@@ -186,6 +231,8 @@ def cmd_spec(args) -> None:
                           f"skill配置・claude CLI を確認）。停止する")
                     break
 
+            if args.pause and todo:
+                time.sleep(args.pause)       # 予防的ペーシング（レートリミット回避）
             if (done + failed) % args.chunk == 0:
                 rep = refresh_outputs(root)
                 todo = targets(rep)          # チャンク境界でのみ再計算（性能・自己修復の両立）
@@ -220,6 +267,14 @@ def main() -> None:
                    help="連続失敗でドライバを停止する閾値（既定3）")
     s.add_argument("--max-turns", type=int, default=50, help="1関数あたりのターン上限")
     s.add_argument("--timeout", type=int, default=1800, help="1関数あたりの秒数上限（既定30分）")
+    s.add_argument("--backoff-base", type=int, default=60,
+                   help="レートリミット検知時の初期待機秒（以後2倍ずつ。既定60）")
+    s.add_argument("--backoff-max", type=int, default=900,
+                   help="1回の待機の上限秒（既定900=15分）")
+    s.add_argument("--rate-wait-total", type=int, default=21600,
+                   help="レート待機の累計上限秒。超えたら停止（既定21600=6時間）")
+    s.add_argument("--pause", type=float, default=0,
+                   help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
     s.add_argument("--model", default=None, help="claude に渡すモデル指定")
     s.add_argument("--skip-permissions", action="store_true",
                    help="--dangerously-skip-permissions を claude に渡す（信頼できる環境のみ）")
