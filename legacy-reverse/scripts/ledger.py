@@ -312,8 +312,13 @@ def cmd_wbs(p: Project, args) -> None:
     tampered = [fid for fid in order if stats[fid]["test_code_tampered"]]
     failing = [fid for fid in order
                if stats[fid]["test"] == "fail" and not stats[fid]["blocked_by"]]
-    if blocked or stale or tampered or failing:
+    drafts = [fid for fid in order if stats[fid]["spec"] == "draft"]
+    if blocked or stale or tampered or failing or drafts:
         lines += ["# 要対応", "", "| 種別 | 関数 | 詳細 |", "|------|------|------|"]
+        if drafts:
+            ref = ("[一斉レビュー表](spec-review.md)"
+                   if (p.docs / "spec-review.md").exists() else "関数一覧の ▲draft を参照")
+            lines.append(f"| ▲ ①レビュー待ち | {len(drafts)} 件 | {ref} |")
         for fid, iss in blocked:
             lines.append(f"| ⛔ 裁定待ち | {_spec_ref(fid, stats[fid])} | [{iss}](issues/{iss}.md) |")
         for fid in stale:
@@ -542,16 +547,28 @@ def cmd_status(p: Project, args) -> None:
             print(f"{s['func_id']}: {flags}{extra}")
 
 
+PHASE_LABEL = {"1": "①spec", "2": "②test-spec", "3": "③test-code",
+               "4": "④impl", "5": "⑤test"}
+
+
 def cmd_next(p: Project, args) -> None:
     order, _ = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
+    want = PHASE_LABEL.get(getattr(args, "phase", None) or "", getattr(args, "phase", None))
+    skip_wait = getattr(args, "skip_draft", False)
     todo = []
     for fid in order:
         s = p.status_of(fmap[fid])
         if s["blocked_by"]:
             continue
         phase = _next_phase(s)
-        if phase:
+        # --skip-draft: 人のレビュー/承認待ちを除外し「AIの作業が残っているもの」だけにする
+        # （バッチ全件モードの再開時、draft を二重に書き直さないための機械的な区別）
+        if skip_wait and ((phase == "①spec" and s["spec"] == "draft")
+                          or (phase == "②test-spec" and s["test_spec"] == "generated"
+                              and not s["test_spec_stale"])):
+            continue
+        if phase and (not want or phase == want):
             todo.append((fid, phase))
             if not getattr(args, "all", False):
                 break
@@ -704,7 +721,7 @@ def main() -> None:
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
-    s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20)
+    s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）")
     sub.add_parser("next-issue")
     s = sub.add_parser("freeze-tests"); s.add_argument("func_id")
     s = sub.add_parser("block"); s.add_argument("func_id"); s.add_argument("issue_id")

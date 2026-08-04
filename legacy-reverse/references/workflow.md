@@ -100,6 +100,11 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 
 勝手に approved にしない。承認待ちで turn を終えるのは正しい動作。
 
+- **①は一斉レビュー可**: バッチモード（legacy-1-spec）で複数関数を draft まで連続処理し、
+  `review_checks.py report` が生成する docs/spec-review.md（一斉レビュー表）で人が
+  まとめて OK / 個別修正指示を返せる。承認が人であることは変わらない（粒度の違いだけ）
+- **draft は再実行（書き直し）自由**。reviewed の書き直しは②が stale になるため人の了承を先に取る
+
 ## ④⑤ループと再開
 
 - attempt は「最後の裁定以降の⑤実行回数」。上限3

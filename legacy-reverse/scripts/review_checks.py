@@ -4,6 +4,8 @@
 LLM が書いた①仕様書・②テスト仕様書を、LLM を使わずに検証する。
 「もっともらしいが根拠のない記述」「勝手な省略」を人のレビュー前に機械で落とすための関門。
 
+report              ①draft の一斉レビュー表を docs/spec-review.md に生成
+                    （バッチ実行後の人の一括レビュー用。概要・🟢🟡🔴内訳・機械レビュー・ISSUE）
 spec <func-id>      ①のレビュー:
   - 根拠 `file:lines` の実在検証（ファイルが存在し、行範囲がファイル内に収まるか）
   - 🟢(VERIFIED) なのに有効な根拠引用がない項目の検出
@@ -215,6 +217,67 @@ def check_all(root: str) -> dict:
             "results": [r for r in results if not r["ok"]]}
 
 
+def make_report(root: str) -> dict:
+    """①draft 仕様書の一斉レビュー表 docs/spec-review.md を生成する。
+
+    バッチ実行（複数関数を連続で draft 化）の後、人がまとめてレビューするための一覧。
+    概要・Confidence 内訳・機械レビュー結果・open ISSUE をリンク付きで並べる。
+    """
+    rootp = Path(root).resolve()
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from ledger import Project
+    p = Project(rootp)
+
+    open_issues: dict = {}
+    for ip in sorted((rootp / "docs" / "issues").glob("ISSUE-*.md")):
+        ifm = _frontmatter(ip.read_text(encoding="utf-8-sig"))
+        if ifm.get("status") == "open":
+            open_issues.setdefault(ifm.get("func-id", ""), []).append(ip.stem)
+
+    rows, ng_funcs = [], []
+    for f in p.funcs():
+        fid = f["func_id"]
+        sp = rootp / "docs" / "specs" / f"{fid}.md"
+        if not sp.exists():
+            continue
+        text = sp.read_text(encoding="utf-8-sig")
+        fm = _frontmatter(text)
+        if fm.get("status") != "draft":
+            continue
+        r = check_spec(root, fid)
+        if not r["ok"]:
+            ng_funcs.append(fid)
+        mo = re.search(r"(?ms)^# 概要\s*$(.*?)(?=^# |\Z)", text)
+        overview = ""
+        if mo:
+            body = re.sub(r"<!--.*?-->", "", mo.group(1), flags=re.S).strip()
+            # 表のセルに入れるので | はエスケープ（表崩れ防止）
+            overview = body.splitlines()[0][:60].replace("|", "\\|") if body else ""
+        c = r["confidence"]
+        mech = "✅" if r["ok"] else f"❌ {len(r['problems'])}件"
+        iss = " ".join(f"[{i}](issues/{i}.md)" for i in open_issues.get(fid, [])) or "—"
+        name = f["new"].get("name", fid)
+        rows.append(f"| [{name}](specs/{fid}.md) | {overview} "
+                    f"| {c['🟢']} | {c['🟡']} | {c['🔴']} | {mech} | {iss} |")
+
+    lines = ["---", 'title: "① 仕様書 一斉レビュー"', "date: last-modified", "---", "",
+             "<!-- review_checks.py report による自動生成。手編集禁止 -->", ""]
+    if rows:
+        lines += [
+            f"レビュー待ち（draft）: **{len(rows)} 件**。各行のリンクから仕様書を開き、"
+            "🟡🔴 の妥当性と ISSUE の質問を確認してください。", "",
+            "回答の仕方: チャットで「全部OK」または「F-xxxx は修正: 〜」。"
+            "OK されたものを skill が reviewed に更新します。", "",
+            "| 関数 | 概要 | 🟢 | 🟡 | 🔴 | 機械レビュー | 未確定(ISSUE) |",
+            "|------|------|:-:|:-:|:-:|:---:|------|"] + rows
+    else:
+        lines.append("レビュー待ちの仕様書（draft）はありません 🎉")
+    out = rootp / "docs" / "spec-review.md"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"ok": not ng_funcs, "drafts": len(rows), "machine_ng": len(ng_funcs),
+            "machine_ng_funcs": ng_funcs, "path": str(out)}
+
+
 def _print_result(r: dict) -> None:
     mark = "OK" if r["ok"] else "NG"
     print(f"[{mark}] {r.get('func_id', '')} {r.get('target', '')} (status: {r.get('status', '-')})")
@@ -227,11 +290,17 @@ def _print_result(r: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["spec", "testspec", "all"])
+    ap.add_argument("cmd", choices=["spec", "testspec", "all", "report"])
     ap.add_argument("func_id", nargs="?")
     ap.add_argument("--root", default=".")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+
+    if args.cmd == "report":
+        res = make_report(args.root)
+        print(json.dumps(res, ensure_ascii=False) if args.json else
+              f"drafts={res['drafts']} 機械NG={res['machine_ng']} → {res['path']}")
+        sys.exit(0 if res["ok"] else 1)
 
     if args.cmd == "all":
         res = check_all(args.root)

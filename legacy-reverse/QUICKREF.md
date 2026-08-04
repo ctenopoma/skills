@@ -21,7 +21,7 @@ python <LR>/scripts/review_checks.py all --root .    # 成果物の健全性
 | フェーズ | 起動 | 完了条件 | 通過必須の機械ゲート |
 |---|---|---|---|
 | ⓪ 解析 | `/legacy-0-analyze` | functions.json 確定 | `extract_fortran.py --write`（Fortranは必ず機械抽出。再実行=マージで安全）＋ extract-report の突合ゼロ |
-| ① 仕様書 | `/legacy-1-spec F-xxxx` | status: reviewed（人がOK） | `review_checks.py spec F-xxxx` が NGゼロ |
+| ① 仕様書 | `/legacy-1-spec F-xxxx`（「まとめてN件」でバッチ） | status: reviewed（人がOK。バッチは spec-review.md で一斉レビュー） | `review_checks.py spec F-xxxx` が NGゼロ |
 | ② テスト仕様 | `/legacy-2-testspec F-xxxx` | status: approved（人がOK・⚠未確定ゼロ） | `review_checks.py testspec F-xxxx` が NGゼロ |
 | ③ テストコード | `/legacy-3-testcode F-xxxx` | `ledger freeze-tests` 済み | `pytest --collect-only` ＋ マーカー突合（exit 3 なら不整合） |
 | ④ 実装 | `/legacy-4-impl F-xxxx` | スタブゼロ | `check_stubs.py <module>` |
@@ -56,8 +56,21 @@ ledger unblock F-xxxx                       # 裁定反映後のブロック解�
 ```bash
 python <LR>/scripts/review_checks.py spec F-xxxx --root .      # ①: 引用実在・🟢根拠・省略
 python <LR>/scripts/review_checks.py testspec F-xxxx --root .  # ②: トレーサビリティ・捏造SPEC
+python <LR>/scripts/review_checks.py report --root .           # ①draft の一斉レビュー表を生成
 python <LR>/scripts/review_checks.py all --root . [--json]     # 総点検（⑥前・再開時）
 ```
+
+## ①のバッチ実行と一斉レビュー（全件・2000件規模対応）
+
+「仕様書をまとめて10件進めて」「①を全件進めて」→ AIが
+`next --all --phase 1 --skip-draft` で対象を選び（draft=レビュー待ちは除外）、
+機械レビューNGゼロの draft を連続生成 → `spec-review.md`（一斉レビュー表）へ誘導してくる。
+あなたは表を見て「全部OK」か「F-xxxx は修正: 〜」と返すだけ。
+
+- **途中で止まっても同じ指示で再開できる**（書きかけ draft は report の機械NGとして
+  検出され先に直される。処理済み draft は二重に書き直されない）
+- 全件を待たずに、溜まった draft を随時レビューして reviewed 化してよい
+- draft の書き直しは何度でも頼める（reviewed の書き直しは②が要再承認になる旨を確認される）
 
 ## ⓪ 機械抽出（Fortran）
 

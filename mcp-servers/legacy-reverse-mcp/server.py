@@ -63,9 +63,20 @@ def next_action(root: str = ".") -> str:
 
 
 @mcp.tool()
-def next_actions(root: str = ".", limit: int = 20) -> str:
-    """着手可能な関数を推奨順に最大 limit 件返す（fid<TAB>次フェーズ）。バッチ計画用。"""
-    return _ledger(root, "next", "--all", "--limit", str(limit))["output"]
+def next_actions(root: str = ".", limit: int = 20, phase: str | None = None,
+                 skip_draft: bool = False) -> str:
+    """着手可能な関数を推奨順に最大 limit 件返す（fid<TAB>次フェーズ）。バッチ計画用。
+
+    phase="1"〜"5" で対象フェーズを絞れる（例: ①のバッチ実行対象は phase="1"）。
+    skip_draft=True で人のレビュー/承認待ち（①draft・②generated）を除外する
+    ——バッチ全件モードの再開時はこれを使う（draft の二重書き直しを防ぐ）。
+    """
+    args = ["next", "--all", "--limit", str(limit)]
+    if phase:
+        args += ["--phase", phase]
+    if skip_draft:
+        args += ["--skip-draft"]
+    return _ledger(root, *args)["output"]
 
 
 @mcp.tool()
@@ -133,6 +144,16 @@ def review_testspec(root: str, func_id: str) -> dict:
 def review_all(root: str = ".") -> dict:
     """全関数の①②を一括機械レビューする（skeleton は除外）。⑥前の総点検に使う。"""
     return review_checks.check_all(root)
+
+
+@mcp.tool()
+def spec_review_report(root: str = ".") -> dict:
+    """①draft 仕様書の一斉レビュー表（docs/spec-review.md）を生成する。
+
+    バッチモード（複数関数を連続 draft 化）の後、人がブラウザでまとめて
+    レビューするための一覧。生成後に render_site で HTML 化して案内する。
+    """
+    return review_checks.make_report(root)
 
 
 # ---------- 台帳（書き込み） ----------
