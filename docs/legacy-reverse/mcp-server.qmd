@@ -1,0 +1,106 @@
+---
+title: "MCP サーバ仕様"
+subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツール"
+---
+
+# 設計方針(全体)
+
+`mcp-servers/legacy-reverse-mcp/server.py`(FastMCP)は、skills が Bash 経由で叩いていた
+スクリプト層を**型付きツール**として公開するサーバ。
+
+- **判断は持たない**。実体は `legacy-reverse/scripts/` の各スクリプトを
+  import または subprocess で呼ぶだけ(単体でも従来どおり動く。**二重管理なし**)
+- 戻り値は構造化(dict / list)。シェル引用の事故と許可プロンプトを減らす
+- 登録は**推奨だが必須ではない**。未登録環境では skill がスクリプトを直接実行する
+  (workflow.md の規則: 登録済み環境では MCP ツール優先)
+- 全ツールが `root`(対象プロジェクトのルート、既定 `"."`)を取る
+
+## 登録(対象プロジェクトの .mcp.json)
+
+```json
+{
+  "mcpServers": {
+    "legacy-reverse": {
+      "command": "python",
+      "args": ["<skillsリポジトリ>/mcp-servers/legacy-reverse-mcp/server.py"]
+    }
+  }
+}
+```
+
+## MCP 化しないもの(意図的な除外)
+
+| 対象 | 理由 |
+|------|------|
+| serve_site.py(配信) | 常駐プロセスのため。人が端末で立てる |
+| hooks/guard_tests.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
+
+# ツールリファレンス(26)
+
+## 台帳(読み取り) — ledger.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `pipeline_status` | root, func_id? | list[dict] | 全関数(または指定関数)の①〜⑤の進捗・stale・blocked 状態。WBS と同じ判定ロジック(`status_of()`)の生データ |
+| `next_action` | root | str | トポロジカル順(葉から)で次に着手すべき関数とフェーズ |
+| `next_actions` | root, limit=20, phase?, skip_draft=False | str | 着手可能な関数を推奨順に最大 limit 件(`fid<TAB>次フェーズ`)。バッチ計画用。`phase="1"〜"5"` で絞り込み、`skip_draft=True` で人のレビュー待ち(① draft・② generated)を除外 — バッチ全件モードの再開時に使う(draft の二重書き直し防止) |
+| `progress_summary` | root | dict | 各フェーズの完了数・blocked・stale・改変・fail の要約 JSON。2000 関数規模でも全関数リストを読まずに状況把握できる |
+| `verify` | root, func_id | dict | ハッシュ連鎖(①→②、③改変、blocked)の検証。`ok=false` なら `problems` に理由 |
+| `next_issue_id` | root | str | 次に使う ISSUE 番号(全体通し) |
+
+## ⓪ 機械抽出 — extract_fortran.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `extract_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | Fortran ソースを静的解析し functions.json を生成/マージ。**再実行は常にマージ(func_id 不変・手修正保持)**。返り値に完全性突合の差分・推定呼び出し・未解決名の件数。詳細は data/extract-report.json |
+
+## 機械レビュー — review_checks.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `review_spec` | root, func_id | dict | ①仕様書の機械レビュー。① draft 後・人レビュー依頼前に必ず実行し ok=true にしてから人に出す |
+| `review_testspec` | root, func_id | dict | ②テスト仕様書の機械レビュー。approved 依頼前に必ず実行 |
+| `review_all` | root | dict | 全関数の①②一括レビュー(skeleton 除外)。⑥前の総点検 |
+| `spec_review_report` | root | dict | ① draft の一斉レビュー表(docs/spec-review.md)を生成。生成後に render_site で HTML 化して人に案内する |
+
+検査内容の詳細は [品質ゲート仕様](quality.qmd#review_checkspy-の検査仕様)。
+
+## 台帳(書き込み) — ledger.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `generate_wbs` | root | dict | functions.json+成果物フロントマターから docs/index.qmd(WBS)を再生成 |
+| `generate_skeletons` | root, force=False | dict | functions.json から仕様書骨子を生成(既存はスキップ) |
+| `freeze_tests` | root, func_id | dict | ③完了時にテストコードのハッシュを台帳へ記録(以降の改変を検知可能に) |
+| `block` | root, func_id, issue_id | dict | 関数を裁定待ち(⛔)にする |
+| `unblock` | root, func_id | dict | 人の裁定反映後にブロック解除し attempt をリセット |
+| `phase_start` | root, phase, func_id | dict | フェーズ開始を記録(4/5 の間は hook が tests/ 編集を拒否) |
+| `phase_end` | root | dict | フェーズ終了を記録(hook 解除) |
+| `completion_check` | root | dict | ⑥完了検証を実行し docs/completion-check.md を生成。ok=true が⑥ pass |
+| `sphinx_index` | root | dict | functions.json から docs-sphinx/index.rst(関数一覧+トレース対応表)を再生成 |
+
+## 実行系
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `run_tests` | root, func_id | dict | **⑤の一括実行**: 事前 verify → pytest(tc マーカー収集)→ 結果報告書の自動生成。`result`: `pass / fail / blocked(要裁定) / mismatch(③マーカー不整合) / verify_ng`。報告書パス・実装率(rate)・attempt・blocked_by も返す |
+| `check_stubs` | root, module | dict | ④のスタブ検出。ok=true でスタブなし |
+| `profile` | root, script? | dict | ⑦の性能計測(cProfile → docs/perf.md)。script 未指定はテスト負荷のスモーク計測。ホットスポット判断は代表ワークロードで |
+
+## 出力系
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `render_site` | root, with_sphinx=True | dict | docs/ を Quarto で HTML 化 → 続けて Sphinx API を docs/_site/api に生成(**正順を内包**)。quarto 直叩きせず render_site.py を通す(Mermaid 影コピーのため) |
+| `build_pdf` | root, kind, title, output | dict | 種別ごとの合本 PDF。kind: `specs / test-specs / test-results` |
+| `build_viewer` | root, name?, port?, render=True, onedir=False | dict | WBS/仕様書サイト同梱の単体実行ファイル(EXE)を dist/ に生成。**1〜2 分かかるため呼び出し側のタイムアウトに注意**。PyInstaller 必要 |
+
+# 実装上の契約
+
+- `run_tests` は verify NG なら pytest を実行せず `verify_ng` で返す(stale なテストの pass を防ぐ)
+- subprocess 系の返り値は `{ok, exit_code, output}`(output は末尾 4000 文字。
+  `PYTHONIOENCODING=utf-8` を強制し Windows のコードページ問題を回避)
+- `progress_summary` は `ledger status --summary` の JSON をパースして返す
+  (パース不能時は `{ok: false, output}` に落ちる)
+- 大規模(2000 関数級)での再開は `progress_summary` + `next_actions` から。
+  **全関数リストをコンテキストに読み込まない**(`pipeline_status` の全件取得は分析用途に限る)

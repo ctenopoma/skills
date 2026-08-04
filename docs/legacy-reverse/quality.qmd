@@ -1,0 +1,101 @@
+---
+title: "品質ゲート仕様"
+subtitle: "ハルシネーション・省略・改変を機械で検知する層"
+---
+
+# 全体像
+
+LLM の成果物は、人のレビューに届く前に**決定的スクリプトの検証**を必ず通る。
+「NG が残る成果物を『できました』と報告してはいけない」が全フェーズ skill の共通規則。
+
+| フェーズ | ゲート | 検知対象 |
+|---|---|---|
+| ⓪ 完全性 | extract_fortran.py 内蔵 | 2 系統カウント突合による数え漏れ |
+| ① draft 後 | review_checks.py spec | 実在しない `file:lines` 引用、🟢なのに根拠なし、プレースホルダ残存(省略)、必須節欠落、原本ハッシュ不一致 |
+| ② 承認依頼前 | review_checks.py testspec | 🟢仕様項目のケース漏れ、①に無い SPEC-ID 参照(捏造)、宙に浮いた TC 参照、根拠の規定外表記、spec-hash 鮮度 |
+| ③ freeze 前 | pytest --collect-only + マーカー突合 | ケース ID とテスト関数の過不足(collect_results が exit 3) |
+| ④ 完了前 | check_stubs.py | 空実装・NotImplementedError・TODO/FIXME(スタブ化) |
+| ⑤ 事前 | ledger verify | ② stale・freeze 後のテスト改変・blocked の見落とし |
+| ⑥ 前 | review_checks.py all | 全関数の①②総点検 |
+
+この結果、**人のレビューは「意味が正しいか」に集中できる**。
+「引用された行は実在するか」「トレーサビリティは揃っているか」の照合作業は機械が済ませている。
+
+# 機械で取れないもの、の分担
+
+機械検知の限界は「式は書いてあるがレガシーの意図と違う」という**意味レベルのすり替え**。
+これは次の 2 つが受け持つ:
+
+1. **人の①レビュー** — Confidence(🟢🟡🔴)と行番号根拠が付いた状態で意味を確認する
+2. **⑤の突き合わせ** — 独立に作られたテスト(②③系)と実装(④系)の不一致として露見する
+
+疑わしければ ISSUE(仮説+Yes/No)へ。これが「機械が正、AI は意味づけ、裁定は人」の分担。
+
+# review_checks.py の検査仕様
+
+## ① spec 検査(`review_checks.py spec <fid>`)
+
+| 検査 | 検知するハルシネーション/手抜き |
+|------|-------------------------------|
+| 根拠引用の実在 | `file:lines` が実在するレガシー行を指しているか(存在しない行への引用 = 捏造) |
+| 🟢の根拠必須 | Confidence 🟢(確認済)なのに根拠引用がない項目 |
+| プレースホルダ残存 | テンプレの穴埋めが残っている(記入の省略) |
+| 必須節の欠落 | テンプレ(assets/templates/spec.md)が定める節の欠落 |
+| 原本ハッシュ鮮度 | 仕様書が参照するレガシー原本が書き換わっていないか |
+
+## ② testspec 検査(`review_checks.py testspec <fid>`)
+
+| 検査 | 検知するもの |
+|------|-------------|
+| トレーサビリティ(下り) | ①の🟢仕様項目すべてにテストケースが対応しているか(ケース漏れ) |
+| トレーサビリティ(上り) | 参照している SPEC-ID が①に実在するか(**仕様の捏造検知**) |
+| TC 参照の整合 | 宙に浮いたケース参照がないか |
+| 期待値根拠 | 根拠の表記が規定(仕様🟢/人間確認/実測)に準拠しているか |
+| ⚠未確定 | 未確定件数(approved の前提はゼロ) |
+| spec-hash 鮮度 | ①改訂後の古い②でないか |
+
+## 一斉レビュー支援(`review_checks.py report`)
+
+① draft の一斉レビュー表 docs/spec-review.md を生成(バッチ運用の要)。
+概要・Confidence 内訳・未回答質問を関数ごとに並べ、人が「全部 OK / F-xxxx は修正」で返せる。
+
+## 総点検(`review_checks.py all`)
+
+全関数の①②を一括検査(skeleton は除外)。⑥前の総点検と再開時の健全性確認に使う。
+
+# hook: guard_tests.py(テスト改変の物理防止)
+
+「AI がテストを書き換えて通す」事故を、プロンプトではなく**仕組み**で防ぐ。
+
+- PreToolUse hook として動作。`.legacy-reverse/state.json` の phase が 4 または 5 のとき、
+  tests/ への Edit/Write を**拒否**する
+- フェーズ skill は開始時 `ledger phase-start`、終了時 `phase-end` で状態を明示する契約
+- テスト側に疑義があるときの正規経路は ISSUE → 人承認 → ②③再生成(hook の迂回ではない)
+- hook は MCP 化しない(ツール呼び出しの強制ガードは hook の役割のまま)
+
+# スタブ検知: check_stubs.py
+
+④の「動いた風」を防ぐ。検知対象:
+
+- 本体が `pass` / `...` だけの関数(空実装)
+- `NotImplementedError`
+- TODO / FIXME コメント
+
+検知ありは④未完了扱い。実装しきれない場合の正規経路は spec-gap ISSUE → ①改訂。
+
+# ⑤の制御信号(collect_results.py の exit code)
+
+| exit | result | 意味 | 後続 |
+|------|--------|------|------|
+| 0 | pass | 実装率 100% かつ失敗 0 | WBS ✅ |
+| 1 | fail | 失敗あり | トリアージ((a) は自走、attempt +1) |
+| 2 | blocked | attempt 上限 3 到達 | triage ISSUE 自動起票・WBS ⛔・人の裁定待ち |
+| 3 | mismatch | ②のケース ID と③のマーカー不整合 | ③の突合修正(freeze 前なら③へ差し戻し) |
+
+# 完了検証: ledger check(⑥)
+
+フロントマター走査+ハッシュ照合で全関数を総点検し docs/completion-check.md を生成。
+
+- ①〜⑤の完了条件([データ仕様 — status 遷移](data.qmd#フロントマターの-status-遷移完了判定の正))を全関数で検査
+- open ISSUE・blocked・stale・改変の残存を列挙
+- `review_checks.py all` と併せて両方 exit 0 が⑥ pass

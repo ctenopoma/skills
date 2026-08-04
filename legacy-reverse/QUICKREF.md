@@ -100,7 +100,7 @@ python -m http.server 8765 --directory docs/_site           # cwd は _site の�
 
 extract_functions=機械抽出 / review_spec・review_testspec・review_all=機械レビュー /
 progress_summary=status --summary / next_actions=next --all / run_tests=⑤一括 /
-generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全24。
+generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全26。
 
 ## WBS の記号
 

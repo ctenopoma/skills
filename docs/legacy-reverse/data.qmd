@@ -1,0 +1,170 @@
+---
+title: "データ仕様"
+subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷移"
+---
+
+::: {.callout-note}
+スキーマの機械的な正は `legacy-reverse/references/schema.md`(skill が実行時に参照する原本)。
+本章はそれに設計意図を加えた解説版。両者が食い違ったら schema.md が正。
+:::
+
+# データ設計の原則(全体)
+
+- **functions.json が正データ**。⓪の機械抽出が生成・マージする。WBS・骨子・Sphinx 索引は
+  すべてここから再生成される派生物。手書き修正は functions.json に対して行い、派生物は作り直す
+- **完了状態は成果物自身が持つ**(フロントマターの status / ハッシュ)。別の進捗 DB を持たない。
+  「ファイルが正しければ進捗も正しい」が常に成り立ち、**再開が自明**になる
+- **ledger.json はスクリプト専用**の最小限の台帳(③ freeze ハッシュ・blocked・attempt 基準時刻)。
+  人も LLM も手編集しない
+- 機械可読メタデータは YAML フロントマターに集約。WBS・⑥はフロントマター走査で自動生成
+- 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない
+  (前例: coverage → tc-coverage に改名)
+
+# 対象プロジェクトのディレクトリ構成
+
+```
+<project>/
+  legacy/               # レガシー原文(読み取り専用。読めるのは ⓪ と ①改訂のみ)
+  src/<package>/        # ④ 新実装
+  tests/                # ③ テストコード(⑤ループ中は hook が編集拒否)
+  docs/
+    _quarto.yml         # HTML サイト+PDF 出力設定(テンプレから⓪で配置)
+    wbs.css             # WBS 関数一覧の列幅(テンプレからコピー)
+    index.qmd           # WBS(ledger.py wbs で自動生成。手編集禁止)
+    wbs/                # 200 関数超で自動生成されるファイル別明細(手編集禁止)
+    spec-review.md      # ① draft の一斉レビュー表(自動生成。手編集禁止)
+    _site/              # HTML 出力(render_site.py が作り直す。git 管理外)
+    _sitework/          # render 用の .qmd 影コピー(作業用。残らない)
+    conventions.md      # プロジェクト規約(⓪で確定。人が編集可)
+    domain-knowledge.md # 裁定の蓄積(人が編集可)
+    specs/F-xxxx.md              # ① 関数仕様書
+    test-specs/F-xxxx.md         # ② テスト仕様書
+    test-results/F-xxxx_日時.md  # ⑤ 結果報告書(毎回新規・自動生成)
+    issues/ISSUE-xxx.md          # 質問と裁定(回答欄は人が記入可)
+    improvements/XXX-nnn.md      # ⑦ 施策票
+    completion-check.md          # ⑥(自動生成)
+  docs-sphinx/          # ④ API ドキュメント設定(テンプレから⓪で配置)
+  data/
+    functions.json      # ⓪の解析結果(正データ)
+    extract-report.json # ⓪機械抽出の監査ログ
+    ledger.json         # ハッシュ・ブロック状態(スクリプト専用)
+  .legacy-reverse/
+    state.json          # 実行中フェーズ(hook の判定に使う)
+    last-run.json       # pytest プラグインの出力(⑤の一時データ)
+    pipeline-log.jsonl  # 無人バッチの実行ログ(関数別の結果・コスト・所要)
+```
+
+# data/functions.json
+
+⓪の機械抽出(extract_fortran.py)が生成・マージする正データ。
+
+```json
+{
+  "project": {
+    "name": "string",
+    "legacy_lang": "fortran | csharp | ...",
+    "new_lang": "python",
+    "package": "newpkg"
+  },
+  "functions": [
+    {
+      "func_id": "F-0123",
+      "legacy": { "file": "legacy/tax.cbl", "name": "CALC-TAX", "lines": "120-240" },
+      "new": {
+        "module": "src/newpkg/tax.py",
+        "name": "calc_tax",
+        "signature": "calc_tax(amount: Decimal, rate_code: str) -> Decimal"
+      },
+      "inputs":  [ { "name": "WK-AMOUNT", "legacy_type": "PIC 9(9)V99", "new_type": "Decimal", "desc": "課税対象額" } ],
+      "outputs": [ { "name": "WK-TAX", "legacy_type": "PIC 9(9)V99", "new_type": "Decimal", "desc": "税額" } ],
+      "globals": [ { "name": "TAX-RATE-TABLE", "access": "read", "desc": "税率マスタ" } ],
+      "external_files": [ { "path": "RATEMST.dat", "access": "read", "desc": "税率マスタファイル" } ],
+      "calls": [ "F-0087" ],
+      "test_file": "tests/test_tax.py"
+    }
+  ]
+}
+```
+
+- `func_id` は `F-` + 4 桁連番。**採番は抽出器が行い、マージ再実行でも不変**
+- `calls` は func_id の配列 — コールグラフの正データ(WBS の推奨着手順=葉から、の根拠)
+- `test_file` は⓪では省略可。③が確定させる
+
+## data/extract-report.json(監査ログ)
+
+⓪の機械抽出のたびに更新される。人と LLM がレビューすべき項目:
+
+| 項目 | 意味 |
+|------|------|
+| completeness_mismatches | 2 系統カウント突合の差分(数え漏れの疑い)。ゼロが⓪完了条件 |
+| inferred_calls | 静的解析で推定した呼び出し関係 |
+| unresolved_calls | 解決できなかった呼び出し名(外部ライブラリ等の可能性) |
+| マージ差分 | 再実行時の追加・変更・保持の内訳 |
+
+# data/ledger.json
+
+スクリプト(ledger.py / collect_results.py)だけが読み書きする。手編集禁止。
+
+```json
+{
+  "F-0123": {
+    "test_code_hash": "e5f6a7b8",
+    "blocked_by": null,
+    "attempt_reset_at": "2026-07-25T10:00"
+  }
+}
+```
+
+| キー | 意味 |
+|------|------|
+| test_code_hash | ③ freeze 時のテストファイル sha256 先頭 8 桁。現物と不一致 = ⚠改変 |
+| blocked_by | ④⑤ループ上限到達時の ISSUE-ID。人の裁定後 `unblock` で null に戻る |
+| attempt_reset_at | この時刻以降の結果ファイル数 = attempt(⑤実行回数)。unblock でリセット |
+
+# .legacy-reverse/state.json
+
+```json
+{ "phase": "5", "func_id": "F-0123" }
+```
+
+- フェーズ skill が開始時に `ledger.py phase-start <n> <func-id>`、終了時に `phase-end` で管理
+- hook(guard_tests.py)は phase が 4 または 5 のとき tests/ への Edit/Write を拒否する
+
+# フロントマターの status 遷移(完了判定の正)
+
+WBS の ✅ 判定・`ledger next` の着手可否判定は、すべてこの表に従う
+(判定ロジックは ledger.py の `status_of()` に一元化)。
+
+| 成果物 | 遷移 | WBS ✅ 条件 |
+|---|---|---|
+| ① spec | skeleton → draft → reviewed | reviewed |
+| ② test-spec | generated → approved | approved かつ spec-hash が現物と一致 |
+| ③ test-code | (ファイル+ledger) | ledger の test_code_hash が現物と一致 |
+| ④ impl | (ファイル) | new.module が存在しスタブ検出ゼロ |
+| ⑤ test | (最新結果ファイル) | result: pass(= 実装率 100% かつ失敗 0) |
+| ISSUE | open → answered → applied | — (open は WBS 最上部に露出) |
+| ⑦ 施策票 | proposed → approved → applied → verified | achieved |
+
+## ハッシュ連鎖の実装
+
+```{mermaid}
+flowchart LR
+  L["legacy 原文"] -->|"legacy.hash"| S1["① spec フロントマター"]
+  S1 -->|"spec-hash"| S2["② test-spec フロントマター"]
+  S2 --> S3["③ tests/"]
+  S3 -->|"freeze: test_code_hash"| LG[("ledger.json")]
+```
+
+- ハッシュは `ledger.py hash <path>`(sha256 先頭 8 桁)
+- `ledger verify <func-id>` が連鎖を検証。不一致 = 上流が改訂された = 下流は「要再生成」
+- ⑤の実行前に必ず verify が走るため、stale なテストで pass を出すことはできない
+
+# WBS の表示記号
+
+| 記号 | 意味 |
+|------|------|
+| ✅ | 完了(上表の条件を満たす) |
+| ▲ | 作業中(draft 等) |
+| ☐ | 未着手 |
+| ⛔ | 裁定待ち(blocked。ISSUE に回答を) |
+| ⚠ | stale(上流改訂)または改変(freeze 後変更)→ 要再確認 |

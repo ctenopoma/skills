@@ -1,0 +1,118 @@
+---
+title: "アーキテクチャと設計判断"
+subtitle: "スキル群の構造と、そうした理由"
+---
+
+# 責務の分離: skills / scripts / MCP / hooks
+
+本システムの最重要の設計判断は、**「判断」と「機械処理」を層で分けた**こと。
+
+```{mermaid}
+flowchart TB
+  subgraph skills["skills(判断・手順 = LLM が読む)"]
+    P["legacy-reverse<br>全体管理・次の一手"]
+    S0["legacy-0-analyze"] --> S1["legacy-1-spec"] --> S2["legacy-2-testspec"]
+    S2 --> S3["legacy-3-testcode"] --> S4["legacy-4-impl"] --> S5["legacy-5-test"]
+    S5 --> S6["legacy-6-check"] --> S7["legacy-7-analyze"]
+  end
+  subgraph scripts["scripts(機械操作 = 決定的)"]
+    EX["extract_fortran.py"]
+    LG["ledger.py"]
+    RV["review_checks.py"]
+    CS["check_stubs.py"] --- CR["collect_results.py"]
+    RS["render_site.py"] --- PB["pdf_book.py"]
+    PL["pipeline.py"]
+  end
+  MCP["legacy-reverse-mcp<br>scripts を型付きツール化"] --> scripts
+  HK["hooks/guard_tests.py<br>④⑤中の tests/ 編集拒否"]
+  skills -->|呼ぶ| scripts
+  scripts -->|読み書き| DATA[("functions.json / ledger.json<br>docs/ 成果物")]
+```
+
+| 層 | 中身 | 設計判断 |
+|----|------|---------|
+| skills | 「いつ・何を・どの順で」の手順書。実作業の判断(レガシー読解・仕様執筆・トリアージ)だけを LLM が行う | LLM は数え上げ・照合・台帳操作をすると誤る(ハルシネーション・省略)。判断以外を持たせない |
+| scripts | 単体でも動く決定的処理 | 列挙・検証・状態管理は再現性が命。LLM を通さない |
+| MCP | scripts を import/subprocess するだけの型付きラッパ | **二重管理なし**。ロジックは常に scripts 側が正 |
+| hooks | PreToolUse でツール呼び出し自体を拒否 | 「プロンプトで禁止」は破られ得る。強制は仕組みで |
+
+skills から scripts への呼び出しは、MCP 登録済み環境では **MCP ツール優先**、
+未登録なら直接実行。どちらでも実体は同一([運用設計 — 導入](operations.qmd#導入手順)参照)。
+
+# フェーズ・スキルの構成
+
+スキルは「全体管理 1 + フェーズ別 8」に分割されている。
+フェーズごとに分けるのは、(1) 情報遮断を「そのフェーズの skill には読んではいけない入力が
+書かれていない」形で構造化するため、(2) 人がトリガを引く単位と一致させるため。
+
+| skill | フェーズ | 責務 |
+|-------|---------|------|
+| legacy-reverse | — | セットアップ確認・進捗要約・次アクション提案(状態はスクリプトに聞く) |
+| legacy-0-analyze | ⓪ | 解析 → functions.json・骨子・WBS・規約(Fortran の列挙は機械抽出。LLM は説明の充填とレポート確認のみ) |
+| legacy-1-spec | ① | 仕様書執筆。**レガシーを読める唯一の役割**(spec-gap 改訂も担当)。バッチモードあり |
+| legacy-2-testspec | ② | テスト仕様。①のみ入力。人の承認ゲート |
+| legacy-3-testcode | ③ | テストコード。②のみ入力。完了時 freeze でハッシュ固定 |
+| legacy-4-impl | ④ | 実装。①のみ入力。スタブ禁止 |
+| legacy-5-test | ⑤ | 実行・結果収集・トリアージ・④⑤ループ管理 |
+| legacy-6-check | ⑥ | 完了検証と最終レンダリング |
+| legacy-7-analyze | ⑦ | 分析・改善(挙動保存。テスト全 pass 維持が絶対条件) |
+
+# クリーンルーム分業の意図
+
+②と④が互いを見ない・レガシーを見ないことが品質保証の核。
+
+```{mermaid}
+flowchart TB
+  L["legacy 原文"] --> S1["① 仕様書(共通の親)"]
+  S1 --> T["テスト系: ② → ③"]
+  S1 --> I["実装系: ④"]
+  T --> X["⑤ 突き合わせ"]
+  I --> X
+  X -->|"不一致 = 仕様の穴が露見"| G["spec-gap ISSUE → ①改訂"]
+```
+
+- ③が①やレガシーを見られると「実装に合わせたテスト」が書ける(=検証にならない)
+- ④がレガシーを見られると「写経」になり、仕様書に書かれていない暗黙挙動が残る
+- どちらも遮断すると、**仕様書の穴は⑤で機械的に(テスト失敗として)露見する**
+- ④が詰まったとき自力でレガシーを見に行くのではなく、spec-gap ISSUE を起票 →
+  ①改訂エージェント(レガシーを読める唯一の役割)が仕様を更新 → ハッシュ伝搬 → ④再開
+
+遮断表の正は references/workflow.md。[パイプライン仕様](pipeline.qmd#情報遮断表)に転載。
+
+# 主要コンポーネントの責務(scripts)
+
+| ファイル | 責務 | 設計メモ |
+|---|---|---|
+| extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ | 固定・自由形式、継続行、COMMON/USE/intent、call+関数参照の呼出推定。**再実行 = マージ(func_id 不変・手修正保持)**が再開性の要 |
+| ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック(WBS / next / check が共有)。200 関数超で WBS を自動分割 |
+| review_checks.py | ①②の機械レビュー | LLM 不使用。書式はテンプレ(assets/templates)に依存 |
+| render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで⓪時点でもリンク切れゼロ |
+| pipeline.py | ①の無人バッチドライバ | **1 関数 = 1 headless Claude プロセス**(毎回まっさらなコンテキスト = トークン上限に依存しない)。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止 |
+| collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号(0 pass / 1 fail / 2 blocked / 3 mismatch)。attempt 上限 3 で自動 block |
+| check_stubs.py | ④のスタブ検出 | 空実装・NotImplementedError・TODO/FIXME |
+| pdf_book.py | 種別ごとの合本 PDF | quarto-typst-pdf skill に委譲 |
+| serve_site.py | ローカル配信 | 127.0.0.1 のみ・プロジェクト別固定ポート・`--watch`。常駐なので MCP 化しない |
+| build_viewer.py | 配布用単体実行ファイル | サイト+配信サーバを PyInstaller で 1 ファイル化。受け手に Python / Quarto 不要 |
+| hooks/guard_tests.py | ④⑤中の tests/ 編集拒否 | state.json(phase-start / end)を見て判定 |
+
+# スケール設計(2000 関数級)
+
+会話コンテキストに全関数リストを載せない、が一貫した方針。
+
+- **WBS の自動 2 段構成**: 200 関数以下は 1 ページ。超えるとトップが
+  「要対応・次の一手・ファイル別進捗」のダッシュボードになり、明細は docs/wbs/ に分割
+- **軽量 API**: `ledger status --summary`(数行の JSON 要約)と `ledger next --all`
+  (着手可能リスト)。再開・状況把握はこの 2 つで足りる
+- **再開手順は常に同じ**: summary → next → review all。⓪の再抽出もマージなので安全
+- 呼び出し推定は全 function 名を 1 本の交替正規表現に畳んで走査(O(n²) 回避)
+- ①の全件実行は会話内ループ禁止(コンテキスト上限・コンパクション劣化)。
+  pipeline.py で 1 関数 1 プロセスに分解する
+
+# 拡張ポイント
+
+| 拡張 | 方法 |
+|---|---|
+| 新レガシー言語(C# 等) | extract_fortran.py と同じ出力契約(functions.json スキーマ+ extract-report)で抽出器を追加し、MCP ツールに登録 |
+| 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格(対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ)にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
+| 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント(①と legacy だけを読む)をドライバ段に挿入 |
+| 新言語ターゲット | 現状 Python+pytest。将来 JS / Rust 拡張を想定 |

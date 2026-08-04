@@ -1,0 +1,60 @@
+project:
+  type: website
+  output-dir: _site
+
+lang: ja
+
+website:
+  title: "legacy-reverse 設計・仕様書"
+  search:
+    location: navbar
+    type: overlay
+  navbar:
+    background: dark
+    left:
+      - text: "全体像"
+        href: index.qmd
+      - text: "スキル設計"
+        href: architecture.qmd
+      - text: "MCPサーバ"
+        href: mcp-server.qmd
+      - text: "運用設計"
+        href: operations.qmd
+  sidebar:
+    style: docked
+    collapse-level: 2
+    contents:
+      - section: "全体"
+        contents:
+          - text: "全体像(まずここ)"
+            href: index.qmd
+      - section: "スキル設計(詳細)"
+        contents:
+          - text: "アーキテクチャと設計判断"
+            href: architecture.qmd
+          - text: "パイプライン仕様(⓪〜⑦)"
+            href: pipeline.qmd
+          - text: "データ仕様"
+            href: data.qmd
+          - text: "品質ゲート仕様"
+            href: quality.qmd
+      - section: "MCPサーバ(詳細)"
+        contents:
+          - text: "legacy-reverse-mcp 仕様"
+            href: mcp-server.qmd
+      - section: "運用(詳細)"
+        contents:
+          - text: "運用設計"
+            href: operations.qmd
+  page-footer:
+    center: "legacy-reverse 設計・仕様書 — skills リポジトリ docs/legacy-reverse"
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "このページの目次"
+    number-sections: false
+    code-overflow: wrap
+    smooth-scroll: true
