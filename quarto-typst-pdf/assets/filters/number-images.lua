@@ -28,6 +28,8 @@ local function bare_image(block)
     and #block.content[1].caption == 0
 end
 
+-- Meta と Blocks を別パスに分ける。同一パスだと pandoc は型別順(Blocks → Meta)で
+-- 走らせるため、fig-supplement を読む前に画像を包んでしまう(常に "Figure" になる)。
 return {
   {
     Meta = function(meta)
@@ -37,7 +39,8 @@ return {
       end
       return meta
     end,
-
+  },
+  {
     Blocks = function(blocks)
       local out = {}
       for _, b in ipairs(blocks) do
