@@ -55,6 +55,99 @@ from ledger import Project, actionable, parse_frontmatter  # noqa: E402
 import check_stubs  # noqa: E402
 import review_checks  # noqa: E402
 
+# ①〜⑤の1関数実行に共通する既定値。argparse の既定と browser_run.py の単発実行の
+# 両方がこの辞書を参照する（手書きの二重定義による乖離を防ぐ）
+RUN_ARG_DEFAULTS = {"max_turns": 50, "timeout": 1800, "retries": 1,
+                    "backoff_base": 60, "backoff_max": 900, "rate_wait_total": 21600}
+
+
+# --- 実行スロットの排他（バッチとブラウザ単発が同じロックを取り合う） ------------
+#
+# pipeline-status.json の state チェックだけでは「チェックしてから RunStatus を
+# 作るまでの隙間」で二重起動できるため、O_CREAT|O_EXCL のファイル作成（OS レベルで
+# 原子的）でチェックと予約を1操作にする。ロックには保持プロセスの PID を書き、
+# 取得失敗時に保持プロセスの死活を確認してクラッシュの残骸は自動解除する
+# （Ctrl+C や強制終了で finally が走らなくても、次の実行が自力で復旧できる）。
+
+def run_lock_path(root: Path) -> Path:
+    return root / ".legacy-reverse" / "run.lock"
+
+
+def _pid_alive(pid: int) -> bool:
+    """その PID のプロセスが生存しているか。Windows の os.kill(pid, 0) は
+    シグナル 0 でも TerminateProcess になってしまうので OpenProcess で確認する。"""
+    if not pid or pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        SYNCHRONIZE = 0x00100000
+        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
+        if not h:
+            return False
+        ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def acquire_run_lock(root: Path, mode: str) -> bool:
+    """実行スロットのロックを取る。取れたら True。
+
+    保持プロセスが既に存在しないロック（クラッシュの残骸）は解除して取り直す。
+    （残骸解除→再取得の間に別プロセスが同じ判断をする狭い競合窓は残るが、
+    復旧経路は人が介在する頻度なので許容する。）
+    """
+    lock = run_lock_path(root)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"pid": os.getpid(), "mode": mode,
+                           "at": datetime.datetime.now().isoformat(timespec="seconds")}, f)
+            return True
+        except FileExistsError:
+            try:
+                holder = json.loads(lock.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                holder = {}
+            if _pid_alive(holder.get("pid")):
+                return False
+            print(f"note: 残骸ロックを解除する（{lock.name}: "
+                  f"pid={holder.get('pid')} は存在しない）")
+            lock.unlink(missing_ok=True)
+    return False
+
+
+def release_run_lock(root: Path) -> None:
+    run_lock_path(root).unlink(missing_ok=True)
+
+
+def current_run_state(root: Path) -> dict | None:
+    """実行中の枠（バッチ or ブラウザ単発）が埋まっていればその内容を返す。
+
+    書いたプロセス（pid）が既に存在しない場合はクラッシュの残骸として None を返す
+    （state: running のまま止まったファイルがブラウザのボタンを永久に塞がないように。
+    pid の無い旧形式ファイルも残骸として扱う）。
+    """
+    p = root / ".legacy-reverse" / "pipeline-status.json"
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if d.get("state") not in ("running", "waiting_rate"):
+        return None
+    if not _pid_alive(d.get("pid")):
+        return None
+    return d
+
 
 def find_claude(explicit: str = None) -> list:
     """claude の起動コマンド（リスト形式）を解決する。
@@ -119,35 +212,72 @@ RATE_LIMIT_PAT = re.compile(
     r"|quota|capacity|resets at|out of (credits|tokens)|limit reached", re.I)
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """claude のプロセスツリーを止める。Windows の claude.cmd 起動は cmd.exe の
+    子として node が動くため、proc.kill()（TerminateProcess）だけでは本体が残る。"""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       capture_output=True)
+    else:
+        proc.kill()
+
+
 def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
-               extra: list, timeout: int) -> dict:
-    """headless Claude を1プロセス起動し、JSON 結果を返す。"""
+               extra: list, timeout: int, cancel_event=None) -> dict:
+    """headless Claude を1プロセス起動し、JSON 結果を返す。
+
+    cancel_event（threading.Event）が set されたらプロセスツリーごと止めて
+    {"canceled": True} を返す（ブラウザ単発実行の中止用。バッチは None のまま）。
+    """
     cmd = claude_cmd + ["-p", prompt, "--output-format", "json",
                         "--max-turns", str(max_turns)] + extra
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    try:
-        r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout, env=env)
-    except subprocess.TimeoutExpired as e:
+    proc = subprocess.Popen(cmd, cwd=str(root), stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace", env=env)
+    deadline = time.monotonic() + timeout
+    stop = None                                    # None=完走 / "canceled" / "timeout"
+    while True:
+        try:
+            stdout, stderr = proc.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            if cancel_event is not None and cancel_event.is_set():
+                stop = "canceled"
+            elif time.monotonic() >= deadline:
+                stop = "timeout"
+            else:
+                continue
+            _kill_tree(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            break
+    if stop == "canceled":
+        return {"ok": False, "canceled": True, "cost_usd": 0.0,
+                "tail": "中止された", "err": "",
+                "stdout": stdout or "", "stderr": stderr or ""}
+    if stop == "timeout":
         return {"ok": False, "timeout": True, "cost_usd": 0.0,
                 "tail": f"timeout {timeout}s", "err": "",
-                "stdout": str(e.stdout or ""), "stderr": str(e.stderr or "")}
+                "stdout": stdout or "", "stderr": stderr or ""}
     out = {}
-    for line in reversed(r.stdout.strip().splitlines() or [""]):
+    for line in reversed((stdout or "").strip().splitlines() or [""]):
         try:
             out = json.loads(line)
             break
         except ValueError:
             continue
-    res = {"ok": r.returncode == 0 and not out.get("is_error", False),
-           "exit_code": r.returncode,
+    res = {"ok": proc.returncode == 0 and not out.get("is_error", False),
+           "exit_code": proc.returncode,
            "cost_usd": out.get("total_cost_usd") or out.get("cost_usd") or 0.0,
            "num_turns": out.get("num_turns"),
            "duration_ms": out.get("duration_ms"),
-           "tail": (out.get("result") or r.stdout or "")[-500:],
-           "err": (r.stderr or "")[-500:],
-           "stdout": r.stdout or "", "stderr": r.stderr or ""}
+           "tail": (out.get("result") or stdout or "")[-500:],
+           "err": (stderr or "")[-500:],
+           "stdout": stdout or "", "stderr": stderr or ""}
     res["rate_limited"] = bool(not res["ok"]
                                and RATE_LIMIT_PAT.search(res["tail"] + " " + res["err"]))
     return res
@@ -299,7 +429,7 @@ class RunStatus:
     def __init__(self, root: Path, mode: str, total: int, args):
         self.path = root / ".legacy-reverse" / "pipeline-status.json"
         self.ok_secs: list = []
-        self.d = {"state": "running", "mode": mode,
+        self.d = {"state": "running", "mode": mode, "pid": os.getpid(),
                   "started_at": datetime.datetime.now().isoformat(timespec="seconds"),
                   "total_targets": total, "done": 0, "failed": 0,
                   "cost_usd": 0.0, "budget_usd": args.budget_usd or None,
@@ -399,7 +529,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
            prompt_template: str, max_turns: int, timeout: int, retries: int,
            backoff_base: int, backoff_max: int, rate_wait_total: int,
            status: "RunStatus", cost_total: float, rate_waited: int,
-           verify_fn=verify_spec) -> tuple:
+           verify_fn=verify_spec, cancel_event=None) -> tuple:
     """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
     cmd_spec（①無人バッチ）と browser_run.py（ブラウザからの単発実行。①②対応）が共用する。
@@ -409,6 +539,8 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     戻り値: (ok, why, r, cost_total, rate_waited) — 呼び出し側の累計をこれで更新する。
     レート待機の累計上限超過は KeyboardInterrupt で呼び出し側に伝える（バッチの
     安全停止と同じ扱い。単発実行側もこれを捕まえて「停止」として扱えばよい）。
+    cancel_event（threading.Event）が set されたら実行中の claude を止め、
+    レート待機も打ち切って (False, "中止された", ...) を返す。
     """
     prompt = prompt_template.format(fid=fid)
     ok, why, r = False, "", {}
@@ -416,7 +548,8 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     while attempt <= retries:
         status.current(fid, attempt + 1)
         t0 = time.time()
-        r = run_claude(claude_cmd, prompt, root, max_turns, extra, timeout)
+        r = run_claude(claude_cmd, prompt, root, max_turns, extra, timeout,
+                       cancel_event=cancel_event)
         cost_total += r.get("cost_usd") or 0.0
 
         if r.get("rate_limited"):
@@ -428,10 +561,25 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
             log_line(root, {"func_id": fid, "rate_limited": True, "wait_sec": wait,
                             "tail": r.get("tail", "")[:200]})
             status.waiting(wait, rate_waited + wait, r.get("tail", ""))
-            time.sleep(wait)
-            rate_waited += wait
-            backoff *= 2
-            continue                          # attempt は消費しない
+            if cancel_event is not None and cancel_event.wait(wait):
+                r = dict(r, canceled=True)    # 待機中の中止 → 下の中止処理に合流
+            else:
+                if cancel_event is None:
+                    time.sleep(wait)
+                rate_waited += wait
+                backoff *= 2
+                continue                      # attempt は消費しない
+
+        if r.get("canceled"):
+            attempt += 1
+            ok, why = False, "中止された"
+            save_agent_log(root, fid, attempt, r)
+            log_line(root, {"func_id": fid, "attempt": attempt, "ok": False,
+                            "why": why, "canceled": True,
+                            "sec": round(time.time() - t0)})
+            status.result(fid, False, why, "中止", round(time.time() - t0),
+                          cost_total, r, attempt)
+            break
 
         attempt += 1
         backoff = backoff_base
@@ -503,9 +651,9 @@ def cmd_spec(args) -> None:
         return
 
     status = RunStatus(root, "spec", len(todo), args)
-    import zlib
+    import serve_site                        # ポート規則は serve_site.default_port が正
     pname = p.functions.get("project", {}).get("name") or root.name
-    live_port = 8100 + zlib.crc32(pname.encode("utf-8")) % 800   # serve_site.py と同じ規則
+    live_port = serve_site.default_port(pname)
     print(f"ライブ進捗: http://127.0.0.1:{live_port}/pipeline.html"
           f"（serve_site.py を起動していれば。2〜3秒ごとに自動更新）")
 
@@ -578,6 +726,10 @@ def cmd_spec(args) -> None:
 
 
 def main() -> None:
+    # claude の応答やサブプロセスの stderr（絵文字・置換文字を含み得る）を print するため、
+    # cp932 コンソールでも UnicodeEncodeError で落ちないようにしておく
+    import serve_site
+    serve_site.use_utf8_console()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -586,16 +738,19 @@ def main() -> None:
     s.add_argument("--chunk", type=int, default=10, help="WBS/レビュー表を更新する間隔（既定10件）")
     s.add_argument("--max-funcs", type=int, default=0, help="このセッションで処理する上限（0=無制限）")
     s.add_argument("--budget-usd", type=float, default=0, help="累計コスト上限 USD（0=無制限）")
-    s.add_argument("--retries", type=int, default=1, help="検証NG時のリトライ回数（既定1）")
+    s.add_argument("--retries", type=int, default=RUN_ARG_DEFAULTS["retries"],
+                   help="検証NG時のリトライ回数（既定1）")
     s.add_argument("--max-consecutive-fail", type=int, default=3,
                    help="連続失敗でドライバを停止する閾値（既定3）")
-    s.add_argument("--max-turns", type=int, default=50, help="1関数あたりのターン上限")
-    s.add_argument("--timeout", type=int, default=1800, help="1関数あたりの秒数上限（既定30分）")
-    s.add_argument("--backoff-base", type=int, default=60,
+    s.add_argument("--max-turns", type=int, default=RUN_ARG_DEFAULTS["max_turns"],
+                   help="1関数あたりのターン上限")
+    s.add_argument("--timeout", type=int, default=RUN_ARG_DEFAULTS["timeout"],
+                   help="1関数あたりの秒数上限（既定30分）")
+    s.add_argument("--backoff-base", type=int, default=RUN_ARG_DEFAULTS["backoff_base"],
                    help="レートリミット検知時の初期待機秒（以後2倍ずつ。既定60）")
-    s.add_argument("--backoff-max", type=int, default=900,
+    s.add_argument("--backoff-max", type=int, default=RUN_ARG_DEFAULTS["backoff_max"],
                    help="1回の待機の上限秒（既定900=15分）")
-    s.add_argument("--rate-wait-total", type=int, default=21600,
+    s.add_argument("--rate-wait-total", type=int, default=RUN_ARG_DEFAULTS["rate_wait_total"],
                    help="レート待機の累計上限秒。超えたら停止（既定21600=6時間）")
     s.add_argument("--pause", type=float, default=0,
                    help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
@@ -610,7 +765,25 @@ def main() -> None:
     s.add_argument("--no-render", action="store_true", help="終了時の HTML 再生成を省略")
     args = ap.parse_args()
     if args.cmd == "spec":
-        cmd_spec(args)
+        root = Path(args.root).resolve()
+        if args.dry_run:
+            cmd_spec(args)
+            return
+        # バッチとブラウザ単発（browser_run.py）は同じ実行スロットを取り合う。
+        # 逆方向（バッチがブラウザ実行を尊重する）もここで成立させる
+        running = current_run_state(root)
+        if running:
+            cur = (running.get("current") or {}).get("func_id")
+            sys.exit(f"error: 別の実行が進行中（{running.get('mode')}"
+                     + (f"・{cur}" if cur else "")
+                     + "）。/pipeline.html で確認するか、完了を待ってから実行する")
+        if not acquire_run_lock(root, "spec"):
+            sys.exit("error: 別の実行がロックを保持中（.legacy-reverse/run.lock）。"
+                     "実行中のバッチ/ブラウザ単発が本当に無いか確認する")
+        try:
+            cmd_spec(args)
+        finally:
+            release_run_lock(root)
 
 
 if __name__ == "__main__":

@@ -72,7 +72,7 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
 
-### ブラウザからの単発実行（browser_run.py。試作・①〜④対応）
+### ブラウザからの単発実行（browser_run.py。試作・①〜⑤対応）
 
 「1関数だけ様子を見ながら進めたい」向けに、pipeline.py の実行ロジック
 （`run_one` / `RunStatus` / 起動プリフライト・agent-logs 保存）をそのまま流用した
@@ -106,17 +106,58 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   **状態を finished にするのは WBS・サイトの更新（と④ならSphinx）が終わった後**
   ——先に finished にすると、ポーリング側が「終わった」と判断してまだ古いままの
   ページを reload してしまう（承認ウィジェットへの切替が反映されない）ため
-- **排他制御は2段構え**。バッチとの排他は pipeline-status.json を共有することで実現
-  （バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様）。
-  ブラウザ同士の排他（二重クリック・複数タブ）はこれだけでは防げない——
-  start() が即座に返り、状態ファイルへの書き込みはバックグラウンドスレッド側で
-  少し後に起きるため、ほぼ同時の2リクエストが両方ともチェックを通り抜ける隙間が
-  あるため。この隙間は `.legacy-reverse/browser-run.lock`（`O_CREAT|O_EXCL` の
-  原子的なファイル作成）で塞いでいる。ロックは実行完了までスレッド側で保持し、
-  検証NG等での早期returnはその場で解放する
-- FROZEN・ローカルホスト限定などのガードは `/review-action` と共通（serve_site.py の
-  `WRITE_ROUTES` にまとめてある）
-- 現状は①〜⑤。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
+- **排他制御は実行スロットロックで双方向**。バッチ（pipeline.py）とブラウザ単発は
+  同じ `.legacy-reverse/run.lock`（`O_CREAT|O_EXCL` の原子的なファイル作成。
+  `pipeline.acquire_run_lock`）を取り合う——バッチがブラウザ実行を、ブラウザが
+  バッチを、どちらの方向でも締め出す。pipeline-status.json の running チェック
+  （`pipeline.current_run_state`）は分かりやすいエラーメッセージ用の補助で、
+  本命はロック。ロックには保持プロセスの **PID** が入っており、取得失敗時に
+  死活を確認してクラッシュの残骸（Ctrl+C・強制終了で finally が走らなかった
+  ケース）は自動解除する。status ファイル側も同様に `pid` を持ち、書いた
+  プロセスが死んでいる running は無視される——**残骸がボタンやバッチを永久に
+  塞ぐことはない**。ロックは実行完了までスレッド側で保持し、検証NG等での
+  早期returnはその場で解放する
+- **中止できる**: 実行中はボタン横に「中止」が出る（`POST /run-cancel` →
+  `browser_run.cancel()` が cancel_event を set → `run_claude` がプロセスツリー
+  ごと kill。Windows は claude.cmd の子に node が居るため taskkill /T を使う）。
+  レート待機中も event.wait で即座に打ち切れる。serve_site.py の終了時
+  （Ctrl+C）も `browser_run.shutdown()` が同じ経路で中止して片付けを待つので、
+  claude の孤児プロセスやロック残留を残さない
+- 単発の `rate_wait_total` は **900秒**（バッチの6時間と違い、人がボタンを押して
+  待っている対話操作なので、15分で諦めて「今は混んでいる」ことを返す）。
+  それ以外の既定値は `pipeline.RUN_ARG_DEFAULTS` をバッチと共有する
+- claude の起動プリフライトは `start()`（POST の同期部分）で1回だけ行い、
+  解決済みコマンドをスレッドに渡す。起動不能はボタン押下の直後に分かり、
+  スレッド側の「state=running だが current 未設定」の空白時間も短くなる
+- ウィジェットの JS（実行・⑥・承認の3種）は `browser_run.WIDGETS_JS` に集約し、
+  render_site.py が `_site/lr-widgets.js` として書き出す。各ページは
+  `<script src="/lr-widgets.js">` で参照する（ページごとの複製をやめ、修正1箇所）
+- FROZEN・ローカルホスト限定に加え **Host/Origin ヘッダ検証**（DNSリバインディング・
+  `text/plain` フォームのCSRF対策）を全 POST に掛ける（serve_site.py の
+  `WRITE_ROUTES` と `_cross_site_reason` にまとめてある）
+- **修正依頼・機械NGの再実行**: draft/generated（承認待ち）は通常ボタンを出さないが、
+  人の修正依頼(pending)か機械レビューNGが残っている間だけ、承認ウィジェット内に
+  「再実行」ボタンが出る（`review_actions.widget_html` が埋め込み、サーバ側は
+  `_decide_kind(include_rerun=True)` で検証。`_rerun_wanted` が
+  `pending_feedback_kinds` と `check_spec/check_testspec` で判定）。
+  `request_changes` は送信後に `refresh_site` を呼んでボタンを即座に出す
+- **⑤裁定（ISSUE回答→unblock）もブラウザで完結**: blocked の関数の①ページに
+  裁定ウィジェット（`review_actions.adjudicate_widget_html`）が出て、ISSUE の
+  「質問（人への問い）」をその場に表示する。回答を書いて送ると
+  `review_actions.adjudicate` が ISSUE に回答を記入（status: answered）→
+  `ledger unblock` → サイト更新まで行う。リロード後は「⑤を実行する」ボタンに
+  切り替わり、AI が回答を反映して再テストする
+- **連続実行（ブラウザからのバッチ）**: `/pipeline.html` の「連続実行」→
+  `POST /run-batch` → `browser_run.batch_start`。全関数を走査して
+  `_decide_kind(include_rerun=True)` が返す「次に着手できる工程」を1件ずつ実行し、
+  実行後に再走査する（③が終われば同じ関数の④、承認が下りれば次工程、と自動で進む。
+  承認・裁定待ちと完了はスキップ）。失敗した (関数, 工程) は同一バッチ内で再試行せず、
+  連続3件失敗で安全停止。5件ごとに `refresh_site` するので、人は実行中も
+  ブラウザで承認・裁定を並行できる。上限件数・予算指定可。停止は単発と同じ
+  `/run-cancel`。レート待機は無人前提なのでバッチ既定の6時間
+- CLI の pipeline.py は①専用の従来バッチとして残る（数百件を最初に流す用途）。
+  連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する
+- 現状は①〜⑥（⑥は下記別枠）。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
 
 ### ⑤（テスト実行）の verify_fn が①〜④と違う点
 
@@ -141,11 +182,10 @@ orchestrator から見て「異常な失敗」ではなく「設計どおりの�
 結果を返す。ボタンは docs/index.qmd（WBSトップ）に常に表示される
 （`browser_run.check_widget_html`。未完了でも「今どれだけ足りないか」を見る用途で
 実行してよい設計のため、①〜⑤のような条件付き表示にしていない）。
-排他は①〜⑤と同じ `.legacy-reverse/browser-run.lock` を共有する
-（バッチ/ブラウザの①〜⑤実行中は拒否。ただし CLI バッチと ⑥ の間には
-pipeline-status.json 経由のチェックのみで、check 実行の直前に CLI バッチが
-割り込む微小な隙間は残る——`ledger check` は読み取り専用の状態スナップショットで、
-いつでも再実行してよい性質のツールなので許容している）。
+排他は①〜⑤・CLI バッチと同じ `.legacy-reverse/run.lock` を共有する
+（バッチも同じロックを取るようになったため、check 実行中にバッチが割り込む
+隙間は無い。逆に⑥の数十秒はバッチ開始がロック取得失敗で断られるが、
+`ledger check` は短時間で終わるので再実行すればよい）。
 
 `/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
 **中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。

@@ -40,6 +40,9 @@ import time
 import webbrowser
 import zlib
 from pathlib import Path
+from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # 隣の *.py を import できるように
 
 FROZEN = getattr(sys, "frozen", False)
 BUNDLE = Path(getattr(sys, "_MEIPASS", "")) if FROZEN else None
@@ -172,6 +175,22 @@ details summary{cursor:pointer}
 <h1>バッチ実行状況 <span id="state" class="badge none">--</span></h1>
 <div class="muted"><a href="/">← WBS へ</a> ／ 2.5秒ごとに自動更新 ／
   最終更新: <span id="upd">--</span></div>
+<div class="card" style="margin:14px 0;padding:12px 16px">
+  <div style="font-weight:600;margin-bottom:6px">連続実行（①〜⑤の機械実行を自動で回す）</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="bmax" type="number" min="1" placeholder="上限件数（空=全部）"
+           style="width:150px;padding:5px 8px;border:1px solid #9ca3af;border-radius:6px">
+    <input id="bbudget" type="number" min="0" step="0.5" placeholder="予算$（空=無制限）"
+           style="width:150px;padding:5px 8px;border:1px solid #9ca3af;border-radius:6px">
+    <button onclick="batchStart()" style="background:#4f46e5;color:#fff;border:0;
+            border-radius:6px;padding:7px 16px;font-weight:600;cursor:pointer">開始</button>
+    <button onclick="batchStop()" style="background:#fff;border:1px solid #991b1b;color:#991b1b;
+            border-radius:6px;padding:7px 16px;cursor:pointer">停止</button>
+    <span id="bmsg" class="muted"></span>
+  </div>
+  <div class="muted" style="margin-top:4px">承認待ち（①②）と裁定待ち（⑤⛔）はスキップして進みます。
+    実行中もWBS上で承認・裁定でき、次の走査で自動的に拾われます。</div>
+</div>
 <div id="now" style="margin:14px 0;font-size:1.05rem"></div>
 <div class="bar"><div id="barok" style="width:0%"></div></div>
 <div id="counts" class="muted"></div>
@@ -260,6 +279,20 @@ function renderRecent(recent){
            `<td>${body}</td></tr>`;
   }).join("");
 }
+function batchPost(url, body){
+  const msg = document.getElementById("bmsg");
+  fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+              body: JSON.stringify(body || {})})
+    .then(r => r.json())
+    .then(d => { msg.textContent = d.message || (d.ok ? "OK" : "失敗"); tick(); })
+    .catch(e => { msg.textContent = "通信エラー: " + e
+                  + "（serve_site.py で配信していますか？）"; });
+}
+function batchStart(){
+  batchPost("/run-batch", {max_funcs: +document.getElementById("bmax").value || 0,
+                           budget_usd: +document.getElementById("bbudget").value || 0});
+}
+function batchStop(){ batchPost("/run-cancel", {}); }
 tick(); setInterval(tick, 2500);
 </script></body></html>
 """
@@ -315,10 +348,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check")
+    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check", "/run-cancel", "/run-batch")
+    LOCAL_NAMES = ("127.0.0.1", "localhost", "::1")
+
+    def _cross_site_reason(self) -> str | None:
+        """DNSリバインディング・クロスサイトのフォームPOST対策。問題があれば理由を返す。
+
+        接続元 127.0.0.1 の確認だけでは、(a) 攻撃者ドメインのDNSを 127.0.0.1 に
+        切り替えて同一オリジンで fetch させる、(b) text/plain フォームで preflight
+        なしに JSON を送り込む、の2経路が残る。Host と Origin のホスト名が
+        ローカルホストであることまで確認して両方を塞ぐ。
+        """
+        host = self.headers.get("Host") or ""
+        try:
+            hostname = urlsplit("//" + host).hostname
+        except ValueError:
+            hostname = None
+        if hostname not in self.LOCAL_NAMES:
+            return f"不正な Host ヘッダ（{host or 'なし'}）"
+        origin = self.headers.get("Origin")
+        if origin:
+            try:
+                oh = urlsplit(origin).hostname
+            except ValueError:
+                oh = None
+            if oh not in self.LOCAL_NAMES:
+                return f"クロスサイトの呼び出し（Origin: {origin}）"
+        return None
 
     def do_POST(self) -> None:
-        # ①②の仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
+        # 仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
         # 書き込み・実行系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
         # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換え・実行させない）。
         if self.path not in self.WRITE_ROUTES:
@@ -326,6 +385,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             self._send_json(403, {"ok": False, "message": "ローカルホストからのみ実行できます"})
+            return
+        reason = self._cross_site_reason()
+        if reason:
+            self._send_json(403, {"ok": False, "message": reason})
             return
         if FROZEN:
             self._send_json(403, {"ok": False,
@@ -342,12 +405,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {"ok": False, "message": "不正なリクエスト"})
             return
 
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
         try:
             if self.path == "/review-action":
                 res = self._handle_review_action(payload)
             elif self.path == "/run-check":
                 res = self._handle_run_check(payload)
+            elif self.path == "/run-cancel":
+                res = self._handle_run_cancel(payload)
+            elif self.path == "/run-batch":
+                res = self._handle_run_batch(payload)
             else:
                 res = self._handle_run_phase(payload)
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
@@ -365,6 +431,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return review_actions.request_changes(
                 str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
                 payload.get("approver") or "unknown", payload.get("comment") or "")
+        if action == "adjudicate":
+            return review_actions.adjudicate(
+                str(self.state_root), payload.get("func_id", ""), payload.get("issue_id", ""),
+                payload.get("approver") or "unknown", payload.get("comment") or "")
         return {"ok": False, "message": f"不明な action: {action}"}
 
     def _handle_run_phase(self, payload: dict) -> dict:
@@ -379,6 +449,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # /run-phase とは別ルートにしている
         import browser_run
         return browser_run.run_check(str(self.state_root))
+
+    def _handle_run_cancel(self, payload: dict) -> dict:
+        # 実行中のブラウザ単発/連続実行（このプロセスのバックグラウンドスレッド）を中止する
+        import browser_run
+        return browser_run.cancel(str(self.state_root))
+
+    def _handle_run_batch(self, payload: dict) -> dict:
+        # 連続実行（①〜⑤の機械実行を承認・裁定待ち以外で回し続ける）
+        import browser_run
+        return browser_run.batch_start(str(self.state_root),
+                                       payload.get("max_funcs") or 0,
+                                       payload.get("budget_usd") or 0)
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない
@@ -402,8 +484,7 @@ def render(root: Path) -> bool:
         print("note: EXE では再レンダリングできない（Quarto が必要）。開発機で作り直して EXE を作り直すこと",
               file=sys.stderr)
         return False
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import render_site                                   # 隣の render_site.py を再利用（パス設定後）
+    import render_site                                   # 隣の render_site.py を再利用
 
     docs = root / "docs"
     if not docs.is_dir():
@@ -517,6 +598,12 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n停止しました")
     finally:
+        if not FROZEN:
+            try:
+                import browser_run
+                browser_run.shutdown()   # 実行中のブラウザ単発を中止し、後片付けを待つ
+            except ImportError:          # EXE 等で同梱されていない場合（実行も不可能）は不要
+                pass
         httpd.server_close()
 
 

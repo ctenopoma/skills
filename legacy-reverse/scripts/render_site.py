@@ -111,6 +111,9 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
         if not widget and kind == "spec":
             # 承認待ちでなければ、①〜⑤未着手の実行トリガーを試す（試作機能）
             widget = browser_run.trigger_widget_html(str(project_root), fid)
+        if not widget and kind == "spec":
+            # ⑤裁定待ち（blocked）ならISSUE回答→unblockの裁定ウィジェットを出す
+            widget = review_actions.adjudicate_widget_html(str(project_root), fid)
     except Exception as e:                          # noqa: BLE001 — render を止めない
         print(f"note: {rel} の承認ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
         return body
@@ -248,6 +251,8 @@ def plan_render(site: Path, pages: dict, conf: str, force_full: bool):
 
 
 def main() -> None:
+    import serve_site                            # 隣のファイル（コンソール保護とページ定義を共有）
+    serve_site.use_utf8_console()                # ウィジェット生成の note が cp932 で落ちないように
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="対象プロジェクトのルート")
     ap.add_argument("--full", action="store_true", help="差分を無視して全ページ再レンダリング")
@@ -296,8 +301,10 @@ def main() -> None:
         api_index.write_text(API_PLACEHOLDER, encoding="utf-8", newline="\n")
     # ナビバーの「バッチ状況」の実体。serve_site.py 配信時は同内容のライブページが
     # ルートで優先されるが、素の http.server や EXE 同梱スナップショットでも 404 にしない
-    import serve_site                            # 隣のファイル（ページ定義を共有）
     (site / "pipeline.html").write_text(serve_site.PIPELINE_PAGE,
+                                        encoding="utf-8", newline="\n")
+    # ウィジェット（実行・⑥・承認）の共有 JS。各ページは <script src="/lr-widgets.js"> で参照
+    (site / "lr-widgets.js").write_text(browser_run.WIDGETS_JS,
                                         encoding="utf-8", newline="\n")
     print(f"wrote {site}: {done_msg}")
 
