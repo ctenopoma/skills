@@ -37,6 +37,7 @@
 実行ログ:
   .legacy-reverse/pipeline-log.jsonl   1行1試行（結果・所要・コスト。失敗時は応答末尾も）
   .legacy-reverse/agent-logs/<fid>.txt 各関数のエージェント応答**全文**（失敗原因の一次情報）
+  .legacy-reverse/pipeline-status.json ライブ進捗（serve_site.py の /pipeline.html が表示）
 """
 import argparse
 import datetime
@@ -175,6 +176,101 @@ def refresh_outputs(root: Path) -> dict:
     return review_checks.make_report(str(root))
 
 
+def classify_ng(why: str, r: dict) -> str:
+    """失敗理由をライブ表示・集計用に分類する。"""
+    if "タイムアウト" in why:
+        return "タイムアウト"
+    if not r.get("ok"):
+        return "claude異常終了"
+    if "存在しない" in why:
+        return "ファイル未作成（書き込み権限の疑い）"
+    if "status が" in why:
+        return "draft未到達（status未更新）"
+    if "機械レビューNG" in why:
+        return "機械レビューNG"
+    return "その他"
+
+
+class RunStatus:
+    """ライブ進捗の状態ファイル（.legacy-reverse/pipeline-status.json）。
+
+    serve_site.py の /pipeline.html がこれをポーリングして表示する。
+    Quarto を通さないのでリアルタイム、書き込みはアトミック（tmp→replace）。
+    バッチの正は従来どおり成果物ファイル側にあり、これは表示専用の使い捨て。
+    """
+
+    def __init__(self, root: Path, mode: str, total: int, args):
+        self.path = root / ".legacy-reverse" / "pipeline-status.json"
+        self.ok_secs: list = []
+        self.d = {"state": "running", "mode": mode,
+                  "started_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                  "total_targets": total, "done": 0, "failed": 0,
+                  "cost_usd": 0.0, "budget_usd": args.budget_usd or None,
+                  "max_funcs": args.max_funcs or None,
+                  "rate_waited_sec": 0, "wait_until": None,
+                  "current": None, "ng_kinds": {}, "recent": [], "metrics": {}}
+        self.save()
+
+    def save(self) -> None:
+        self.d["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.d, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def current(self, fid: str, attempt: int) -> None:
+        self.d["state"] = "running"
+        self.d["wait_until"] = None
+        self.d["current"] = {"func_id": fid, "attempt": attempt,
+                             "started_at": datetime.datetime.now().isoformat(timespec="seconds")}
+        self.save()
+
+    def waiting(self, wait_sec: int, total_waited: int, tail: str) -> None:
+        self.d["state"] = "waiting_rate"
+        self.d["rate_waited_sec"] = total_waited
+        self.d["wait_until"] = (datetime.datetime.now()
+                                + datetime.timedelta(seconds=wait_sec)).isoformat(timespec="seconds")
+        self.d["last_rate_msg"] = tail[:200]
+        self.save()
+
+    def result(self, fid: str, ok: bool, why: str, kind: str, sec: int,
+               cost_total: float, r: dict, attempt: int) -> None:
+        if ok:
+            self.ok_secs.append(sec)
+        else:
+            self.d["ng_kinds"][kind] = self.d["ng_kinds"].get(kind, 0) + 1
+        self.d["cost_usd"] = round(cost_total, 4)
+        self.d["recent"].insert(0, {
+            "func_id": fid, "ok": ok, "why": why, "kind": None if ok else kind,
+            "sec": sec, "cost_usd": r.get("cost_usd"), "attempt": attempt,
+            "num_turns": r.get("num_turns"),
+            "tail": None if ok else (r.get("tail") or r.get("err") or "")[-400:],
+            "at": datetime.datetime.now().isoformat(timespec="seconds")})
+        del self.d["recent"][50:]
+        secs = sorted(self.ok_secs)
+        med = secs[len(secs) // 2] if secs else None
+        n_ok, n_ng = self.d["done"], self.d["failed"]
+        remaining = max(self.d["total_targets"] - n_ok - n_ng, 0)
+        self.d["metrics"] = {
+            "median_sec": med,
+            "success_rate": round(n_ok / (n_ok + n_ng), 3) if (n_ok + n_ng) else None,
+            "eta_sec": med * remaining if med else None,
+            "avg_cost_usd": round(cost_total / (n_ok + n_ng), 4) if (n_ok + n_ng) else None}
+        self.save()
+
+    def counts(self, done: int, failed: int, total: int = None) -> None:
+        self.d["done"], self.d["failed"] = done, failed
+        if total is not None:
+            self.d["total_targets"] = total
+        self.save()
+
+    def finish(self, state: str, reason: str = "") -> None:
+        self.d["state"] = state          # finished / stopped
+        self.d["current"] = None
+        self.d["reason"] = reason
+        self.save()
+
+
 def save_agent_log(root: Path, fid: str, attempt: int, r: dict) -> Path:
     """エージェント（headless claude）の応答全文を関数ごとのファイルに残す。
 
@@ -242,20 +338,31 @@ def cmd_spec(args) -> None:
                   f"--max-turns {args.max_turns} {' '.join(extra)}")
         return
 
+    status = RunStatus(root, "spec", len(todo), args)
+    import zlib
+    pname = p.functions.get("project", {}).get("name") or root.name
+    live_port = 8100 + zlib.crc32(pname.encode("utf-8")) % 800   # serve_site.py と同じ規則
+    print(f"ライブ進捗: http://127.0.0.1:{live_port}/pipeline.html"
+          f"（serve_site.py を起動していれば。2〜3秒ごとに自動更新）")
+
+    stop_reason = ""
     try:
         while todo:
             fid = todo.pop(0)
             if args.max_funcs and done + failed >= args.max_funcs:
-                print(f"セッション上限 {args.max_funcs} 件に到達。同じコマンドで再開できる")
+                stop_reason = f"セッション上限 {args.max_funcs} 件に到達"
+                print(f"{stop_reason}。同じコマンドで再開できる")
                 break
             if args.budget_usd and cost_total >= args.budget_usd:
-                print(f"予算 ${args.budget_usd} に到達（累計 ${cost_total:.2f}）。停止")
+                stop_reason = f"予算 ${args.budget_usd} に到達（累計 ${cost_total:.2f}）"
+                print(f"{stop_reason}。停止")
                 break
 
             prompt = args.prompt_template.format(fid=fid)
             ok, why = False, ""
             attempt, backoff = 0, args.backoff_base
             while attempt <= args.retries:
+                status.current(fid, attempt + 1)
                 t0 = time.time()
                 r = run_claude(claude_cmd, prompt, root, args.max_turns, extra, args.timeout)
                 cost_total += r.get("cost_usd") or 0.0
@@ -272,6 +379,7 @@ def cmd_spec(args) -> None:
                           f"（累計 {rate_waited}s）: {r.get('tail', '')[:80]}")
                     log_line(root, {"func_id": fid, "rate_limited": True, "wait_sec": wait,
                                     "tail": r.get("tail", "")[:200]})
+                    status.waiting(wait, rate_waited + wait, r.get("tail", ""))
                     time.sleep(wait)
                     rate_waited += wait
                     backoff *= 2
@@ -292,6 +400,8 @@ def cmd_spec(args) -> None:
                                   "claude_tail": (r.get("tail") or "")[-300:],
                                   "claude_err": (r.get("err") or "")[-200:]})
                 log_line(root, entry)
+                status.result(fid, ok, why, classify_ng(why, r),
+                              round(time.time() - t0), cost_total, r, attempt)
                 if ok:
                     break
                 print(f"  {fid}: 検証NG（{why}）"
@@ -303,13 +413,16 @@ def cmd_spec(args) -> None:
             if ok:
                 done += 1
                 consecutive_fail = 0
+                status.counts(done, failed)
                 print(f"[{done}] {fid} draft化 OK（累計 ${cost_total:.2f}）")
             else:
                 failed += 1
                 consecutive_fail += 1
                 skip.add(fid)
+                status.counts(done, failed)
                 print(f"  {fid}: 失敗として記録しスキップ（{why}）")
                 if consecutive_fail >= args.max_consecutive_fail:
+                    stop_reason = f"連続 {consecutive_fail} 件失敗（環境異常の疑い）"
                     print(f"連続 {consecutive_fail} 件失敗 → 環境異常の疑い（許可設定・"
                           f"skill配置・claude CLI を確認）。停止する")
                     break
@@ -319,9 +432,12 @@ def cmd_spec(args) -> None:
             if (done + failed) % args.chunk == 0:
                 rep = refresh_outputs(root)
                 todo = targets(rep)          # チャンク境界でのみ再計算（性能・自己修復の両立）
+                status.counts(done, failed, total=done + failed + len(todo))
                 print(f"  -- WBS・一斉レビュー表を更新（済 {done} / 失敗 {failed}）")
     except KeyboardInterrupt:
+        stop_reason = "中断（Ctrl-C）"
         print("\n中断した。進捗はファイルに保存済み。同じコマンドで続きから再開できる")
+    status.finish("stopped" if stop_reason else "finished", stop_reason)
 
     refresh_outputs(root)
     if not args.no_render:

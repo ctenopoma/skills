@@ -30,6 +30,7 @@ import argparse
 import functools
 import http.server
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -135,6 +136,107 @@ def bind_server(host: str, port: int, handler, tries: int = 40):
     raise SystemExit(f"error: ポート {port}〜{port + tries - 1} が全部埋まっている（{last}）")
 
 
+# --- バッチのライブ進捗ページ（/pipeline.html。Quarto を通さず JSON をポーリング） ---
+
+PIPELINE_PAGE = """<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<title>バッチ実行状況</title>
+<style>
+:root{color-scheme:light dark}
+body{font-family:"Segoe UI",system-ui,sans-serif;max-width:1080px;margin:24px auto;padding:0 16px;
+     color:#1f2937;background:#fff;line-height:1.6}
+@media(prefers-color-scheme:dark){body{color:#e5e7eb;background:#111827}
+ .card{background:#1f2937!important}.recent tr:hover{background:#374151!important}}
+h1{font-size:1.3rem;margin:0 0 4px}
+a{color:#4f46e5}
+.muted{color:#9ca3af;font-size:.85rem}
+.badge{display:inline-block;padding:2px 12px;border-radius:999px;font-weight:600;font-size:.9rem}
+.running{background:#dcfce7;color:#166534}.waiting{background:#fef9c3;color:#854d0e}
+.stopped{background:#fee2e2;color:#991b1b}.finished{background:#dbeafe;color:#1e40af}
+.none{background:#e5e7eb;color:#374151}
+.cards{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
+.card{background:#f9fafb;border-radius:10px;padding:10px 16px;min-width:120px}
+.card .v{font-size:1.25rem;font-weight:700}.card .k{font-size:.78rem;color:#9ca3af}
+.bar{height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin:6px 0}
+.bar>div{height:100%;background:#4f46e5;transition:width .5s}
+.bar>div.f{background:#dc2626}
+table{border-collapse:collapse;width:100%;font-size:.88rem;margin:8px 0}
+th,td{padding:5px 10px;border-bottom:1px solid #37415122;text-align:left;vertical-align:top}
+.ok{color:#16a34a;font-weight:700}.ng{color:#dc2626;font-weight:700}
+details pre{white-space:pre-wrap;background:#37415115;padding:8px;border-radius:6px;
+            font-size:.8rem;max-height:220px;overflow:auto}
+</style></head><body>
+<h1>バッチ実行状況 <span id="state" class="badge none">--</span></h1>
+<div class="muted"><a href="/">← WBS へ</a> ／ 2.5秒ごとに自動更新 ／
+  最終更新: <span id="upd">--</span></div>
+<div id="now" style="margin:14px 0;font-size:1.05rem"></div>
+<div class="bar"><div id="barok" style="width:0%"></div></div>
+<div id="counts" class="muted"></div>
+<div class="cards" id="cards"></div>
+<div id="ngbox"></div>
+<h2 style="font-size:1.05rem">直近の結果</h2>
+<table class="recent"><thead><tr><th>時刻</th><th>関数</th><th>結果</th><th>試行</th>
+<th>秒</th><th>ターン</th><th>$</th><th>内容</th></tr></thead><tbody id="recent"></tbody></table>
+<script>
+const esc = s => (s??"").toString().replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtEta = s => s==null ? "--" : (s>=3600 ? Math.floor(s/3600)+"時間"+Math.round(s%3600/60)+"分" : Math.round(s/60)+"分");
+const STATES = {running:["実行中","running"], waiting_rate:["レート待機中","waiting"],
+                stopped:["停止","stopped"], finished:["完了","finished"], not_running:["未実行","none"]};
+async function tick(){
+  let d;
+  try{ d = await (await fetch("/pipeline-status.json",{cache:"no-store"})).json(); }
+  catch(e){ return; }
+  const [label, cls] = STATES[d.state] || [d.state,"none"];
+  const st = document.getElementById("state");
+  st.textContent = label + (d.reason ? "：" + d.reason : ""); st.className = "badge " + cls;
+  document.getElementById("upd").textContent = d.updated_at || "--";
+  if(d.state === "not_running"){
+    document.getElementById("now").textContent = "パイプラインはまだ実行されていません（pipeline.py 実行中にこのページが更新されます）";
+    return;
+  }
+  const total = d.total_targets||0, done = d.done||0, failed = d.failed||0;
+  let now = "";
+  if(d.state === "waiting_rate"){
+    now = "⏸ レートリミット/利用枠の回復待ち（" + esc(d.wait_until||"") + " に再開予定）";
+  } else if(d.current){
+    const t0 = new Date(d.current.started_at), el = Math.max(0, Math.round((Date.now()-t0)/1000));
+    now = "▶ いま <b>" + esc(d.current.func_id) + "</b> を実行中（試行" + d.current.attempt +
+          "・" + Math.floor(el/60) + "分" + el%60 + "秒経過）";
+  }
+  document.getElementById("now").innerHTML = now;
+  document.getElementById("barok").style.width = total ? (100*(done+failed)/total)+"%" : "0%";
+  document.getElementById("counts").textContent =
+    `処理 ${done+failed} / ${total} 件（成功 ${done}・失敗 ${failed}・残り ${Math.max(total-done-failed,0)}）`;
+  const m = d.metrics||{};
+  document.getElementById("cards").innerHTML = [
+    ["成功率", m.success_rate!=null ? Math.round(m.success_rate*100)+"%" : "--"],
+    ["中央値/件", m.median_sec!=null ? Math.round(m.median_sec)+"s" : "--"],
+    ["残り見込み", fmtEta(m.eta_sec)],
+    ["累計コスト", "$"+(d.cost_usd??0).toFixed(2) + (d.budget_usd ? " / $"+d.budget_usd : "")],
+    ["平均コスト/件", m.avg_cost_usd!=null ? "$"+m.avg_cost_usd.toFixed(3) : "--"],
+    ["レート待機", (d.rate_waited_sec||0)+"s"],
+  ].map(([k,v])=>`<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const ng = Object.entries(d.ng_kinds||{});
+  document.getElementById("ngbox").innerHTML = !ng.length ? "" :
+    "<h2 style='font-size:1.05rem'>失敗の内訳</h2><table>" +
+    ng.sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td><b>${v}</b> 件</td></tr>`).join("") +
+    "</table>";
+  document.getElementById("recent").innerHTML = (d.recent||[]).map(r=>{
+    const res = r.ok ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>';
+    const body = r.ok ? "" :
+      `<details><summary>${esc(r.kind||"")}: ${esc(r.why||"")}</summary>` +
+      `<pre>${esc(r.tail||"(応答記録なし)")}</pre>` +
+      `<a href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答全文を開く</a></details>`;
+    return `<tr><td class="muted">${esc((r.at||"").slice(11))}</td><td>${esc(r.func_id)}</td>` +
+           `<td>${res}</td><td>${r.attempt||""}</td><td>${r.sec??""}</td>` +
+           `<td>${r.num_turns??""}</td><td>${r.cost_usd!=null ? r.cost_usd.toFixed(2):""}</td>` +
+           `<td>${body}</td></tr>`;
+  }).join("");
+}
+tick(); setInterval(tick, 2500);
+</script></body></html>
+"""
+
+
 # --- HTTP ハンドラ --------------------------------------------------------
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -142,11 +244,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     sys_version = ""
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **EXTRA_TYPES}
     verbose = False
+    state_root: Path = None      # プロジェクトルート（.legacy-reverse のライブ状態の読み元）
+
+    def _send_bytes(self, body: bytes, ctype: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self) -> None:
         if self.path == "/favicon.ico" and not (Path(self.directory) / "favicon.ico").exists():
             self.send_response(204)                  # ブラウザが必ず取りに来る。404 でログを汚さない
             self.end_headers()
+            return
+        # --- バッチのライブ進捗（pipeline.py が書く状態ファイルをそのまま配る） ---
+        if self.path in ("/pipeline", "/pipeline.html"):
+            self._send_bytes(PIPELINE_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if self.path == "/pipeline-status.json":
+            body = b'{"state": "not_running"}'
+            if self.state_root:
+                sp = self.state_root / ".legacy-reverse" / "pipeline-status.json"
+                try:
+                    body = sp.read_bytes()
+                except OSError:
+                    pass
+            self._send_bytes(body, "application/json; charset=utf-8")
+            return
+        if self.path.startswith("/agent-logs/"):
+            name = self.path.rsplit("/", 1)[-1]
+            if self.state_root and re.fullmatch(r"[\w.\-]+\.txt", name):
+                lp = self.state_root / ".legacy-reverse" / "agent-logs" / name
+                if lp.is_file():
+                    self._send_bytes(lp.read_bytes(), "text/plain; charset=utf-8")
+                    return
+            self.send_error(404)
             return
         super().do_GET()
 
@@ -260,6 +393,7 @@ def main() -> None:
     port = args.port if args.port is not None else cfg.get("port") or default_port(name)
 
     Handler.verbose = args.verbose
+    Handler.state_root = root      # /pipeline.html 用のライブ状態（.legacy-reverse/）の読み元
     httpd = bind_server(args.host, port, functools.partial(Handler, directory=str(site)))
     actual = httpd.server_address[1]
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{actual}/"
@@ -267,6 +401,7 @@ def main() -> None:
     print(f"\n  {name} の WBS/仕様書サイト")
     print(f"  配信元: {site}")
     print(f"  URL:    {url}")
+    print(f"  ライブ: {url}pipeline.html（無人バッチ実行中の進捗・失敗内訳・ETA）")
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         lan = lan_address()
         print(f"  LAN:    http://{lan}:{actual}/" if lan else "  LAN:    このマシンの IP でも開ける")

@@ -63,6 +63,10 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   レートリミット/利用枠上限は失敗に数えず指数バックオフで待機→同じ関数から自動再開
   （利用枠の時間リセットを人手なしで跨げる。待機累計の上限超過で安全停止）
 - チャンクごとに WBS・一斉レビュー表を自動更新。人は**溜まった draft を随時レビュー**してよい
+- **ライブ進捗**: 実行中は `.legacy-reverse/pipeline-status.json` を常時更新しており、
+  serve_site.py を立てていれば `http://127.0.0.1:<port>/pipeline.html` で
+  「いま何を実行中か・成功率・失敗の内訳・ETA・エージェント応答」がリアルタイムに見える
+  （Quarto を通さないポーリング表示。WBS の再生成は不要）
 - 中断（Ctrl-C・電源断）はどこでも安全。同じコマンドで続きから再開
 - 実行ログ: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト・所要）
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
