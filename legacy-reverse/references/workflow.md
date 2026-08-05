@@ -72,6 +72,45 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
 
+### ブラウザからの単発実行（browser_run.py。試作・①②対応）
+
+「1関数だけ様子を見ながら進めたい」向けに、pipeline.py の実行ロジック
+（`run_one` / `RunStatus` / 起動プリフライト・agent-logs 保存）をそのまま流用した
+単発トリガーがある。render_site.py が①仕様書ページに「①/②を実行する」ボタンを
+埋め込み、押すと serve_site.py の `POST /run-phase` が `browser_run.start()` を呼ぶ:
+
+- ①は `docs/specs/<fid>.md` が skeleton の間、②は spec が reviewed かつ
+  `docs/test-specs/<fid>.md` がまだ無い間だけボタンが出る
+  （`browser_run._decide_kind` が判定。両方とも①の仕様書ページに出る——
+  ②の成果物自体は②が動くまで存在しないため）
+- `pipeline.py` の `verify_spec`/`verify_testspec` は `(ok, why, problems)` の
+  3-tuple を返す。`problems` は機械レビューの理由の**全文リスト**で、
+  `RunStatus.result()` を経由して pipeline-status.json の `recent[].problems` に
+  そのまま乗る。`/pipeline.html` はこれを承認ウィジェットと同じ見た目（赤箱＋箇条書き）
+  で描画する。以前は理由を1行に潰していたため、バッチ画面から原因が読めなかった
+- 実行はバックグラウンドスレッドで行い、POSTは即座に返る（数分かかる処理をHTTPで
+  待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える
+- **排他制御は2段構え**。バッチとの排他は pipeline-status.json を共有することで実現
+  （バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様）。
+  ブラウザ同士の排他（二重クリック・複数タブ）はこれだけでは防げない——
+  start() が即座に返り、状態ファイルへの書き込みはバックグラウンドスレッド側で
+  少し後に起きるため、ほぼ同時の2リクエストが両方ともチェックを通り抜ける隙間が
+  あるため。この隙間は `.legacy-reverse/browser-run.lock`（`O_CREAT|O_EXCL` の
+  原子的なファイル作成）で塞いでいる。ロックは実行完了までスレッド側で保持し、
+  検証NG等での早期returnはその場で解放する
+- 完了後は review_actions._refresh を呼び、WBS・一斉レビュー表・サイトを更新する
+  （status が draft/generated になれば、次のレンダリングで承認ウィジェットに
+  自動的に切り替わる）
+- FROZEN・ローカルホスト限定などのガードは `/review-action` と共通（serve_site.py の
+  `WRITE_ROUTES` にまとめてある）
+- 現状は①②のみ。③④はhookガード（phase-start/phase-end）連携が追加で要る
+
+`/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
+**中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。
+以前は毎回丸ごと再描画しており、人が開いた `<details>`（NG理由の展開）が
+次のポーリングで即座に閉じる不具合があった。再描画が発生する場合も
+`data-rid` で開いていた行を判別し、開閉状態を復元する。
+
 ## 再開（レジューム）
 
 進捗の正はすべてファイル（functions.json / ledger.json / 各フロントマター）にあり、

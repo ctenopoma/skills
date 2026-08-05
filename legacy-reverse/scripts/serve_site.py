@@ -164,6 +164,10 @@ th,td{padding:5px 10px;border-bottom:1px solid #37415122;text-align:left;vertica
 .ok{color:#16a34a;font-weight:700}.ng{color:#dc2626;font-weight:700}
 details pre{white-space:pre-wrap;background:#37415115;padding:8px;border-radius:6px;
             font-size:.8rem;max-height:220px;overflow:auto}
+details summary{cursor:pointer}
+.ngdetail{background:#fee2e2;border-radius:8px;padding:8px 12px;color:#991b1b;margin-top:6px}
+.ngdetail ul{margin:4px 0 0;padding-left:20px}
+@media(prefers-color-scheme:dark){.ngdetail{background:#7f1d1d33;color:#fca5a5}}
 </style></head><body>
 <h1>バッチ実行状況 <span id="state" class="badge none">--</span></h1>
 <div class="muted"><a href="/">← WBS へ</a> ／ 2.5秒ごとに自動更新 ／
@@ -220,12 +224,36 @@ async function tick(){
     "<h2 style='font-size:1.05rem'>失敗の内訳</h2><table>" +
     ng.sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td><b>${v}</b> 件</td></tr>`).join("") +
     "</table>";
-  document.getElementById("recent").innerHTML = (d.recent||[]).map(r=>{
+  renderRecent(d.recent||[]);
+}
+
+// 「直近の結果」は中身が変わった時だけ再描画する。2.5秒ごとに innerHTML を
+// 丸ごと差し替えると、人が読もうと開いた <details> が毎回リセットされて
+// 「チカチカして即閉じる」ことになるため（報告された不具合）。
+// 変化があって再描画する場合も、開いていた行は開いたまま復元する。
+let lastRecentJson = null;
+function renderRecent(recent){
+  const json = JSON.stringify(recent);
+  if(json === lastRecentJson) return;      // 何も変わっていなければ触らない
+  lastRecentJson = json;
+  const box = document.getElementById("recent");
+  const openIds = new Set([...box.querySelectorAll("details[open]")].map(el => el.dataset.rid));
+  box.innerHTML = recent.map((r, i) => {
+    const rid = r.func_id + "|" + (r.at || i);
     const res = r.ok ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>';
-    const body = r.ok ? "" :
-      `<details><summary>${esc(r.kind||"")}: ${esc(r.why||"")}</summary>` +
-      `<pre>${esc(r.tail||"(応答記録なし)")}</pre>` +
-      `<a href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答全文を開く</a></details>`;
+    let body = "";
+    if(!r.ok){
+      const problems = r.problems || [];
+      const ngbox = problems.length
+        ? `<div class="ngdetail"><b>${esc(r.kind||"")}（${problems.length}件）</b>` +
+          `<ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`
+        : (r.why ? `<p>${esc(r.why)}</p>` : "");
+      body = `<details${openIds.has(rid) ? " open" : ""} data-rid="${esc(rid)}">` +
+        `<summary>${esc(r.kind||"")}${problems.length ? "" : (r.why ? ": " + esc(r.why) : "")}</summary>` +
+        ngbox +
+        `<pre>${esc(r.tail || "(応答記録なし)")}</pre>` +
+        `<a href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答全文を開く</a></details>`;
+    }
     return `<tr><td class="muted">${esc((r.at||"").slice(11))}</td><td>${esc(r.func_id)}</td>` +
            `<td>${res}</td><td>${r.attempt||""}</td><td>${r.sec??""}</td>` +
            `<td>${r.num_turns??""}</td><td>${r.cost_usd!=null ? r.cost_usd.toFixed(2):""}</td>` +
@@ -287,11 +315,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    WRITE_ROUTES = ("/review-action", "/run-phase")
+
     def do_POST(self) -> None:
-        # ①②の仕様書ページに埋め込まれた承認ウィジェット（review_actions.widget_html）が叩く。
-        # 書き込み系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
-        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換えさせない）。
-        if self.path != "/review-action":
+        # ①②の仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
+        # 書き込み・実行系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
+        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換え・実行させない）。
+        if self.path not in self.WRITE_ROUTES:
             self.send_error(404)
             return
         if self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -299,7 +329,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if FROZEN:
             self._send_json(403, {"ok": False,
-                                  "message": "配布版（EXE）はスナップショットのためレビュー操作できません。"
+                                  "message": "配布版（EXE）はスナップショットのため操作できません。"
                                              "生成元のプロジェクトを serve_site.py で開いてください"})
             return
         if not self.state_root:
@@ -313,22 +343,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import review_actions
-        action = payload.get("action")
         try:
-            if action == "approve":
-                res = review_actions.approve(str(self.state_root), payload.get("kind", ""),
-                                             payload.get("func_id", ""),
-                                             payload.get("approver") or "unknown")
-            elif action == "request_changes":
-                res = review_actions.request_changes(
-                    str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
-                    payload.get("approver") or "unknown", payload.get("comment") or "")
+            if self.path == "/review-action":
+                res = self._handle_review_action(payload)
             else:
-                res = {"ok": False, "message": f"不明な action: {action}"}
+                res = self._handle_run_phase(payload)
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
             res = {"ok": False, "message": f"内部エラー: {e}"}
         self._send_json(200 if res.get("ok") else 422, res)
+
+    def _handle_review_action(self, payload: dict) -> dict:
+        import review_actions
+        action = payload.get("action")
+        if action == "approve":
+            return review_actions.approve(str(self.state_root), payload.get("kind", ""),
+                                          payload.get("func_id", ""),
+                                          payload.get("approver") or "unknown")
+        if action == "request_changes":
+            return review_actions.request_changes(
+                str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
+                payload.get("approver") or "unknown", payload.get("comment") or "")
+        return {"ok": False, "message": f"不明な action: {action}"}
+
+    def _handle_run_phase(self, payload: dict) -> dict:
+        # 試作: ①②（spec / testspec）対応。増やす場合は browser_run.py の KINDS に追記する
+        import browser_run
+        return browser_run.start(str(self.state_root), payload.get("func_id", ""),
+                                 payload.get("kind", "spec"))
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない
