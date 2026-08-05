@@ -31,13 +31,17 @@ import review_checks  # noqa: E402
 mcp = FastMCP("legacy-reverse")
 
 
-def _run(cmd: list, cwd: str | None = None, env_add: dict | None = None) -> dict:
+def _run_raw(cmd: list, cwd: str | None = None, env_add: dict | None = None):
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     if env_add:
         env.update(env_add)
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=cwd, env=env)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", cwd=cwd, env=env)
+
+
+def _run(cmd: list, cwd: str | None = None, env_add: dict | None = None) -> dict:
+    r = _run_raw(cmd, cwd, env_add)
     return {"ok": r.returncode == 0, "exit_code": r.returncode,
             "output": (r.stdout + r.stderr).strip()[-4000:]}
 
@@ -86,11 +90,15 @@ def progress_summary(root: str = ".") -> dict:
     2000関数規模でも全関数リストを読まずに状況把握と再開判断ができる。
     """
     import json as _json
-    r = _ledger(root, "status", "--summary")
+    # _run() の「stdout+stderr 連結＋末尾4000字」を通すと、問題関数が数百件を超えた時に
+    # JSON の先頭が切れてパース不能になる（大規模でだけ failed になる）。stdout を丸ごと読む。
+    r = _run_raw([sys.executable, str(SCRIPTS / "ledger.py"), "--root", root,
+                  "status", "--summary"])
     try:
-        return _json.loads(r["output"])
+        return _json.loads(r.stdout)
     except ValueError:
-        return {"ok": False, "output": r["output"]}
+        return {"ok": False, "exit_code": r.returncode,
+                "output": (r.stdout + r.stderr).strip()[-4000:]}
 
 
 @mcp.tool()
@@ -157,6 +165,49 @@ def spec_review_report(root: str = ".") -> dict:
 
 
 # ---------- 台帳（書き込み） ----------
+
+@mcp.tool()
+def add_function(root: str, name: str, file: str = "", lines: str = "",
+                 module: str | None = None, new_name: str | None = None,
+                 calls: str | None = None) -> dict:
+    """人の指示で関数を後追い追加する（⓪の抽出漏れ・関数分割など）。
+
+    manual フラグ付きで採番されるので、抽出の再実行で「ソースに無い」警告は出ない。
+    追加後は functions.json の inputs/outputs/desc/signature を充填し、
+    generate_skeletons → generate_wbs で①〜⑤の対象に載る。
+    """
+    args = ["add", name]
+    if file:
+        args += ["--file", file]
+    if lines:
+        args += ["--lines", lines]
+    if module:
+        args += ["--module", module]
+    if new_name:
+        args += ["--new-name", new_name]
+    if calls:
+        args += ["--calls", calls]
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def exclude_function(root: str, func_id: str, reason: str = "") -> dict:
+    """関数を移植対象から外す（デッドコード等の人の判断）。①〜⑥・WBSから除外される。
+
+    functions.json から物理削除はしない（再抽出で別IDとして復活するため）。
+    WBS の「対象外の関数」に理由つきで載り、include_function で復帰できる。
+    """
+    args = ["exclude", func_id]
+    if reason:
+        args += ["--reason", reason]
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def include_function(root: str, func_id: str) -> dict:
+    """対象外にした関数を①〜⑤の対象へ復帰させる。"""
+    return _ledger(root, "include", func_id)
+
 
 @mcp.tool()
 def generate_wbs(root: str = ".") -> dict:
@@ -260,12 +311,17 @@ def profile(root: str = ".", script: str | None = None) -> dict:
 
 
 @mcp.tool()
-def render_site(root: str = ".", with_sphinx: bool = True) -> dict:
+def render_site(root: str = ".", with_sphinx: bool = True, full: bool = False) -> dict:
     """docs/ を Quarto で HTML サイト化し、続けて Sphinx API を docs/_site/api に生成する。
 
     quarto を直接呼ばず render_site.py を通す（Mermaid を効かせるための影コピーを作る）。
+    既定は差分レンダリング（変わったページのみ。2000関数でも数十秒）。
+    full=True で全ページ再レンダ（サイト内検索の索引更新もこのときだけ）。
     """
-    r1 = _run([sys.executable, str(SCRIPTS / "render_site.py"), "--root", root])
+    cmd = [sys.executable, str(SCRIPTS / "render_site.py"), "--root", root]
+    if full:
+        cmd.append("--full")
+    r1 = _run(cmd)
     if not r1["ok"]:
         return {"ok": False, "step": "quarto", "output": r1["output"]}
     if with_sphinx and (Path(root).resolve() / "docs-sphinx").exists():

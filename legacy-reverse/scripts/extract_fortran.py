@@ -403,6 +403,8 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
         lines = f"{u['start']}-{u['end']}"
         if k in by_key:
             f = by_key[k]
+            if f.pop("manual", None):     # 手動追加が実ソースで確認できたので通常エントリへ昇格
+                report.setdefault("manual_confirmed", []).append(f["func_id"])
             if f["legacy"].get("lines") != lines:
                 report["updated_lines"].append(
                     {"func_id": f["func_id"], "old": f["legacy"].get("lines"), "new": lines})
@@ -430,7 +432,8 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             report["added"].append(f["func_id"])
 
     for k, f in by_key.items():
-        if k not in seen:
+        # manual（人が意図して後追い追加）はソースに無くて当然なので警告しない
+        if k not in seen and not f.get("manual"):
             report["missing_in_source"].append(
                 {"func_id": f["func_id"], "legacy": f["legacy"]})
 

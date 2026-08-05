@@ -65,7 +65,20 @@ ledger wbs         # docs/index.qmd
 新関数のシグネチャ（functions.json の new.signature）は型対応表に従って⓪で決める。
 これが③④の共通契約になる。
 
-### 5. 報告
+### 5. 人の調整（⓪以降いつでも）
+
+関数リストは人がいつでも調整できる。**どちらも functions.json の手書き編集や
+エントリの物理削除では行わない**（再抽出で別IDとして復活し、成果物との紐付けが切れる）:
+
+- **追加**（抽出漏れ・関数分割など）: `ledger add NAME --file legacy/x.f --lines 10-50`
+  → manual フラグ付きで採番される。inputs/outputs/desc/signature を functions.json に
+  充填してから `ledger skeletons` → `ledger wbs`。以後は他の関数と同じ①〜⑤の対象になる
+- **削除**（デッドコード・移植不要の判断）: `ledger exclude F-xxxx --reason "理由"`
+  → ①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に理由つきで残る。
+  復帰は `ledger include F-xxxx`。呼び出し元が残っている場合は警告が出るので、
+  仕様への影響を確認し、判断が要るなら ISSUE に出す
+
+### 6. 報告
 
 関数数・コールグラフの循環有無・open ISSUE・推奨着手順の先頭5件を報告し、
 `/legacy-1-spec` へ誘導する。

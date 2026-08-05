@@ -19,10 +19,22 @@
   - 相対リンクの .md → .qmd（Quarto がサイト内リンクを .html に張り替えられるように）
   - _quarto.yml の render グロブ・navbar href の .md → .qmd、output-dir を ../_site へ
 
+レンダリングは**差分**が既定。前回の成果（docs/_site/.render-manifest.json に
+変換後ソースのハッシュを記録）と比べ、変わったページだけ quarto render する。
+2000関数級では全体レンダが1時間級になるため、フェーズ末の更新（WBS＋数ページ）を
+数十秒に抑えるのが目的。_quarto.yml / wbs.css が変わった時・_site が無い時・
+変更ページが多い時（1ファイルずつの起動コストより全体レンダが速い規模）は
+自動で全体レンダに切り替わる。--full で強制全体レンダ。
+注意: 差分レンダではサイト内検索の索引（search.json）は更新されない。
+検索に新ページを載せたくなったら --full を一度実行する。
+
 使い方:
-  python render_site.py --root .            # → docs/_site/index.html
+  python render_site.py --root .            # → docs/_site/index.html（差分）
+  python render_site.py --root . --full     # 全ページ再レンダリング
 """
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -135,28 +147,92 @@ a{color:#4f46e5}</style></head><body>
 """
 
 
+def page_hashes(work: Path) -> dict:
+    """影コピー内の全ページ（変換後 .qmd）のハッシュ。差分検出の基準。"""
+    return {p.relative_to(work).as_posix():
+            hashlib.sha256(p.read_bytes()).hexdigest()[:12]
+            for p in sorted(work.rglob("*.qmd"))}
+
+
+def config_hash(work: Path) -> str:
+    """テーマ・ナビバー・CSS が変わったら全ページ作り直し（見た目が全ページに効くため）。"""
+    h = hashlib.sha256((work / "_quarto.yml").read_bytes())
+    css = work / "wbs.css"
+    if css.exists():
+        h.update(css.read_bytes())
+    return h.hexdigest()[:12]
+
+
+def plan_render(site: Path, pages: dict, conf: str, force_full: bool):
+    """(全体レンダか, 変更ページ, 削除ページ) を決める。"""
+    manifest_p = site / ".render-manifest.json"
+    if force_full or not (site / "index.html").exists() or not manifest_p.exists():
+        return True, [], []
+    try:
+        old = json.loads(manifest_p.read_text(encoding="utf-8"))
+    except ValueError:
+        return True, [], []
+    if old.get("config") != conf:
+        print("note: _quarto.yml / wbs.css が変わったので全体レンダリングする")
+        return True, [], []
+    old_pages = old.get("pages", {})
+    changed = [r for r, h in pages.items() if old_pages.get(r) != h]
+    removed = [r for r in old_pages if r not in pages]
+    # 1ファイルずつは quarto の起動コストが載る。変更が全体の2割を超えたら全体レンダが速い
+    if len(changed) > max(20, len(pages) // 5):
+        print(f"note: 変更 {len(changed)}/{len(pages)} ページ → 全体レンダリングに切り替え")
+        return True, [], []
+    return False, changed, removed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".", help="対象プロジェクトのルート")
+    ap.add_argument("--full", action="store_true", help="差分を無視して全ページ再レンダリング")
     ap.add_argument("--keep-work", action="store_true", help="影コピー(_sitework)を残す（調査用）")
     args = ap.parse_args()
 
     docs = Path(args.root).resolve() / "docs"
     if not docs.is_dir():
         sys.exit(f"error: {docs} がない")
+    site = docs / "_site"
     work = docs / "_sitework"
     n = build_shadow(docs, work)
+    pages = page_hashes(work)
+    conf = config_hash(work)
+    quarto = find_quarto()
 
-    r = subprocess.run([find_quarto(), "render", str(work)])
+    full, changed, removed = plan_render(site, pages, conf, args.full)
+    ok = True
+    if full:
+        ok = subprocess.run([quarto, "render", str(work)]).returncode == 0
+        done_msg = f"{n} ページ（全体）"
+    else:
+        for i, rel in enumerate(changed, 1):
+            print(f"render [{i}/{len(changed)}] {rel}")
+            r = subprocess.run([quarto, "render", str(work / rel)],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace")
+            if r.returncode != 0:
+                print(r.stdout + r.stderr)
+                ok = False
+                break
+        for rel in removed:                      # 消えた成果物の残骸ページを掃除
+            (site / rel).with_suffix(".html").unlink(missing_ok=True)
+        done_msg = (f"{len(changed)} ページ（差分。全 {n} ページ中、削除 {len(removed)}）"
+                    if changed or removed else "変更なし（0 ページ）")
+
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
-    if r.returncode != 0:
-        sys.exit(f"error: quarto render 失敗（exit={r.returncode}）")
-    api_index = docs / "_site" / "api" / "index.html"
+    if not ok:
+        sys.exit("error: quarto render 失敗")
+    (site / ".render-manifest.json").write_text(
+        json.dumps({"config": conf, "pages": pages}), encoding="utf-8")
+    api_index = site / "api" / "index.html"
     if not api_index.exists():                   # ④前でもナビバーの API リンクを切らさない
         api_index.parent.mkdir(parents=True, exist_ok=True)
         api_index.write_text(API_PLACEHOLDER, encoding="utf-8", newline="\n")
-    print(f"wrote {docs / '_site'}（{n} ページ）")
+    print(f"wrote {site}: {done_msg}")
 
 
 if __name__ == "__main__":
