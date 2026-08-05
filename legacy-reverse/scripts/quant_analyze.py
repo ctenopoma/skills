@@ -157,7 +157,7 @@ def collect(root: Path) -> dict:
 
 def render_md(q: dict) -> str:
     """docs/quant.md（人が読むサマリ。サイトに載る）を組み立てる。"""
-    L = ["---", 'title: "⑦ 定量評価（自動収集）"', "---", "",
+    L = ["---", 'title: "⑦ 定量評価（自動収集）"', "page-layout: full", "---", "",
          "<!-- quant_analyze.py による自動生成。手編集禁止。提案は analysis.md 側に書く -->", "",
          f"- 収集日時: {q['date']} / ワークロード: {q['workload']}"]
     if q.get("workload_is_smoke"):

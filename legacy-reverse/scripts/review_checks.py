@@ -28,6 +28,41 @@ import sys
 from pathlib import Path
 
 CITE = re.compile(r"([\w\-./\\]+\.\w{1,4})\s*[:：]\s*(\d+)(?:\s*[-–〜]\s*(\d+))?")
+MERMAID_BLOCK = re.compile(r"(?ms)^[ \t]*```mermaid[ \t]*$(.*?)^[ \t]*```[ \t]*$")
+MERMAID_TYPE = re.compile(
+    r"^\s*(graph\b|flowchart\b|sequenceDiagram|classDiagram|stateDiagram|erDiagram"
+    r"|journey|gantt|pie|mindmap|timeline|quadrantChart)")
+# flowchart のノードラベル [] / {} の中に引用符なしの丸括弧 → mermaid が Syntax error になる典型
+# （レガシー由来のラベル A[IARG(1)=0?] 等。A["IARG(1)=0?"] と引用符で囲めば正しい）
+UNQUOTED_PAREN_SQ = re.compile(r"\[(?!\s*\")[^\]\n]*[()]")
+UNQUOTED_PAREN_BR = re.compile(r"\{(?!\s*\")[^}\n]*[()]")
+
+
+def check_mermaid_blocks(text: str) -> list:
+    """```mermaid ブロックの、LLMがよくやる構文エラーを機械検知する。
+
+    サイト側では図が「Syntax error in text」になるだけで承認前に気づきにくいので、
+    機械レビューNGにして自己修正ループ（再実行ボタン・連続実行）に乗せる。
+    完全なパースはしない——誤検知で承認を塞がないよう、確実に壊れる形だけ見る。
+    """
+    problems = []
+    for m in MERMAID_BLOCK.finditer(text):
+        lines = [l for l in m.group(1).splitlines()
+                 if l.strip() and not l.strip().startswith("%%")]
+        if not lines:
+            continue
+        head = lines[0].strip()
+        if not MERMAID_TYPE.match(head):
+            problems.append(f"mermaid: 1行目が図種別（flowchart 等）でない: {head[:50]}")
+            continue
+        if re.match(r"\s*(graph|flowchart)\b", head):
+            for l in lines[1:]:
+                if UNQUOTED_PAREN_SQ.search(l) or UNQUOTED_PAREN_BR.search(l):
+                    problems.append(
+                        "mermaid: ラベル内の () が引用符で囲まれていない"
+                        f"（Syntax error で図が表示されない）: {l.strip()[:60]} "
+                        '→ A["IARG(1)=0?"] のように "…" で囲む')
+    return problems
 SPEC_HEAD = re.compile(r"^##\s+(SPEC-[\w]+-\d+)", re.M)
 CASE_HEAD = re.compile(r"^##\s+([\w]*-?TC-\d+)", re.M)
 CONF = re.compile(r"Confidence[:：]?\s*\**\s*(🟢|🟡|🔴)")
@@ -124,6 +159,7 @@ def check_spec(root: str, func_id: str) -> dict:
 
     if "```{mermaid}" in text:
         res["problems"].append("```{mermaid} が混入（render_site が落ちる。```mermaid に直す）")
+    res["problems"] += check_mermaid_blocks(text)
     if PLACEHOLDER.search(text) and res["status"] != "skeleton":
         res["problems"].append("骨子プレースホルダ（<!-- ①で充填 -->）が残っている＝記入の省略")
 
@@ -171,6 +207,7 @@ def check_testspec(root: str, func_id: str) -> dict:
         res["problems"].append("spec-hash が①の現物と不一致（①改訂済み → 本書は要再生成）")
     if "```{mermaid}" in text:
         res["problems"].append("```{mermaid} が混入（render_site が落ちる）")
+    res["problems"] += check_mermaid_blocks(text)
 
     # ①側の SPEC 項目と Confidence
     spec_conf = {}
@@ -289,11 +326,14 @@ def make_report(root: str) -> dict:
         mech = (f"[✅]({review_link})" if r["ok"]
                else f"[❌ {len(r['problems'])}件]({review_link})")
         iss = " ".join(f"[{i}](issues/{i}.md)" for i in open_issues.get(fid, [])) or "—"
-        name = f["new"].get("name", fid)
+        name = f["new"].get("name", fid).replace("|", "\\|")
         rows.append(f"| [{name}](specs/{fid}.md) | {overview} "
                     f"| {c['🟢']} | {c['🟡']} | {c['🔴']} | {mech} | {iss} |")
 
-    lines = ["---", 'title: "① 仕様書 一斉レビュー"', "date: last-modified", "---", "",
+    # page-layout: full — 7列の表を既定の本文幅に押し込むと1行が縦に伸びて
+    # 「件数のわりに数行しか見えない」状態になるため、このページは全幅で使う
+    lines = ["---", 'title: "① 仕様書 一斉レビュー"', "date: last-modified",
+             "page-layout: full", "---", "",
              "<!-- review_checks.py report による自動生成。手編集禁止 -->", ""]
     if rows:
         lines += [
