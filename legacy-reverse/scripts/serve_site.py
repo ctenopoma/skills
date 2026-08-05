@@ -315,7 +315,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    WRITE_ROUTES = ("/review-action", "/run-phase")
+    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check")
 
     def do_POST(self) -> None:
         # ①②の仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
@@ -346,6 +346,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             if self.path == "/review-action":
                 res = self._handle_review_action(payload)
+            elif self.path == "/run-check":
+                res = self._handle_run_check(payload)
             else:
                 res = self._handle_run_phase(payload)
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
@@ -366,10 +368,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return {"ok": False, "message": f"不明な action: {action}"}
 
     def _handle_run_phase(self, payload: dict) -> dict:
-        # 試作: ①②（spec / testspec）対応。増やす場合は browser_run.py の KINDS に追記する
+        # 試作: ①〜⑤（spec/testspec/testcode/impl/test）対応。増やす場合は
+        # browser_run.py の KINDS に追記する
         import browser_run
         return browser_run.start(str(self.state_root), payload.get("func_id", ""),
                                  payload.get("kind", "spec"))
+
+    def _handle_run_check(self, payload: dict) -> dict:
+        # ⑥完了検証。func_id 不要（全関数横断）・LLM不使用で同期的に終わるので
+        # /run-phase とは別ルートにしている
+        import browser_run
+        return browser_run.run_check(str(self.state_root))
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない

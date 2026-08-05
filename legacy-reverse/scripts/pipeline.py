@@ -234,6 +234,31 @@ def verify_impl(root: str, fid: str) -> tuple:
     return True, "", []
 
 
+def verify_test(root: str, fid: str) -> tuple:
+    """契約検証: ⑤が pass しているか。
+
+    legacy-5-test/SKILL.md の設計上、(a)実装バグは1回の headless 実行の中で
+    AI 自身が「④相当の修正→⑤再実行」をループし、pass か attempt上限（blocked）
+    のどちらかで自然に止まる。**blocked（人の裁定待ち）は orchestrator から見て
+    「異常な失敗」ではなく「設計どおりの正常な停止」**——ここでリトライしても
+    `ledger verify` が即座に断るだけで空実行になる（SKILL.md で明示的に禁止されている）
+    ので、ok=False だが理由を区別して返す（呼び出し側は retries=0 にして
+    無駄な再試行をしない設計にする）。
+    """
+    rootp = Path(root).resolve()
+    p = Project(rootp)
+    try:
+        f = p.func(fid)
+    except SystemExit:
+        return False, f"{fid} が functions.json に存在しない", []
+    s = p.status_of(f)
+    if s["test_ok"]:
+        return True, "", []
+    if s["blocked_by"]:
+        return False, f"裁定待ち（{s['blocked_by']}）", []
+    return False, f"⑤ 未pass（現在: {s.get('test', '-')}）", []
+
+
 def refresh_outputs(root: Path) -> dict:
     """WBS と一斉レビュー表を再生成する（人が途中経過を常に見られる状態を保つ）。"""
     scripts = Path(__file__).resolve().parent
@@ -246,6 +271,8 @@ def refresh_outputs(root: Path) -> dict:
 
 def classify_ng(why: str, r: dict) -> str:
     """失敗理由をライブ表示・集計用に分類する。"""
+    if "裁定待ち" in why:
+        return "⛔人の裁定待ち（正常）"     # ⑤の設計どおりの停止。異常ではない
     if "タイムアウト" in why:
         return "タイムアウト"
     if not r.get("ok"):
@@ -254,6 +281,8 @@ def classify_ng(why: str, r: dict) -> str:
         return "ファイル未作成（書き込み権限の疑い）"
     if "status が" in why:
         return "draft未到達（status未更新）"
+    if "スタブ検出" in why:
+        return "スタブ検出"
     if "機械レビューNG" in why:
         return "機械レビューNG"
     return "その他"
