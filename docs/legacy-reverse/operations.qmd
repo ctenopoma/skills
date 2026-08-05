@@ -115,7 +115,78 @@ python <LR>/scripts/pipeline.py spec --root . --budget-usd 20  # コスト上限
 python <LR>/scripts/pipeline.py spec --root . --dry-run        # 対象の確認のみ
 ```
 
-設計上の性質:
+## 実行手順(ランブック)
+
+エージェント(headless Claude)を機械的に回すための通し手順。
+
+1. **前提を確認する**
+   - `claude --version` が通ること(PATH に無ければ `--claude-cmd <パス>` で明示)
+   - 対象プロジェクトに skill 一式が配置済みであること(導入手順 1〜2)
+   - **headless は許可プロンプトに答えられない**。①が使うツール(Read/Write/Edit と
+     スクリプト実行)を `.claude/settings.json` の permissions.allow で許可しておくか、
+     信頼できる閉じた環境に限り `--skip-permissions`
+     (= `--dangerously-skip-permissions`)を明示する
+2. **対象と実行内容を確認する(dry-run)**
+   ```bash
+   python <LR>/scripts/pipeline.py spec --root . --dry-run
+   ```
+   対象件数と、1 件ごとに起動される claude コマンドがそのまま表示される
+   (既定: `claude -p "/legacy-1-spec F-xxxx" --output-format json --max-turns 50`)
+3. **起動する**
+   ```bash
+   python <LR>/scripts/pipeline.py spec --root . [--max-funcs N] [--budget-usd X] [--model M]
+   ```
+4. **ドライバが 1 関数ごとに行うこと**(人の介在なし):
+
+```{mermaid}
+flowchart TB
+  SEL["対象選定: 書きかけ draft(機械NG)の修復を最優先<br>→ 未着手を推奨順に(actionable)"]
+  SEL --> RUN["headless Claude を新プロセスで起動<br>claude -p '/legacy-1-spec F-xxxx'"]
+  RUN --> VER["契約検証(ファイル状態):<br>status が draft 以上 かつ 機械レビュー NG ゼロ"]
+  VER -->|OK| NEXT["次の関数へ(10件ごとに WBS・一斉レビュー表を更新)"]
+  VER -->|NG| RETRY["リトライ(既定1回)→ 駄目ならスキップ記録"]
+  RUN -->|"429/529/usage limit 検知"| WAIT["失敗に数えず指数バックオフ待機<br>(60s→2倍→上限15分)→ 同じ関数を再試行"]
+  RETRY -->|"連続3件失敗"| STOP["環境異常とみなし停止<br>(許可設定・skill配置・CLI を確認)"]
+  NEXT --> SEL
+```
+
+5. **監視する**(任意。放置してよい)
+   - 端末出力: `[n] F-xxxx draft化 OK(累計 $X.XX)` / 検証NG・待機の理由
+   - `.legacy-reverse/pipeline-log.jsonl`: 1 行 1 関数(結果・attempt・所要秒・コスト)
+   - ブラウザ: `serve_site.py --watch` を立てておけば WBS と一斉レビュー表が
+     チャンクごとに自動更新される
+6. **止まる条件**(いずれも安全停止。再開は同じコマンド)
+   - `--max-funcs` / `--budget-usd` の上限到達
+   - 連続失敗が `--max-consecutive-fail`(既定 3)に到達 = 環境異常の疑い
+   - レート待機の累計が `--rate-wait-total`(既定 6 時間)を超過
+7. **中断・再開** — Ctrl-C・電源断はどこでも安全。**同じコマンドで続きから再開**
+   (処理済み draft は再選定されず、書きかけ draft は機械 NG として先に修復される)
+8. **翌朝の人の作業** — docs/spec-review.md(一斉レビュー表)を見て
+   「全部 OK / F-xxxx は修正: 〜」を返す → reviewed 化。失敗として
+   スキップされた関数はログを確認して個別に `/legacy-1-spec F-xxxx` で対応
+
+## オプション一覧
+
+| オプション | 既定 | 意味 |
+|-----------|------|------|
+| `--max-funcs N` | 0(無制限) | このセッションで処理する上限件数 |
+| `--budget-usd X` | 0(無制限) | 累計コスト上限。超えたら停止 |
+| `--chunk N` | 10 | WBS・一斉レビュー表を更新する間隔 |
+| `--retries N` | 1 | 契約検証 NG 時のリトライ回数 |
+| `--max-consecutive-fail N` | 3 | 連続失敗でドライバを停止する閾値 |
+| `--max-turns N` | 50 | 1 関数あたりのエージェントターン上限 |
+| `--timeout N` | 1800 | 1 関数あたりの秒数上限(ハング対策。超過は通常リトライ経路) |
+| `--backoff-base / --backoff-max` | 60 / 900 | レートリミット検知時の待機秒(初期値→2 倍ずつ→上限) |
+| `--rate-wait-total N` | 21600 | レート待機の累計上限秒。超えたら安全停止 |
+| `--pause N` | 0 | 関数間の予防的待機秒(レートリミットに当たりやすい環境用) |
+| `--model M` | — | claude に渡すモデル指定 |
+| `--skip-permissions` | off | `--dangerously-skip-permissions` を渡す(信頼できる環境のみ) |
+| `--claude-cmd / --claude-args` | PATH 検索 / — | claude 実行ファイルの明示 / 追加引数 |
+| `--prompt-template` | `/legacy-1-spec {fid}` | 1 関数あたりのプロンプト(`{fid}` が置換される) |
+| `--dry-run` | off | 実行せず対象とコマンドを表示 |
+| `--no-render` | off | 終了時の HTML 再生成を省略 |
+
+## 設計上の性質
 
 - **1 関数 = 1 つの新しい headless Claude プロセス**(`claude -p "/legacy-1-spec F-xxxx"`)。
   コンテキストが積み上がらず、1 関数あたりのトークンは常に一定 — トークン上限に依存しない
