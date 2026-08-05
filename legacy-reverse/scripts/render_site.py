@@ -52,9 +52,6 @@ def transform_doc(text: str) -> str:
 
 def transform_yml(text: str) -> str:
     text = re.sub(r"\.md\b", ".qmd", text)          # render グロブと navbar href
-    if "wbs/*.qmd" not in text:                     # 旧テンプレ救済: WBS分割ページを render 対象に
-        text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
-                      "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)

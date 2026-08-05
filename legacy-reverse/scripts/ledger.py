@@ -218,9 +218,6 @@ def call_graph(order: list, fmap: dict, stats: dict) -> list:
             ""] + body + [""]
 
 
-WBS_SPLIT = 200   # 関数一覧を1ページに載せる上限。超えるとレガシーファイル別のサブページへ分割
-
-
 def _mark(ok, link=None, note=""):
     sym = "✅" if ok else ("▲" if note else "☐")
     body = f"{sym}{(' ' + note) if note else ''}"
@@ -357,59 +354,17 @@ def cmd_wbs(p: Project, args) -> None:
     else:
         lines.append("全関数完了。⑥ check へ 🎉")
 
-    # ---- 関数一覧（小規模: 1ページ / 大規模: レガシーファイル別サブページ） ----
+    # ---- 関数一覧（件数に関わらず1ページ。各行から specs/test-specs へ直接リンク） ----
     # column-screen-inset = 画面幅いっぱいに広げる Quarto の仕組み（本文の800px枠から出す）。
     # .wbs-funcs は wbs.css で列幅を制御する（関数名は折り返さず、依存列に幅を譲らせる）
     wbs_dir = p.docs / "wbs"
-    if n <= WBS_SPLIT:
-        if wbs_dir.exists():
-            shutil.rmtree(wbs_dir)
-        lines += ["", "# 関数一覧（推奨着手順）", "",
-                  "::: {.wbs-funcs .column-screen-inset}"] + FUNC_TABLE_HEAD
-        for i, fid in enumerate(order, 1):
-            lines.append(_func_row(i, fmap[fid], stats[fid]))
-        lines.append(":::")
-    else:
-        # ファイル別に分割（トポロジカル順の通し番号は保つ）
-        topo_idx = {fid: i for i, fid in enumerate(order, 1)}
-        groups: dict = {}
-        for fid in order:
-            groups.setdefault(fmap[fid]["legacy"]["file"], []).append(fid)
-        if wbs_dir.exists():
-            shutil.rmtree(wbs_dir)
-        wbs_dir.mkdir(parents=True)
-        slugs: dict = {}
-        lines += ["", f"# 関数一覧（{n} 件・レガシーファイル別）", "",
-                  "| レガシーファイル | 関数数 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test | 要対応 |",
-                  "|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"]
-        for lf, fids in groups.items():
-            slug = re.sub(r"\W+", "-", lf).strip("-").lower()
-            while slug in slugs.values():
-                slug += "-2"
-            slugs[lf] = slug
-            g = [stats[fid] for fid in fids]
-            m = len(fids)
-
-            def gcount(key):
-                return sum(1 for s in g if s[key])
-
-            warn = sum(1 for s in g if s["blocked_by"] or s["test_spec_stale"]
-                       or s["test_code_tampered"] or s["test"] == "fail")
-            lines.append(
-                f"| [{lf}](wbs/{slug}.qmd) | {m} | {gcount('spec_ok')}/{m} "
-                f"| {gcount('test_spec_ok')}/{m} | {gcount('test_code_ok')}/{m} "
-                f"| {gcount('impl_ok')}/{m} | {gcount('test_ok')}/{m} "
-                f"| {'⚠ ' + str(warn) if warn else '—'} |")
-            page = ["---", f'title: "WBS: {lf}"', "date: last-modified",
-                    "page-layout: full", "---", "",
-                    "<!-- ledger.py wbs による自動生成。手編集禁止 -->", "",
-                    "[← WBS トップ](../index.qmd)", "",
-                    f"# {lf}（{m} 関数・#はプロジェクト全体の推奨着手順）", "",
-                    "::: {.wbs-funcs .column-screen-inset}"] + FUNC_TABLE_HEAD
-            for fid in fids:
-                page.append(_func_row(topo_idx[fid], fmap[fid], stats[fid], pre="../"))
-            page.append(":::")
-            (wbs_dir / f"{slug}.qmd").write_text("\n".join(page) + "\n", encoding="utf-8")
+    if wbs_dir.exists():
+        shutil.rmtree(wbs_dir)      # 旧版が作っていたファイル別分割ページを掃除
+    lines += ["", "# 関数一覧（推奨着手順）", "",
+              "::: {.wbs-funcs .column-screen-inset}"] + FUNC_TABLE_HEAD
+    for i, fid in enumerate(order, 1):
+        lines.append(_func_row(i, fmap[fid], stats[fid]))
+    lines.append(":::")
 
     imps = sorted((p.docs / "improvements").glob("*.md"))
     if imps:

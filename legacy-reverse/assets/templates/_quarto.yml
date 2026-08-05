@@ -4,7 +4,6 @@ project:
   render:
     - "*.qmd"
     - "*.md"
-    - "wbs/*.qmd"        # 大規模時（200関数超）に ledger.py wbs が生成する分割ページ
     - "specs/*.md"
     - "test-specs/*.md"
     - "test-results/*.md"

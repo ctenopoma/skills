@@ -46,7 +46,7 @@ ISSUE に回答 → AIが反映 → `ledger unblock F-xxxx` → `/legacy-5-test 
 ledger status [F-xxxx] [--json|--summary]   # 状況（--summary は要約JSON）
 ledger next [--all --limit N]               # 次の一手（--all で一覧）
 ledger verify F-xxxx                        # ハッシュ連鎖検証（②stale・③改変・blocked）
-ledger wbs                                  # WBS再生成（200関数超は自動でページ分割）
+ledger wbs                                  # WBS再生成
 ledger next-issue                           # 次の ISSUE 番号
 ledger unblock F-xxxx                       # 裁定反映後のブロック解除
 ```
