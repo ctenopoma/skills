@@ -52,11 +52,61 @@ from ledger import Project, actionable, parse_frontmatter  # noqa: E402
 import review_checks  # noqa: E402
 
 
-def find_claude(explicit: str = None) -> str:
-    cand = explicit or shutil.which("claude") or shutil.which("claude.cmd")
-    if not cand:
-        sys.exit("error: claude CLI が見つからない（PATH を確認するか --claude-cmd で指定）")
-    return cand
+def find_claude(explicit: str = None) -> list:
+    """claude の起動コマンド（リスト形式）を解決する。
+
+    PowerShell では動くのに Python の subprocess からは動かない事故が多い
+    （PowerShell プロファイルのエイリアス/PATH追記は subprocess に届かない、
+    実体が .ps1 で CreateProcess から直接起動できない等）。
+    ここで実体を探し、.ps1 は powershell 経由に包む。
+    """
+    cands = []
+    if explicit:
+        cands.append(explicit)
+    else:
+        for name in ("claude", "claude.exe", "claude.cmd", "claude.ps1"):
+            w = shutil.which(name)
+            if w:
+                cands.append(w)
+        home = Path.home()
+        for p in (home / ".local" / "bin" / "claude.exe",
+                  home / ".local" / "bin" / "claude",
+                  Path(os.environ.get("APPDATA", "/nonexistent")) / "npm" / "claude.cmd",
+                  Path(os.environ.get("APPDATA", "/nonexistent")) / "npm" / "claude.ps1",
+                  Path(os.environ.get("LOCALAPPDATA", "/nonexistent"))
+                  / "Programs" / "claude" / "claude.exe"):
+            if p.exists():
+                cands.append(str(p))
+    for cand in cands:
+        if cand.lower().endswith(".ps1"):
+            return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", cand]
+        return [cand]
+    sys.exit(
+        "error: claude CLI が見つからない。\n"
+        "  PowerShell で動くのにここで失敗する場合、claude が PowerShell の\n"
+        "  プロファイル（エイリアス/PATH追記）でしか解決できていない可能性が高い。\n"
+        "  PowerShell で実体パスを調べて --claude-cmd に渡す:\n"
+        "    (Get-Command claude).Source\n"
+        "    python pipeline.py spec --claude-cmd \"<そのパス>\" ...")
+
+
+def preflight_claude(claude_cmd: list, timeout: int = 120) -> None:
+    """ループに入る前に claude が本当に起動できるか実測する。
+
+    ここで確認しないと、起動不能でも全関数が「検証NG」という遠い症状で
+    失敗し続け、原因（PATH・許可・実体の種類）が見えない。
+    """
+    try:
+        r = subprocess.run(claude_cmd + ["--version"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        sys.exit(f"error: claude を起動できない（{' '.join(claude_cmd)}）: {e}\n"
+                 "  PowerShell で (Get-Command claude).Source を調べて --claude-cmd に渡す")
+    if r.returncode != 0:
+        sys.exit(f"error: claude --version が失敗（exit={r.returncode}）\n"
+                 f"  {(r.stderr or r.stdout).strip()[:300]}\n"
+                 "  実体パスを --claude-cmd で明示するか、PATH を確認する")
+    print(f"claude: {' '.join(claude_cmd)}（{(r.stdout or '').strip().splitlines()[0] if r.stdout.strip() else 'version不明'}）")
 
 
 # レートリミット・過負荷・利用枠上限の検知（これらは「失敗」でなく「待って再試行」）
@@ -65,11 +115,11 @@ RATE_LIMIT_PAT = re.compile(
     r"|quota|capacity|resets at|out of (credits|tokens)|limit reached", re.I)
 
 
-def run_claude(claude_cmd: str, prompt: str, root: Path, max_turns: int,
+def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
                extra: list, timeout: int) -> dict:
     """headless Claude を1プロセス起動し、JSON 結果を返す。"""
-    cmd = [claude_cmd, "-p", prompt, "--output-format", "json",
-           "--max-turns", str(max_turns)] + extra
+    cmd = claude_cmd + ["-p", prompt, "--output-format", "json",
+                        "--max-turns", str(max_turns)] + extra
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     try:
@@ -133,6 +183,8 @@ def cmd_spec(args) -> None:
     root = Path(args.root).resolve()
     p = Project(root)
     claude_cmd = None if args.dry_run else find_claude(args.claude_cmd)
+    if claude_cmd:
+        preflight_claude(claude_cmd)
     extra = []
     if args.model:
         extra += ["--model", args.model]

@@ -316,6 +316,7 @@ Rust(PyO3) 化のような大きな施策も、AIが4段階基準（CPUバウン
 | PDF だけ図が出ない | Mermaid の画像化に Chromium 系ブラウザが要る | `qtpdf.py doctor` で確認。HTML 側はブラウザが描くので影響なし |
 | ⓪で「完全性突合NG」 | 抽出器の2系統カウントが不一致（変則的なソース） | extract-report.json の該当ファイルをAIに調査させる。判断がつかなければ ISSUE |
 | ①②の機械レビューNGが報告された | ハルシネーション・省略を機械が検知（正常動作） | AIが自分で直してから再提出してくる。NG付きの成果物を承認しない |
+| PowerShell では claude が動くのに pipeline.py から動かない/全件失敗する | claude が PowerShell のプロファイルでしか解決できない・実体が .ps1・Python を起動したシェルの PATH が違う | pipeline.py は起動前に claude を実測チェックして原因を表示する。PowerShell で `(Get-Command claude).Source` を調べ、`--claude-cmd "<実体パス>"` で明示するのが確実 |
 | WBS のファイル別ページが出ない | 旧テンプレの `_quarto.yml` に `wbs/*.qmd` が無い | render_site.py が自動追記するのでそのまま再実行。恒久対応はテンプレから `_quarto.yml` を差し替え |
 
 # PDF 出力
