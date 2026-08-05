@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import types
 from pathlib import Path
 
@@ -297,6 +298,25 @@ WIDGETS_JS = """\
       reviewPost({action:"adjudicate", func_id: fid, issue_id: issueId,
                   approver: approver(), comment: text}, msg);
     }
+  };
+
+  // ---- ⑦分析（定量評価 → 施策候補の提案。適用はしない） ----
+  window.lrAnalyze = {
+    start(){
+      const msg = document.getElementById("run-msg-analyze");
+      const cancelBtn = document.getElementById("run-cancel-analyze");
+      msg.style.color = ""; msg.textContent = "開始しています…（計測 → 提案生成）";
+      const t0 = Date.now();
+      jsonPost("/run-analyze", {})
+        .then(d => {
+          if(!d.ok){ msg.textContent = "開始できません: " + d.message;
+                     msg.style.color = "#991b1b"; return; }
+          if(cancelBtn) cancelBtn.style.display = "";
+          poll("analyze", msg, cancelBtn, t0, 0, 0);
+        })
+        .catch(e => { msg.textContent = "通信エラー: " + e; msg.style.color = "#991b1b"; });
+    },
+    cancel(){ window.lrRun.cancel("analyze"); }
   };
 })();
 """
@@ -616,6 +636,187 @@ def shutdown(timeout: float = 20.0) -> None:
     act["thread"].join(timeout)
     if act["thread"].is_alive():
         print("warning: 実行スレッドの停止を確認できなかった（ロックが残った場合は自動解除される）")
+
+
+# ---------- ⑦分析（定量評価 → LLMが施策候補を提案。適用はしない） ----------
+#
+# 「計測せずに提案しない」が⑦の大原則なので、2段構えにする:
+#   1. quant_analyze.py（決定的・LLM不要）: cProfile＋radon/ruff/bandit/pip-audit を
+#      機械実行し、.legacy-reverse/quant.json と docs/quant.md に実測データを残す
+#   2. headless Claude 1回: 実測データを読ませ、docs/analysis.md に施策候補
+#      （OPT-/REF-/SEC-、期待効果・リスク・優先順位）を記入させる。
+#      **施策の適用・コード変更はさせない**（改善イタレーションは人の承認後、別途）
+# 検証は pipeline.verify_analysis（候補が実測ベースで記入されたか）。
+
+ANALYZE_PROMPT = (
+    "/legacy-7-analyze 分析のみを実施してください。計測と静的解析は実施済みで、"
+    "実測データが .legacy-reverse/quant.json・docs/quant.md・docs/perf.md にあります。"
+    "再計測はせず、この実測データに基づいて docs/analysis.md に施策候補"
+    "（OPT-/REF-/SEC-。期待効果・リスク・優先順位つき。数値は実測値を引用）を記入してください。"
+    "quant.md にスモーク計測（bench.py 無し）とある場合は、計測サマリに"
+    "「テスト負荷によるスモーク計測に基づく暫定分析」と明記してください。"
+    "施策の適用・コード変更・施策票の起票はしないでください。候補が無い場合は"
+    "「候補なし」と根拠つきで明記してください。")
+
+
+def _run_cancellable(cmd: list, cwd: Path, timeout: int,
+                     cancel_event: threading.Event) -> dict:
+    """LLM以外のサブプロセス（quant_analyze.py 等）をキャンセル可能に実行する。"""
+    proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace")
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            if cancel_event.is_set() or time.monotonic() >= deadline:
+                pipeline._kill_tree(proc)
+                try:
+                    out, err = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    out, err = "", ""
+                return {"canceled": cancel_event.is_set(), "exit_code": proc.returncode,
+                        "stdout": out or "", "stderr": err or ""}
+    return {"canceled": False, "exit_code": proc.returncode,
+            "stdout": out or "", "stderr": err or ""}
+
+
+def analyze_widget_html(root: str) -> str | None:
+    """WBSトップページに出す⑦分析ウィジェット（⑥の下）。functions.json が無ければ None。"""
+    rootp = Path(root).resolve()
+    if not (rootp / "data" / "functions.json").exists():
+        return None
+    cc = rootp / "docs" / "completion-check.md"
+    ok6 = (cc.exists() and
+           parse_frontmatter(cc.read_text(encoding="utf-8-sig")).get("status") == "pass")
+    lines = []
+    an = rootp / "docs" / "analysis.md"
+    if an.exists():
+        lines.append('<p>前回の分析: <a href="analysis.html">analysis</a>'
+                     '（定量データ: <a href="quant.html">quant</a>・<a href="perf.html">perf</a>）</p>')
+    else:
+        lines.append("<p>まだ実行されていません。</p>")
+    if (rootp / "bench.py").exists():
+        lines.append('<p style="color:#166534">計測: bench.py（代表ワークロード）を使用 ✅</p>')
+    else:
+        lines.append('<p style="color:#854d0e">⚠ bench.py（代表ワークロード）が無いため'
+                     "テスト負荷のスモーク計測になります。ルートに bench.py を置くと本命計測</p>")
+    if ok6:
+        btn = ('<button onclick="lrAnalyze.start()" '
+               'style="background:#7c3aed;color:#fff;border:0;border-radius:6px;'
+               'padding:8px 16px;font-weight:600;cursor:pointer">⑦分析を実行する</button>')
+    else:
+        lines.append('<p style="color:#991b1b">前提: ⑥完了検証が pass していること（上の⑥から実行）</p>')
+        btn = ('<button disabled title="⑥がpassすると実行できます" '
+               'style="background:#cbd5e1;color:#64748b;border:0;border-radius:6px;'
+               'padding:8px 16px;font-weight:600;cursor:not-allowed">⑦分析を実行する</button>')
+    return f"""```{{=html}}
+<div id="run-analyze" class="lr-run-widget"
+     style="border:2px solid #7c3aed;border-radius:10px;padding:14px 18px;margin:14px 0 22px;
+            background:#f5f3ff;font-family:system-ui,sans-serif">
+  <div style="font-weight:700;margin-bottom:6px">⑦分析（定量評価 → 施策候補の提案）</div>
+  {''.join(lines)}
+  <p style="margin:4px 0 10px;color:#5b21b6;font-size:.9rem">
+    cProfile＋静的解析（radon/ruff/bandit/pip-audit）で実測し、その数値に基づいて
+    AI が施策候補（OPT-/REF-/SEC-）を analysis.md に提案します。<b>適用はしません</b>。</p>
+  {btn}
+  <button id="run-cancel-analyze" onclick="lrAnalyze.cancel()"
+          style="display:none;background:#fff;border:1px solid #991b1b;color:#991b1b;
+                 border-radius:6px;padding:8px 16px;margin-left:8px;cursor:pointer">中止</button>
+  <span id="run-msg-analyze" style="margin-left:10px;font-size:.9rem"></span>
+</div>
+<script src="/lr-widgets.js"></script>
+```"""
+
+
+def analyze_start(root: str) -> dict:
+    """POST /run-analyze の実処理。単発実行と同じ枠（ロック・_ACTIVE・中止）を使う。"""
+    rootp = Path(root).resolve()
+    cc = rootp / "docs" / "completion-check.md"
+    if not (cc.exists() and
+            parse_frontmatter(cc.read_text(encoding="utf-8-sig")).get("status") == "pass"):
+        return {"ok": False,
+                "message": "⑦の前提は⑥完了検証が pass していることです。先に⑥を実行してください"}
+    running = pipeline.current_run_state(rootp)
+    if running:
+        return {"ok": False,
+                "message": f"既に実行中です（{running.get('mode')}）。完了を待つか停止してください"}
+    if not pipeline.acquire_run_lock(rootp, "browser-analyze"):
+        return {"ok": False,
+                "message": "別の実行が進行中です。/pipeline.html で状況を確認してください"}
+    started = False
+    try:
+        try:
+            claude_cmd = pipeline.find_claude(None)
+            pipeline.preflight_claude(claude_cmd)
+        except SystemExit as e:
+            return {"ok": False, "message": str(e)}
+        cancel_event = threading.Event()
+        th = threading.Thread(target=_analyze_background,
+                              args=(rootp, claude_cmd, cancel_event), daemon=True)
+        with _ACTIVE_MU:
+            _ACTIVE.clear()
+            _ACTIVE.update({"fid": "analyze", "kind": "analyze",
+                            "cancel": cancel_event, "thread": th})
+        th.start()
+        started = True
+        return {"ok": True, "message": "⑦分析を開始しました（定量評価 → 提案生成）"}
+    finally:
+        if not started:
+            pipeline.release_run_lock(rootp)
+
+
+def _analyze_background(root: Path, claude_cmd: list,
+                        cancel_event: threading.Event) -> None:
+    try:
+        _analyze_background_inner(root, claude_cmd, cancel_event)
+    finally:
+        with _ACTIVE_MU:
+            _ACTIVE.clear()
+        pipeline.release_run_lock(root)
+
+
+def _analyze_background_inner(root: Path, claude_cmd: list,
+                              cancel_event: threading.Event) -> None:
+    status = pipeline.RunStatus(root, "⑦分析（ブラウザ）", 1, RUN_DEFAULTS)
+    status.current("analyze", 1)               # 計測中も経過時間が見えるように
+    scripts = Path(__file__).resolve().parent
+    r = _run_cancellable([sys.executable, str(scripts / "quant_analyze.py"),
+                          "--root", str(root)], root, 900, cancel_event)
+    if r["canceled"]:
+        status.result("analyze", False, "中止された", "中止", 0, 0.0, {}, 1)
+        status.finish("stopped", "中止された")
+        return
+    if r["exit_code"] != 0:
+        why = f"定量評価に失敗: {(r['stderr'] or r['stdout']).strip()[-200:]}"
+        status.result("analyze", False, why, "定量評価失敗", 0, 0.0,
+                      {"tail": (r["stderr"] or r["stdout"])[-400:]}, 1)
+        status.finish("stopped", why)
+        return
+    try:
+        ok, why, r2, cost, _ = pipeline.run_one(
+            "analyze", claude_cmd, [], root, ANALYZE_PROMPT, RUN_DEFAULTS.max_turns,
+            RUN_DEFAULTS.timeout, RUN_DEFAULTS.retries, RUN_DEFAULTS.backoff_base,
+            RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
+            verify_fn=pipeline.verify_analysis, cancel_event=cancel_event)
+        status.counts(1 if ok else 0, 0 if ok else 1)
+    except KeyboardInterrupt:
+        status.finish("stopped", "レート待機の累計上限に到達")
+        return
+    except Exception as e:                        # noqa: BLE001
+        status.result("analyze", False, f"内部エラー: {e}", "内部エラー", 0, 0.0, {}, 1)
+        status.finish("stopped", f"内部エラー: {e}")
+        return
+    refreshed = review_actions.refresh_site(str(root), "analyze")
+    if why == "中止された":
+        status.finish("stopped", "中止された")
+        return
+    reason = "" if ok else f"検証NG: {why}"
+    if not refreshed:
+        reason = (reason + "／" if reason else "") + "サイト更新に失敗（render_site.py を手動実行）"
+    status.finish("finished", reason)
 
 
 # ---------- ⑥完了検証（LLM不要・全関数横断なので①〜⑤とは別の仕組み） ----------

@@ -94,12 +94,17 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
     そのまま body を返す——render 全体をここで落とさないよう例外は握りつぶす。
     """
     if rel == Path("index.qmd"):
-        try:
-            widget = browser_run.check_widget_html(str(project_root))
-        except Exception as e:                       # noqa: BLE001 — render を止めない
-            print(f"note: {rel} の⑥実行ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
-            return body
-        return inject_review_widget(body, widget) if widget else body
+        widgets = []
+        for label, fn in (("⑥", browser_run.check_widget_html),
+                          ("⑦", browser_run.analyze_widget_html)):
+            try:
+                w = fn(str(project_root))
+            except Exception as e:                   # noqa: BLE001 — render を止めない
+                print(f"note: {rel} の{label}実行ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
+                w = None
+            if w:
+                widgets.append(w)
+        return inject_review_widget(body, "\n\n".join(widgets)) if widgets else body
 
     parts = rel.parts
     if len(parts) != 2 or parts[0] not in WIDGET_DIR_KIND:

@@ -348,7 +348,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check", "/run-cancel", "/run-batch")
+    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check", "/run-cancel",
+                    "/run-batch", "/run-analyze")
     LOCAL_NAMES = ("127.0.0.1", "localhost", "::1")
 
     def _cross_site_reason(self) -> str | None:
@@ -414,6 +415,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = self._handle_run_cancel(payload)
             elif self.path == "/run-batch":
                 res = self._handle_run_batch(payload)
+            elif self.path == "/run-analyze":
+                res = self._handle_run_analyze(payload)
             else:
                 res = self._handle_run_phase(payload)
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
@@ -461,6 +464,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return browser_run.batch_start(str(self.state_root),
                                        payload.get("max_funcs") or 0,
                                        payload.get("budget_usd") or 0)
+
+    def _handle_run_analyze(self, payload: dict) -> dict:
+        # ⑦分析（定量評価 → 施策候補の提案。適用はしない）
+        import browser_run
+        return browser_run.analyze_start(str(self.state_root))
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない

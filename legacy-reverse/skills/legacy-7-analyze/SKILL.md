@@ -24,6 +24,11 @@ python <LR>/scripts/profile_run.py --root .                    # スモーク（
 python <LR>/scripts/profile_run.py --root . --script bench.py  # 代表ワークロード（本命）
 ```
 
+手順1と2は `python <LR>/scripts/quant_analyze.py --root .` で一括実行でき、
+`.legacy-reverse/quant.json`（機械可読）と `docs/quant.md`（サマリページ）に集約される
+（WBSの「⑦分析を実行する」ボタンが使うのと同じもの。bench.py があれば自動で本命計測）。
+既に quant.json がある場合は再計測せず、その実測値を候補の根拠に使ってよい。
+
 - **代表ワークロードの有無をまず人に確認する**（実データ規模の入力・繰り返し回数）。
   無ければ一緒に `bench.py` を作る。単体テスト負荷だけでホットスポットを断定しない
 - 出力: `docs/perf.md`（レポート）と `.legacy-reverse/perf.json`（before/after比較用）

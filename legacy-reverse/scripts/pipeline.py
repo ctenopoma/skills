@@ -389,6 +389,28 @@ def verify_test(root: str, fid: str) -> tuple:
     return False, f"⑤ 未pass（現在: {s.get('test', '-')}）", []
 
 
+def verify_analysis(root: str, fid: str) -> tuple:
+    """契約検証: ⑦分析で docs/analysis.md に施策候補が記入されたか。
+
+    fid は "analyze" 固定（run_one のインタフェース互換のために受け取るだけ）。
+    候補ゼロは「候補なし」と明記されていれば合格（無理に施策をひねり出させない）。
+    """
+    p = Path(root) / "docs" / "analysis.md"
+    if not p.exists():
+        return False, "analysis.md が存在しない", []
+    text = p.read_text(encoding="utf-8-sig")
+    problems = []
+    if "{{" in text:
+        problems.append("テンプレのプレースホルダ（{{…}}）が残っている＝記入の省略")
+    if not re.search(r"\b(OPT|REF|SEC)-\d+\b", text) and "候補なし" not in text:
+        problems.append("施策候補（OPT-/REF-/SEC-）が1件も無い（無い場合は「候補なし」と明記する）")
+    if not (Path(root) / "docs" / "quant.md").exists():
+        problems.append("quant.md（定量評価）が無い＝実測ベースの分析になっていない")
+    if problems:
+        return False, f"分析の記入不備（{len(problems)}件）", problems
+    return True, "", []
+
+
 def refresh_outputs(root: Path) -> dict:
     """WBS と一斉レビュー表を再生成する（人が途中経過を常に見られる状態を保つ）。"""
     scripts = Path(__file__).resolve().parent
