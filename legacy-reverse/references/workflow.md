@@ -72,24 +72,40 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
 
-### ブラウザからの単発実行（browser_run.py。試作・①②対応）
+### ブラウザからの単発実行（browser_run.py。試作・①〜④対応）
 
 「1関数だけ様子を見ながら進めたい」向けに、pipeline.py の実行ロジック
 （`run_one` / `RunStatus` / 起動プリフライト・agent-logs 保存）をそのまま流用した
-単発トリガーがある。render_site.py が①仕様書ページに「①/②を実行する」ボタンを
+単発トリガーがある。render_site.py が①仕様書ページに「N を実行する」ボタンを
 埋め込み、押すと serve_site.py の `POST /run-phase` が `browser_run.start()` を呼ぶ:
 
-- ①は `docs/specs/<fid>.md` が skeleton の間、②は spec が reviewed かつ
-  `docs/test-specs/<fid>.md` がまだ無い間だけボタンが出る
-  （`browser_run._decide_kind` が判定。両方とも①の仕様書ページに出る——
-  ②の成果物自体は②が動くまで存在しないため）
-- `pipeline.py` の `verify_spec`/`verify_testspec` は `(ok, why, problems)` の
-  3-tuple を返す。`problems` は機械レビューの理由の**全文リスト**で、
-  `RunStatus.result()` を経由して pipeline-status.json の `recent[].problems` に
-  そのまま乗る。`/pipeline.html` はこれを承認ウィジェットと同じ見た目（赤箱＋箇条書き）
-  で描画する。以前は理由を1行に潰していたため、バッチ画面から原因が読めなかった
+- ボタンは常に①仕様書ページに出る（関数の「ホーム」として工程を通じて存在し
+  続けるページのため）。`browser_run._decide_kind` が①〜④のうち次に着手すべき
+  ものを判定する: skeleton→①、reviewed かつ test-spec 無し→②、
+  test-spec が approved かつ `Project.status_of` の test_code_ok が False→③、
+  test_code_ok かつ impl_ok が False→④。draft/generated 中（承認待ち）は
+  承認ウィジェット側の担当なので None（ボタンを出さない）
+- `pipeline.py` の `verify_spec`/`verify_testspec`/`verify_testcode`/`verify_impl`
+  は全て `(ok, why, problems)` の3-tupleで統一されている。`verify_testcode` は
+  `Project.status_of` の test_code_ok/test_code_tampered を見る（③自体には①②の
+  ような静的レビューは無く、freeze前の marker突合が機械チェックの役割）。
+  `verify_impl` は `check_stubs.check_file` をそのまま呼んで problems を作る。
+  `problems` は `RunStatus.result()` を経由して pipeline-status.json の
+  `recent[].problems` にそのまま乗り、`/pipeline.html` が承認ウィジェットと
+  同じ見た目（赤箱＋箇条書き）で描画する
+- **③④は hook ガード（phase-start/phase-end）を気にしなくてよい**。
+  `ledger phase-start 4 <fid>` は legacy-4-impl/SKILL.md の手順としてAI自身が
+  呼ぶので、headless 実行（`claude -p`）でもチャット実行と同じに効く。
+  オーケストレータ（pipeline.py/browser_run.py）側は何も特別なことをしていない
+- ④が `ok=True` で完了したら `docs-sphinx` の有無を見て、あれば
+  `ledger sphinx-index` → `python -m sphinx -b html docs-sphinx docs/_site/api`
+  を実行し「新コード詳細(API)」を作り直す（`browser_run._build_sphinx_if_needed`。
+  MCP の `render_site(with_sphinx=True)` と同じ2段構え）
 - 実行はバックグラウンドスレッドで行い、POSTは即座に返る（数分かかる処理をHTTPで
-  待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える
+  待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える。
+  **状態を finished にするのは WBS・サイトの更新（と④ならSphinx）が終わった後**
+  ——先に finished にすると、ポーリング側が「終わった」と判断してまだ古いままの
+  ページを reload してしまう（承認ウィジェットへの切替が反映されない）ため
 - **排他制御は2段構え**。バッチとの排他は pipeline-status.json を共有することで実現
   （バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様）。
   ブラウザ同士の排他（二重クリック・複数タブ）はこれだけでは防げない——
@@ -98,12 +114,13 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   あるため。この隙間は `.legacy-reverse/browser-run.lock`（`O_CREAT|O_EXCL` の
   原子的なファイル作成）で塞いでいる。ロックは実行完了までスレッド側で保持し、
   検証NG等での早期returnはその場で解放する
-- 完了後は review_actions._refresh を呼び、WBS・一斉レビュー表・サイトを更新する
-  （status が draft/generated になれば、次のレンダリングで承認ウィジェットに
-  自動的に切り替わる）
 - FROZEN・ローカルホスト限定などのガードは `/review-action` と共通（serve_site.py の
   `WRITE_ROUTES` にまとめてある）
-- 現状は①②のみ。③④はhookガード（phase-start/phase-end）連携が追加で要る
+- 現状は①〜④のみ。⑤は「④修正→⑤再実行」をAI自身がループする構造（トリガー自体は
+  `/legacy-5-test F-xxxx` を1回叩くだけでよいはず）だが、トリアージ(b)(c)は人の
+  裁定が要るため verify_fn の設計が①〜④と異なる。⑥はLLM不要な純機械チェック
+  （`ledger check` を直接叩くだけで済み、run_one すら不要）、⑦は探索的な
+  改善ループで①〜④とは形が違う。いずれも別途設計が要る
 
 `/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
 **中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。
