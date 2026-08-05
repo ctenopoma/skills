@@ -52,6 +52,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ledger import Project, actionable, parse_frontmatter  # noqa: E402
+import check_stubs  # noqa: E402
 import review_checks  # noqa: E402
 
 
@@ -182,6 +183,54 @@ def verify_testspec(root: str, fid: str) -> tuple:
     r = review_checks.check_testspec(root, fid)
     if not r["ok"]:
         return False, f"機械レビューNG（{len(r['problems'])}件）", r["problems"]
+    return True, "", []
+
+
+def verify_testcode(root: str, fid: str) -> tuple:
+    """契約検証: ③がfreeze済み（テストファイルが凍結時のハッシュと一致）か。
+
+    ③自体には①②のような「引用の実在検証」に相当する静的レビューは無い
+    （legacy-3-testcode/SKILL.md の設計）。ケースID とテスト関数の過不足は
+    freeze 前に `pytest --collect-only` ＋ marker突合（collect_results.py）で
+    人ではなく機械が検知する。ここでは「その手順を経て freeze された状態か」を見る。
+    """
+    rootp = Path(root).resolve()
+    p = Project(rootp)
+    try:
+        f = p.func(fid)
+    except SystemExit:
+        return False, f"{fid} が functions.json に存在しない", []
+    tf = f.get("test_file")
+    if not tf:
+        return False, "functions.json に test_file が未設定", []
+    tf_p = rootp / tf
+    if not tf_p.exists():
+        return False, f"テストファイルが存在しない（{tf}）", []
+    s = p.status_of(f)
+    if s["test_code_tampered"]:
+        return False, "freeze後にテストコードが改変されている（ledger freeze-tests をやり直す）", []
+    if not s["test_code_ok"]:
+        return False, "freeze されていない（ledger freeze-tests が未実行、または収集エラーが残っている）", []
+    return True, "", []
+
+
+def verify_impl(root: str, fid: str) -> tuple:
+    """契約検証: ④の実装ファイルが存在し、スタブ検出ゼロか。
+
+    problems は check_stubs.py と同じ検出（空実装・NotImplementedError・TODO/FIXME）。
+    """
+    rootp = Path(root).resolve()
+    p = Project(rootp)
+    try:
+        f = p.func(fid)
+    except SystemExit:
+        return False, f"{fid} が functions.json に存在しない", []
+    mod_p = rootp / f["new"]["module"]
+    if not mod_p.exists():
+        return False, "実装ファイルが存在しない", []
+    problems = [f"{lineno}: {msg}" for lineno, msg in check_stubs.check_file(mod_p)]
+    if problems:
+        return False, f"スタブ検出（{len(problems)}件）", problems
     return True, "", []
 
 

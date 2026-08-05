@@ -17,6 +17,7 @@ serve_site.py から呼ばれる:
 """
 import json
 import os
+import subprocess
 import sys
 import threading
 import types
@@ -34,13 +35,18 @@ RUN_DEFAULTS = types.SimpleNamespace(
     rate_wait_total=21600, model=None, skip_permissions=False, claude_args=[],
     budget_usd=0, max_funcs=1)
 
-# kind ごとの設定。① は骨子(skeleton)ページに、② は reviewed 済みだが
-# テスト仕様書がまだ無い仕様書ページにボタンを出す
+# kind ごとの設定。ボタンはすべて①仕様書ページに出す（関数の「ホーム」として
+# 常に存在し続けるページのため。②③④の成果物ページは工程途中では無かったり
+# docs/ 配下にすら無かったりするので、置き場所を統一している）
 KINDS = {
-    "spec": {"label": "①", "prompt_template": "/legacy-1-spec {fid}",
-            "verify_fn": pipeline.verify_spec, "doc_dir": "specs"},
-    "testspec": {"label": "②", "prompt_template": "/legacy-2-testspec {fid}",
-                "verify_fn": pipeline.verify_testspec, "doc_dir": "test-specs"},
+    "spec": {"label": "①", "noun": "仕様書", "prompt_template": "/legacy-1-spec {fid}",
+            "verify_fn": pipeline.verify_spec},
+    "testspec": {"label": "②", "noun": "テスト仕様書", "prompt_template": "/legacy-2-testspec {fid}",
+                "verify_fn": pipeline.verify_testspec},
+    "testcode": {"label": "③", "noun": "テストコード", "prompt_template": "/legacy-3-testcode {fid}",
+                "verify_fn": pipeline.verify_testcode},
+    "impl": {"label": "④", "noun": "実装", "prompt_template": "/legacy-4-impl {fid}",
+            "verify_fn": pipeline.verify_impl},
 }
 
 
@@ -89,31 +95,48 @@ def _current_run_state(root: Path) -> dict | None:
 
 
 def _decide_kind(root: Path, fid: str) -> str | None:
-    """このページに出す実行ボタンの種別を決める。①未着手 or ②未着手、どちらでもなければ None。
+    """この関数の①仕様書ページに出す実行ボタンの種別を決める。①〜④のうち
+    次に着手すべきものを1つ返す（無ければ None＝ボタンを出さない）。
 
-    ②のトリガーは①ページ（specs/<fid>.md）に出す——②の成果物自体は②が動いた
-    時点で初めて作られるため、着手前に埋め込める既存ページが①側しかない。
+    ①draft中・②generated中は承認ウィジェット（review_actions）側が担当するので
+    ここでは対象外（承認待ちの間に実行ボタンを並べて二重導線にしない）。
     """
     sp = root / "docs" / "specs" / f"{fid}.md"
     if not sp.exists():
         return None
     sfm = parse_frontmatter(sp.read_text(encoding="utf-8-sig"))
-    if sfm.get("status") == "skeleton":
+    status = sfm.get("status")
+    if status == "skeleton":
         return "spec"
-    if sfm.get("status") == "reviewed" and not (root / "docs" / "test-specs" / f"{fid}.md").exists():
+    if status != "reviewed":
+        return None                          # draft中は承認ウィジェットの担当
+    tsp = root / "docs" / "test-specs" / f"{fid}.md"
+    if not tsp.exists():
         return "testspec"
+    tsfm = parse_frontmatter(tsp.read_text(encoding="utf-8-sig"))
+    if tsfm.get("status") != "approved":
+        return None                          # generated中（②承認待ち）も承認ウィジェットの担当
+    p = Project(root)
+    try:
+        f = p.func(fid)
+    except SystemExit:
+        return None
+    s = p.status_of(f)
+    if not s["test_code_ok"]:
+        return "testcode"
+    if not s["impl_ok"]:
+        return "impl"
     return None
 
 
 def trigger_widget_html(root: str, fid: str) -> str | None:
-    """①未着手 or ②未着手のときだけ実行ボタンを返す。それ以外（着手済み等）は None。"""
+    """①〜④のうち次に着手すべきものがあるときだけ実行ボタンを返す。無ければ None。"""
     rootp = Path(root).resolve()
     kind = _decide_kind(rootp, fid)
     if not kind:
         return None
     cfg = KINDS[kind]
-    label = cfg["label"]
-    noun = "仕様書" if kind == "spec" else "テスト仕様書"
+    label, noun = cfg["label"], cfg["noun"]
     return f"""```{{=html}}
 <div id="run-{fid}" class="lr-run-widget"
      style="border:2px solid #0891b2;border-radius:10px;padding:14px 18px;margin:0 0 22px;
@@ -175,6 +198,23 @@ window.lrRun = window.lrRun || (function(){{
 ```"""
 
 
+def _build_sphinx_if_needed(root: Path) -> None:
+    """④完了後、docs-sphinx があれば「新コード詳細(API)」を作り直す。
+
+    review_actions._refresh は Quarto（WBS・仕様書サイト）しか更新しないので、
+    ④の成果物であるdocstringから作るAPI詳細はここで別途面倒を見る
+    （MCPの render_site ツールの with_sphinx と同じ2段構え: index.rst 再生成 → build）。
+    docs-sphinx が無いプロジェクト（未導入）では何もしない。
+    """
+    if not (root / "docs-sphinx").exists():
+        return
+    scripts = Path(__file__).resolve().parent
+    subprocess.run([sys.executable, str(scripts / "ledger.py"), "--root", str(root), "sphinx-index"],
+                   capture_output=True)
+    subprocess.run([sys.executable, "-m", "sphinx", "-b", "html", "docs-sphinx",
+                    "docs/_site/api", "-q"], cwd=str(root), capture_output=True)
+
+
 def _run_background(root: Path, fid: str, kind: str) -> None:
     try:
         _run_background_inner(root, fid, kind)
@@ -199,15 +239,22 @@ def _run_background_inner(root: Path, fid: str, kind: str) -> None:
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
             verify_fn=cfg["verify_fn"])
         status.counts(1 if ok else 0, 0 if ok else 1)
-        status.finish("finished", "" if ok else f"検証NG: {why}")
     except KeyboardInterrupt:
         status.finish("stopped", "レート待機の累計上限に到達")
+        return
     except Exception as e:                        # noqa: BLE001 — バックグラウンドで例外を握り潰さない
         status.result(fid, False, f"内部エラー: {e}", "内部エラー", 0, 0.0, {}, 1)
         status.finish("stopped", f"内部エラー: {e}")
-    finally:
-        review_actions._refresh(str(root), "spec")   # WBS・一斉レビュー表・サイトを更新
-        # ②が新規に作られた場合、一斉レビュー表の対象は①のみなので report は上で足りる
+        return
+
+    # state を finished にする前にサイト側を実際に更新し切る。先に finished にすると、
+    # ページ側のポーリング（trigger_widget_html の JS）が「終わった」と判断して
+    # まだ古いままのページを reload してしまう（承認ウィジェットへの切替が反映されない）。
+    review_actions._refresh(str(root), "spec")
+    # ②が新規に作られた場合、一斉レビュー表の対象は①のみなので report は上で足りる
+    if kind == "impl" and ok:
+        _build_sphinx_if_needed(root)   # ④完了 → 新コード詳細(API)を作り直す
+    status.finish("finished", "" if ok else f"検証NG: {why}")
 
 
 def start(root: str, fid: str, kind: str = "spec") -> dict:
