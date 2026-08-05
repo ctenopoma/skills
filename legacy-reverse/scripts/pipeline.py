@@ -34,7 +34,9 @@
   - headless では許可プロンプトに答えられないため、必要ツールを
     .claude/settings.json で allow 済みにするか --skip-permissions を明示する
 
-実行ログ: .legacy-reverse/pipeline-log.jsonl（1行1関数: 結果・所要・コスト）
+実行ログ:
+  .legacy-reverse/pipeline-log.jsonl   1行1試行（結果・所要・コスト。失敗時は応答末尾も）
+  .legacy-reverse/agent-logs/<fid>.txt 各関数のエージェント応答**全文**（失敗原因の一次情報）
 """
 import argparse
 import datetime
@@ -125,9 +127,10 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
     try:
         r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=timeout, env=env)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         return {"ok": False, "timeout": True, "cost_usd": 0.0,
-                "tail": f"timeout {timeout}s", "err": ""}
+                "tail": f"timeout {timeout}s", "err": "",
+                "stdout": str(e.stdout or ""), "stderr": str(e.stderr or "")}
     out = {}
     for line in reversed(r.stdout.strip().splitlines() or [""]):
         try:
@@ -141,7 +144,8 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
            "num_turns": out.get("num_turns"),
            "duration_ms": out.get("duration_ms"),
            "tail": (out.get("result") or r.stdout or "")[-500:],
-           "err": (r.stderr or "")[-500:]}
+           "err": (r.stderr or "")[-500:],
+           "stdout": r.stdout or "", "stderr": r.stderr or ""}
     res["rate_limited"] = bool(not res["ok"]
                                and RATE_LIMIT_PAT.search(res["tail"] + " " + res["err"]))
     return res
@@ -169,6 +173,24 @@ def refresh_outputs(root: Path) -> dict:
     subprocess.run([sys.executable, str(scripts / "ledger.py"), "--root", str(root), "wbs"],
                    capture_output=True, env=env)
     return review_checks.make_report(str(root))
+
+
+def save_agent_log(root: Path, fid: str, attempt: int, r: dict) -> Path:
+    """エージェント（headless claude）の応答全文を関数ごとのファイルに残す。
+
+    失敗原因の一次情報はここにしか無い（why はファイル状態の検証結果でしかない）。
+    """
+    d = root / ".legacy-reverse" / "agent-logs"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{fid}.txt"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(f"\n===== attempt {attempt} "
+                f"{datetime.datetime.now().isoformat(timespec='seconds')} "
+                f"exit={r.get('exit_code')} timeout={bool(r.get('timeout'))} =====\n")
+        f.write((r.get("stdout") or "(stdoutなし)") + "\n")
+        if r.get("stderr"):
+            f.write("--- stderr ---\n" + r["stderr"] + "\n")
+    return p
 
 
 def log_line(root: Path, entry: dict) -> None:
@@ -257,17 +279,26 @@ def cmd_spec(args) -> None:
 
                 attempt += 1
                 backoff = args.backoff_base       # 正常応答が返ったらバックオフをリセット
+                save_agent_log(root, fid, attempt, r)
                 ok, why = verify_spec(str(args.root), fid)
                 if r.get("timeout") and not ok:
                     why = f"タイムアウト（{args.timeout}s）: " + why
-                log_line(root, {"func_id": fid, "attempt": attempt, "ok": ok,
-                                "why": why, "cost_usd": r.get("cost_usd"),
-                                "claude_ok": r.get("ok"), "num_turns": r.get("num_turns"),
-                                "sec": round(time.time() - t0)})
+                entry = {"func_id": fid, "attempt": attempt, "ok": ok,
+                         "why": why, "cost_usd": r.get("cost_usd"),
+                         "claude_ok": r.get("ok"), "num_turns": r.get("num_turns"),
+                         "sec": round(time.time() - t0)}
+                if not ok:                        # 失敗時は claude の応答末尾も台帳に残す
+                    entry.update({"exit_code": r.get("exit_code"),
+                                  "claude_tail": (r.get("tail") or "")[-300:],
+                                  "claude_err": (r.get("err") or "")[-200:]})
+                log_line(root, entry)
                 if ok:
                     break
                 print(f"  {fid}: 検証NG（{why}）"
                       + (f" → リトライ {attempt}/{args.retries}" if attempt <= args.retries else ""))
+                if not r.get("ok"):
+                    print(f"    claude: exit={r.get('exit_code')} "
+                          f"{((r.get('err') or r.get('tail') or '').strip())[:160]}")
 
             if ok:
                 done += 1
@@ -299,7 +330,9 @@ def cmd_spec(args) -> None:
                         "--root", str(root)], capture_output=True)
     print(f"\n完了: draft化 {done} 件 / 失敗 {failed} 件 / 累計コスト ${cost_total:.2f}")
     if failed:
-        print(f"失敗した関数: {sorted(skip)}（ログ: .legacy-reverse/pipeline-log.jsonl）")
+        print(f"失敗した関数: {sorted(skip)}")
+        print("  原因調査: .legacy-reverse/agent-logs/<fid>.txt にエージェント応答の全文、"
+              ".legacy-reverse/pipeline-log.jsonl に検証結果と応答末尾がある")
     rep = review_checks.make_report(str(args.root))
     print(f"レビュー待ち {rep['drafts']} 件 → docs/spec-review.md を人がレビューし、"
           f"OK分を reviewed 化してください")
