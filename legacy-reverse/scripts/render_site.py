@@ -131,11 +131,18 @@ def transform_yml(text: str) -> str:
         text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
                       "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
     if "pipeline.html" not in text:                 # 旧テンプレ救済: バッチ状況リンクを navbar に追加
-        text = re.sub(
-            r"(?m)^(\s*)- href: api/index\.html\s*\n\s*text:[^\n]*$",
-            lambda m: m.group(0) + f"\n{m.group(1)}- href: pipeline.html"
-                                   f"\n{m.group(1)}  text: バッチ状況",
-            text, count=1)
+        def add_after(pattern: str, s: str) -> str:
+            return re.sub(
+                pattern,
+                lambda m: m.group(0) + f"\n{m.group(1)}- href: pipeline.html"
+                                       f"\n{m.group(1)}  text: バッチ状況",
+                s, count=1)
+        # 新しめのテンプレは API リンクの後ろへ。それが無い世代（apiエントリ追加前の
+        # プロジェクト）は WBS（index）エントリの後ろへ挿す——どの世代でもリンクが出るように
+        new = add_after(r"(?m)^(\s*)- href: api/index\.html\s*\n\s*text:[^\n]*$", text)
+        if new == text:
+            new = add_after(r"(?m)^(\s*)- href: index\.qmd\s*\n\s*text:[^\n]*$", text)
+        text = new
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
