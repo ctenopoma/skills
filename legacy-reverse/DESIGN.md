@@ -114,7 +114,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | ファイル | 責務 | 設計メモ |
 |---|---|---|
 | scripts/extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ | 固定・自由形式、継続行、COMMON/USE/intent、call＋関数参照の呼出推定。**再実行=マージ（func_id不変・手修正保持）**が再開性の要 |
-| scripts/ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有） |
+| scripts/ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有）。200関数超で WBS を自動分割 |
 | scripts/review_checks.py | ①②の機械レビュー | LLM不使用。書式はテンプレ（assets/templates）に依存 |
 | scripts/render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで**⓪時点でもリンク切れゼロ** |
 | scripts/pipeline.py | ①の無人バッチドライバ | **1関数=1 headless Claude プロセス**（毎回まっさらなコンテキスト＝トークン上限に依存しない）。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止 |
@@ -125,8 +125,8 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 
 # 7. スケールと再開（2000関数級）
 
-- **WBS**: 件数に関わらず1ページに全関数表（各行から specs/test-specs へ直接リンク）。
-  表の前に「要対応・次の一手」を置くので、人も LLM も全関数表を読まずに状況把握できる
+- **WBS**: 200関数以下は1ページ。超えるとトップが「要対応・次の一手・ファイル別進捗」の
+  ダッシュボードになり、明細は docs/wbs/ にファイル別分割。人も LLM も全関数表を読まずに済む
 - **軽量API**: `ledger status --summary`（数行のJSON要約）と `ledger next --all`
   （着手可能リスト）。再開時・状況把握でコンテキストに全リストを載せない
 - **再開手順は常に同じ**: summary → next → review all。⓪の再抽出もマージなので安全

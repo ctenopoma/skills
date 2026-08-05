@@ -178,14 +178,16 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
     serve_site.py は cwd を動かさないのでこの問題は起きない）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
 
-### WBS の大規模対応
+### WBS の大規模対応（200関数超で自動分割）
 
-`ledger.py wbs` は件数に関わらず index.qmd 1ページに全関数表を出す
-（各行から specs/test-specs へ直接リンクできることを優先。表が長くなるのは許容）。
-大規模時に人・LLM が全関数表を読まなくて済むよう、表の前に
-進捗サマリ・要対応（⛔blocked / ⚠stale / ⚠改変 / ❌fail）・Open ISSUE・
-次の一手（上位10）を置いている。
-旧版が docs/wbs/ に作っていたファイル別分割ページは `ledger wbs` 実行時に削除される。
+`ledger.py wbs` は 200 関数を超えると自動でページを分割する:
+
+- **index.qmd はダッシュボード**: 進捗サマリ・要対応（⛔blocked / ⚠stale / ⚠改変 /
+  ❌fail）・Open ISSUE・次の一手（上位10）・レガシーファイル別の進捗表
+- **全関数の明細は docs/wbs/<ファイル別>.qmd**（自動生成・手編集禁止）。
+  `_quarto.yml` の render に `wbs/*.qmd` が必要（テンプレは対応済み。旧プロジェクトは
+  render_site.py が影コピー側で自動追記する）
+- 200 以下では従来どおり1ページに全関数表
 
 ### 配布（単体実行ファイル / EXE）
 

@@ -13,6 +13,7 @@
     _quarto.yml         # HTMLサイト＋PDF出力設定
     wbs.css             # WBS 関数一覧の列幅（テンプレからコピー）
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
+    wbs/                # 200関数超で自動生成されるファイル別明細ページ（手編集禁止）
     spec-review.md      # ①draft の一斉レビュー表（review_checks.py report が自動生成。手編集禁止）
     _site/              # HTML出力（render_site.py が作り直す。git 管理外）
     _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
