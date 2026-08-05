@@ -246,6 +246,14 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
 
         holder = next((f for f in reversed(stack)
                        if f.get("kind") in ("subroutine", "function", "program")), None)
+        if holder is None and not stack and low:
+            # program 文の無い暗黙のメインルーチン（FORTRAN 77 で合法。END までを1ユニット）。
+            # メイン判定は program 文/この検出によるもので、ファイル名（main.f 等）は見ない
+            holder = {"kind": "program", "name": "main", "args": [], "result": None,
+                      "file": rel, "start": ln, "end": None, "stmts": [],
+                      "entries": [], "iface": False, "is_main": True, "implicit": True}
+            warnings.append(f"{rel}: program 文の無い暗黙のメインルーチンを検出（{ln}行目〜）")
+            stack.append(holder)
         me = RE_ENTRY.match(low)
         if me and holder is not None:
             holder["entries"].append(
@@ -446,6 +454,10 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             if u.get("is_main") and not any(x["func_id"] == "F-0000" for x in funcs):
                 fid = "F-0000"
             else:
+                if u.get("is_main"):
+                    report["warnings"].append(
+                        f"{u['file']}:{u['name']} もメイン候補だが F-0000 は使用済み"
+                        f"→ 通常採番。どれが本物のメインか確認する")
                 fid = f"F-{next_num:04d}"
                 next_num += 1
             f = {"func_id": fid,
@@ -535,10 +547,18 @@ def extract(root: str, legacy_dir: str = "legacy", package: str = None,
         stmts = statements_fixed(lines) if ext in FIXED_EXTS else statements_free(lines)
         file_units = scan_file(rel, stmts, warnings)
         nv = naive_count(stmts)
+        # 暗黙メインは素朴カウント側では数えようがない（宣言行が無い）ので突合から除外
+        explicit = sum(1 for u in file_units if not u.get("implicit"))
         per_file.append({"file": rel, "units": len(file_units), "naive_count": nv})
-        if nv != len(file_units):
-            mismatches.append({"file": rel, "parsed": len(file_units), "naive": nv})
+        if nv != explicit:
+            mismatches.append({"file": rel, "parsed": explicit, "naive": nv})
         units += file_units
+
+    mains = [u for u in units if u.get("is_main")]
+    if len(mains) > 1:
+        warnings.append("メインルーチン候補が複数ある: "
+                        + ", ".join(f"{u['file']}:{u['name']}" for u in mains)
+                        + "（F-0000 は最初の1件。どれが本物のメインか⓪で確認する）")
 
     analyses = {(u["file"], u["name"]): analyze_unit(u) for u in units}
     inferred = infer_function_calls(units, analyses) if infer_calls else {}

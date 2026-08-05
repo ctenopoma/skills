@@ -29,7 +29,8 @@ user-invocable: true
   python <LR>/scripts/extract_fortran.py --root . --package <pkg> --write
   ```
   （MCP登録済みなら `extract_functions` ツール。）subroutine/function/entry と
-  **メインルーチン（program ユニット → F-0000 に採番）**の列挙、
+  **メインルーチン（program ユニット → F-0000 に採番。program 文の無い F77 の
+  暗黙メインも検出する。判定はファイル名によらない）**の列挙、
   引数と型/intent、COMMON、USE、`open/inquire` の外部ファイル、call と関数参照の
   呼び出し推定まで自動。**再実行は常にマージ（func_id 不変・手修正保持）なので、
   中断してもやり直しにならない。** LLMの仕事はこの後だけ:
