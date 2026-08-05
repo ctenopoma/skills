@@ -153,17 +153,36 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
 
 
 def verify_spec(root: str, fid: str) -> tuple:
-    """契約検証: ①が draft 以上になり、機械レビュー NG ゼロか。"""
+    """契約検証: ①が draft 以上になり、機械レビュー NG ゼロか。
+
+    戻り値は (ok, why, problems)。problems は機械レビューの理由の全文リスト
+    （NGの原因がステータス未達・ファイル欠落など機械レビュー以外の場合は空）。
+    why は一覧・ログ用の1行要約、problems は /pipeline.html 等で箇条書き表示する用。
+    """
     p = Path(root) / "docs" / "specs" / f"{fid}.md"
     if not p.exists():
-        return False, "仕様書ファイルが存在しない"
+        return False, "仕様書ファイルが存在しない", []
     status = parse_frontmatter(p.read_text(encoding="utf-8-sig")).get("status")
     if status not in ("draft", "reviewed"):
-        return False, f"status が {status} のまま（draft になっていない）"
+        return False, f"status が {status} のまま（draft になっていない）", []
     r = review_checks.check_spec(root, fid)
     if not r["ok"]:
-        return False, "機械レビューNG: " + " / ".join(r["problems"][:3])
-    return True, ""
+        return False, f"機械レビューNG（{len(r['problems'])}件）", r["problems"]
+    return True, "", []
+
+
+def verify_testspec(root: str, fid: str) -> tuple:
+    """契約検証: ②が generated 以上になり、機械レビュー NG ゼロか。戻り値は verify_spec と同形。"""
+    p = Path(root) / "docs" / "test-specs" / f"{fid}.md"
+    if not p.exists():
+        return False, "テスト仕様書ファイルが存在しない", []
+    status = parse_frontmatter(p.read_text(encoding="utf-8-sig")).get("status")
+    if status not in ("generated", "approved"):
+        return False, f"status が {status} のまま（generated になっていない）", []
+    r = review_checks.check_testspec(root, fid)
+    if not r["ok"]:
+        return False, f"機械レビューNG（{len(r['problems'])}件）", r["problems"]
+    return True, "", []
 
 
 def refresh_outputs(root: Path) -> dict:
@@ -234,7 +253,7 @@ class RunStatus:
         self.save()
 
     def result(self, fid: str, ok: bool, why: str, kind: str, sec: int,
-               cost_total: float, r: dict, attempt: int) -> None:
+               cost_total: float, r: dict, attempt: int, problems: list = None) -> None:
         if ok:
             self.ok_secs.append(sec)
         else:
@@ -242,6 +261,7 @@ class RunStatus:
         self.d["cost_usd"] = round(cost_total, 4)
         self.d["recent"].insert(0, {
             "func_id": fid, "ok": ok, "why": why, "kind": None if ok else kind,
+            "problems": (problems or [])[:20],   # 機械レビューの理由の全文（表示側で箇条書きにする）
             "sec": sec, "cost_usd": r.get("cost_usd"), "attempt": attempt,
             "num_turns": r.get("num_turns"),
             "tail": None if ok else (r.get("tail") or r.get("err") or "")[-400:],
@@ -297,13 +317,17 @@ def log_line(root: Path, entry: dict) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def run_one_spec(fid: str, claude_cmd: list, extra: list, root: Path,
-                 prompt_template: str, max_turns: int, timeout: int, retries: int,
-                 backoff_base: int, backoff_max: int, rate_wait_total: int,
-                 status: "RunStatus", cost_total: float, rate_waited: int) -> tuple:
-    """①1関数分の実行ループ（レート待機・リトライ・検証込み）。
+def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
+           prompt_template: str, max_turns: int, timeout: int, retries: int,
+           backoff_base: int, backoff_max: int, rate_wait_total: int,
+           status: "RunStatus", cost_total: float, rate_waited: int,
+           verify_fn=verify_spec) -> tuple:
+    """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
-    cmd_spec（無人バッチ）と browser_run.py（ブラウザからの単発実行）が共用する。
+    cmd_spec（①無人バッチ）と browser_run.py（ブラウザからの単発実行。①②対応）が共用する。
+    verify_fn(root_str, fid) -> (ok, why) で「完了とみなす条件」を差し替える
+    （① verify_spec / ② verify_testspec）。プロンプトテンプレートも差し替え可能なので
+    ①以外のフェーズも同じループに乗る。
     戻り値: (ok, why, r, cost_total, rate_waited) — 呼び出し側の累計をこれで更新する。
     レート待機の累計上限超過は KeyboardInterrupt で呼び出し側に伝える（バッチの
     安全停止と同じ扱い。単発実行側もこれを捕まえて「停止」として扱えばよい）。
@@ -335,11 +359,11 @@ def run_one_spec(fid: str, claude_cmd: list, extra: list, root: Path,
         backoff = backoff_base
         save_agent_log(root, fid, attempt, r)
         # root は解決済み絶対パスなので str() でも cwd 非依存（相対の args.root より頑健）
-        ok, why = verify_spec(str(root), fid)
+        ok, why, problems = verify_fn(str(root), fid)
         if r.get("timeout") and not ok:
             why = f"タイムアウト（{timeout}s）: " + why
         entry = {"func_id": fid, "attempt": attempt, "ok": ok,
-                 "why": why, "cost_usd": r.get("cost_usd"),
+                 "why": why, "problems": problems, "cost_usd": r.get("cost_usd"),
                  "claude_ok": r.get("ok"), "num_turns": r.get("num_turns"),
                  "sec": round(time.time() - t0)}
         if not ok:
@@ -348,7 +372,7 @@ def run_one_spec(fid: str, claude_cmd: list, extra: list, root: Path,
                           "claude_err": (r.get("err") or "")[-200:]})
         log_line(root, entry)
         status.result(fid, ok, why, classify_ng(why, r),
-                      round(time.time() - t0), cost_total, r, attempt)
+                      round(time.time() - t0), cost_total, r, attempt, problems=problems)
         if ok:
             break
         print(f"  {fid}: 検証NG（{why}）"
@@ -421,10 +445,11 @@ def cmd_spec(args) -> None:
                 break
 
             try:
-                ok, why, r, cost_total, rate_waited = run_one_spec(
+                ok, why, r, cost_total, rate_waited = run_one(
                     fid, claude_cmd, extra, root, args.prompt_template, args.max_turns,
                     args.timeout, args.retries, args.backoff_base, args.backoff_max,
-                    args.rate_wait_total, status, cost_total, rate_waited)
+                    args.rate_wait_total, status, cost_total, rate_waited,
+                    verify_fn=verify_spec)
             except KeyboardInterrupt:
                 print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。"
                       f"停止する（再開は同じコマンド）")
