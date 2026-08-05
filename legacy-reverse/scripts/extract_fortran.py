@@ -194,7 +194,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
     iface_depth = 0
 
     def close_unit(frame, end_ln):
-        if frame.get("kind") in ("subroutine", "function") and not frame["iface"]:
+        if frame.get("kind") in ("subroutine", "function", "program") and not frame["iface"]:
             frame["end"] = end_ln
             units.append(frame)
             for e in frame["entries"]:
@@ -222,8 +222,15 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
             stack.append({"kind": "interface"})
             continue
         if re.match(r"^(module|submodule)\s*(?!procedure\b)[a-z(]", low) \
-                or re.match(r"^program\s+\w+", low) or re.match(r"^block\s*data\b", low):
+                or re.match(r"^block\s*data\b", low):
             stack.append({"kind": "container"})
+            continue
+        mp = re.match(r"^program\s+(\w+)", low)
+        if mp:                                    # メインルーチン（merge で F-0000 を割り当てる）
+            stack.append({"kind": "program", "name": mp.group(1), "args": [],
+                          "result": None, "file": rel, "start": ln, "end": None,
+                          "stmts": [], "entries": [], "iface": iface_depth > 0,
+                          "is_main": True})
             continue
 
         ms, mf = RE_SUB.match(low), RE_FUNC.match(low)
@@ -238,7 +245,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
             continue
 
         holder = next((f for f in reversed(stack)
-                       if f.get("kind") in ("subroutine", "function")), None)
+                       if f.get("kind") in ("subroutine", "function", "program")), None)
         me = RE_ENTRY.match(low)
         if me and holder is not None:
             holder["entries"].append(
@@ -252,7 +259,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
 
     while stack:
         frame = stack.pop()
-        if frame.get("kind") in ("subroutine", "function"):
+        if frame.get("kind") in ("subroutine", "function", "program"):
             warnings.append(f"{rel}: {frame['name']} の end が見つからない（EOFで閉じた）")
             close_unit(frame, stmts[-1][0] if stmts else frame["start"])
     return units
@@ -276,7 +283,8 @@ def naive_count(stmts: list) -> int:
         if iface or low.startswith("end"):
             continue
         if re.match(r"^(?:(?:recursive|pure|elemental|impure|module)\s+)*subroutine\s+\w+", low) \
-           or RE_FUNC.match(low) or low.startswith("entry "):
+           or RE_FUNC.match(low) or low.startswith("entry ") \
+           or re.match(r"^program\s+\w+", low):
             n += 1
     return n
 
@@ -379,11 +387,27 @@ def _snake(name: str) -> str:
     return re.sub(r"\W", "_", name.lower())
 
 
+def _lookup_call(id_by_name: dict, name: str, self_id: str):
+    """呼び出し名 → func_id。言語またぎ（Fortran↔C）のアンダースコア規約も試す。
+
+    Fortran の `call foo` は C 側では foo または foo_（コンパイラ規約）で定義される。
+    逆に C から Fortran を呼ぶときは foo_ と書くことが多い。
+    """
+    n = name.upper()
+    for cand in (n, n.rstrip("_"), n + "_"):
+        fid = id_by_name.get(cand)
+        if fid and fid != self_id:
+            return fid
+    return None
+
+
 def merge(existing: dict, units: list, analyses: dict, inferred: dict,
-          package: str, root_name: str, report: dict) -> dict:
-    data = existing or {"project": {"name": root_name, "legacy_lang": "fortran",
+          package: str, root_name: str, report: dict, lang: str = "fortran") -> dict:
+    data = existing or {"project": {"name": root_name, "legacy_lang": lang,
                                     "new_lang": "python", "package": package}}
     data.setdefault("project", {}).setdefault("package", package)
+    if lang not in data["project"].get("legacy_lang", ""):    # 混在（fortran+c 等）を記録
+        data["project"]["legacy_lang"] = f"{data['project'].get('legacy_lang', '')}+{lang}".strip("+")
     funcs = data.setdefault("functions", [])
     by_key = {_key(f["legacy"]["file"], f["legacy"]["name"]): f for f in funcs}
     name_to_unit = {}
@@ -418,15 +442,22 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             new_calls = [c for c in call_names]  # 名前のまま。後段で func_id 化
             f.setdefault("_call_names", new_calls)
         else:
-            f = {"func_id": f"F-{next_num:04d}",
-                 "legacy": {"file": u["file"], "name": u["name"].upper(),
+            # メインルーチン（Fortran program / C main）は予約番号 F-0000
+            if u.get("is_main") and not any(x["func_id"] == "F-0000" for x in funcs):
+                fid = "F-0000"
+            else:
+                fid = f"F-{next_num:04d}"
+                next_num += 1
+            f = {"func_id": fid,
+                 # Fortran は大文字慣習、C/C++ は原文の大小文字を保つ（display_name）
+                 "legacy": {"file": u["file"],
+                            "name": u.get("display_name") or u["name"].upper(),
                             "lines": lines, "kind": u["kind"]},
                  "new": {"module": f"src/{package}/{_snake(Path(u['file']).stem)}.py",
                          "name": _snake(u["name"]), "signature": ""},
                  "inputs": an["inputs"], "outputs": an["outputs"],
                  "globals": an["globals"], "external_files": an["external_files"],
                  "calls": [], "_call_names": call_names}
-            next_num += 1
             funcs.append(f)
             by_key[k] = f
             report["added"].append(f["func_id"])
@@ -437,18 +468,33 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             report["missing_in_source"].append(
                 {"func_id": f["func_id"], "legacy": f["legacy"]})
 
-    # 呼び出し名 → func_id 解決（大文字小文字を無視）
+    # 呼び出し名 → func_id 解決（大文字小文字を無視。Fortran↔C のアンダースコア規約も突合）
     id_by_name = {}
     for f in funcs:
         id_by_name.setdefault(f["legacy"]["name"].upper(), f["func_id"])
     for f in funcs:
         names = f.pop("_call_names", None)
         if names is None:
+            # 今回の抽出対象外（別言語など）のエントリ。前回までの未解決名を
+            # 今回追加された関数と突合する（Fortran→C のリンクはここで繋がる）
+            pending = f.get("unresolved_calls") or []
+            if pending:
+                got = [(nm, _lookup_call(id_by_name, nm, f["func_id"])) for nm in pending]
+                hit = sorted({fid for _, fid in got if fid})
+                if hit:
+                    f["calls"] = sorted(set(f.get("calls", [])) | set(hit))
+                    report.setdefault("cross_resolved", []).append(
+                        {"func_id": f["func_id"], "resolved": hit})
+                rest = [nm for nm, fid in got if not fid]
+                if rest:
+                    f["unresolved_calls"] = rest
+                else:
+                    f.pop("unresolved_calls", None)
             continue
         resolved, unresolved = [], []
         for n in names:
-            fid = id_by_name.get(n.upper())
-            if fid and fid != f["func_id"]:
+            fid = _lookup_call(id_by_name, n, f["func_id"])
+            if fid:
                 resolved.append(fid)
             elif n not in INTRINSICS:
                 unresolved.append(n.upper())
@@ -459,6 +505,9 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
                                          "existing": f["calls"], "extracted": resolved})
         if unresolved:
             report["unresolved_calls"].append({"func_id": f["func_id"], "names": unresolved})
+            f["unresolved_calls"] = sorted(set(unresolved))   # 後続の別言語抽出で自動解決
+        else:
+            f.pop("unresolved_calls", None)
     return data
 
 
@@ -495,7 +544,7 @@ def extract(root: str, legacy_dir: str = "legacy", package: str = None,
     inferred = infer_function_calls(units, analyses) if infer_calls else {}
 
     report = {"added": [], "updated_lines": [], "missing_in_source": [],
-              "calls_diff": [], "unresolved_calls": [],
+              "calls_diff": [], "unresolved_calls": [], "cross_resolved": [],
               "inferred_calls": [{"file": k[0], "name": k[1].upper(), "calls": v}
                                  for k, v in sorted(inferred.items())],
               "completeness_mismatches": mismatches, "warnings": warnings,

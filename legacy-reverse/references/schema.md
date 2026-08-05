@@ -64,7 +64,14 @@
 ```
 
 - `func_id` は `F-` + 4桁連番。`calls` は func_id の配列（コールグラフの正データ）
+- **`F-0000` はメインルーチン予約番号**（Fortran の `program` ユニット / C の `main`。
+  kind: program）。コールグラフの根になるため、推奨着手順では最後に回る
 - `test_file` は ⓪では省略可。③が確定させる
+- `unresolved_calls`（任意）— 抽出時に functions.json 内で解決できなかった呼び出し名。
+  別言語の抽出（extract_c.py 等）が走った時点で自動解決されて calls に移る
+  （Fortran↔C のアンダースコア規約 `foo`/`foo_` も突合される）。
+  残っているものは外部/ベンダー関数の疑いとして⓪でレビューする
+- `project.legacy_lang` は混在プロジェクトでは `"fortran+c"` のように連結される
 - 任意フィールド（人の後追い調整。`ledger add / exclude / include` が読み書きする）:
   - `"manual": true` — 人の指示で後追い追加したエントリ（`ledger add`）。
     抽出の再実行で「ソースに無い」警告を出さない。実ソースで確認されたら自動で外れる
