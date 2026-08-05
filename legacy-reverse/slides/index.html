@@ -133,6 +133,30 @@ cp -r skills/legacy-reverse/skills/*  &lt;project&gt;/.claude/skills/</code></pr
   draft の書き直しは何度でも頼める。</p>
 </section>
 
+<!-- 6b -->
+<section class="slide">
+  <h2>①を全件回す — 無人バッチ実行（機械がエージェントを回す）</h2>
+  <p>数百〜2000件はチャットで回さない。<strong>無人ドライバ</strong>が
+  1関数ごとに新しい headless Claude（<code>claude -p "/legacy-1-spec F-xxxx"</code>）を
+  起動して回す——トークン上限に依存せず、夜間に放置できる。</p>
+  <pre><code>python &lt;LR&gt;/scripts/pipeline.py spec --root . --dry-run   # まず対象と実行内容を確認
+python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 全件 draft まで無人実行
+python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も同じコマンドで再開</code></pre>
+  <ul>
+    <li>各関数の完了は AI の申告でなく<strong>ファイル状態で契約検証</strong>
+      （draft 化＋機械レビュー NG ゼロ）。NG はリトライ→スキップ記録</li>
+    <li>レートリミット・利用枠上限は失敗に数えず<strong>待って自動再開</strong>
+      （夜間の利用枠リセットを人手なしで跨ぐ）。連続3件失敗は環境異常として停止</li>
+    <li>Ctrl-C・電源断はどこでも安全。10件ごとに WBS と一斉レビュー表が自動更新</li>
+  </ul>
+  <div class="you"><b>あなたがやること:</b> 事前に <code>.claude/settings.json</code> で
+    必要ツールを許可しておく（headless は許可プロンプトに答えられない）。
+    夜に起動して寝る → 翌朝 <strong>spec-review.md</strong> を見て
+    「全部OK / F-xxxx は修正」を返すだけ。</div>
+  <p class="note">オプション一覧と通し手順（ランブック）は設計・仕様書の
+  「運用設計 — 無人バッチ実行」、コマンド即引きは QUICKREF を参照。</p>
+</section>
+
 <!-- 7 -->
 <section class="slide">
   <h2>ISSUE の答え方 — 白紙の質問は来ない</h2>
