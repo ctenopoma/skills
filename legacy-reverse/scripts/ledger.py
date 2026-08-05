@@ -277,7 +277,39 @@ def _next_phase(s: dict):
     return None
 
 
+# ナビバー（_quarto.yml）が参照するページのうち、後続フェーズが生成する/人が書くもの。
+# ⓪直後に無いままだと quarto render がリンク切れエラーで落ちるため、
+# wbs 再生成のたびに「無ければスタブを置く」。⑥⑦や人の記入で自然に上書きされる。
+NAV_STUBS = {
+    "domain-knowledge.md": ("ドメイン知識",
+                            "人の裁定・業務知識がここに蓄積されます（ISSUE の回答が転記されます）。"),
+    "conventions.md": ("プロジェクト規約",
+                       "⓪（/legacy-0-analyze）で人と確定します"
+                       "（テンプレ: assets/templates/conventions.md）。"),
+    "completion-check.md": ("⑥ 完了検証",
+                            "全関数の①〜⑤完了後に /legacy-6-check を実行すると生成されます。"),
+    "analysis.md": ("⑦ 分析", "/legacy-7-analyze で生成されます。"),
+}
+
+
+def ensure_nav_stubs(p: Project) -> int:
+    p.docs.mkdir(parents=True, exist_ok=True)
+    made = 0
+    for name, (title, note) in NAV_STUBS.items():
+        f = p.docs / name
+        if not f.exists():
+            f.write_text(f'---\ntitle: "{title}"\n---\n\n'
+                         "::: {.callout-note}\n"
+                         f"このページはまだ作成されていません。{note}\n"
+                         ":::\n", encoding="utf-8")
+            made += 1
+    return made
+
+
 def cmd_wbs(p: Project, args) -> None:
+    made = ensure_nav_stubs(p)
+    if made:
+        print(f"nav stubs: {made} 件作成（未生成ページのリンク切れ防止）")
     order, cycles = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
     stats = {fid: p.status_of(fmap[fid]) for fid in order}

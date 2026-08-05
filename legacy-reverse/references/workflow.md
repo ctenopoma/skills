@@ -166,8 +166,9 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
   _quarto.yml / wbs.css の変更・変更ページ多数のときは自動で全体レンダに切り替わる。
   差分ではサイト内検索の索引が更新されないため、まとまった節目に `--full` を1回かける
 - **⓪の時点でもリンク切れは出ない**: ナビバーが参照する未生成ページ
-  （domain-knowledge / completion-check / analysis / api）は render_site.py が
-  「いつ生成されるか」を書いたプレースホルダを影コピー側に自動で置く（成果物 docs/ は汚さない）。
+  （domain-knowledge / conventions / completion-check / analysis）は `ledger wbs` が
+  「いつ生成されるか」を書いたスタブを docs/ に置く（⑥⑦や人の記入で自然に上書き）。
+  render_site.py も影コピー側で同じ救済をする（旧プロジェクト・api 用）。
   WBS 側も、仕様書ファイルが存在しない関数はリンクにしない（ledger.py `_spec_ref`）
 - Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
   （`~/.local/quarto/bin/quarto`。PATH 登録不要）
