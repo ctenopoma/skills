@@ -15,6 +15,7 @@
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
     wbs/                # 200関数超で自動生成されるファイル別明細ページ（手編集禁止）
     spec-review.md      # ①draft の一斉レビュー表（review_checks.py report が自動生成。手編集禁止）
+    review-feedback.md  # ブラウザの承認ウィジェットからの修正依頼（人が著者。AIが起動時に読み applied 化）
     _site/              # HTML出力（render_site.py が作り直す。git 管理外）
     _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
     conventions.md      # プロジェクト規約（⓪で確定）
@@ -114,3 +115,8 @@
 | ③test-code | （ファイル＋ledger） | ledger の test_code_hash が現物と一致 |
 | ④impl | （ファイル） | new.module が存在しスタブ検出ゼロ |
 | ⑤test | （最新結果ファイル） | result: pass（＝実装率100%かつ失敗0） |
+
+承認時は `reviewed-by`/`reviewed-date`（①）、`approved-by`/`approved-date`（②）を記録する
+（誰が・いつ）。チャット承認・ブラウザ承認（`/review-action`）のどちらでも同じフィールドに書く。
+draft / generated の間、render_site.py はそのページに承認ウィジェット（機械レビュー結果＋
+承認・修正依頼ボタン）を埋め込む。詳細は workflow.md「人の承認ゲート」。

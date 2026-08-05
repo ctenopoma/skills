@@ -27,6 +27,8 @@ website:
         text: ⑦分析
       - href: api/index.html
         text: 新コード詳細(API)
+      - href: pipeline.html
+        text: バッチ状況
 
 format:
   html:

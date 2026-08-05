@@ -41,6 +41,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_actions  # noqa: E402  仕様書ページへの承認ウィジェット埋め込みに使う
+
 MERMAID_FENCE = re.compile(r"^(\s*)```mermaid\s*$", re.MULTILINE)
 MD_LINK = re.compile(r"\]\((?!https?://)([^)\s]+?)\.md(#[^)]*)?\)")
 DOC_SUFFIXES = {".md", ".qmd"}
@@ -62,11 +65,56 @@ def transform_doc(text: str) -> str:
     return MD_LINK.sub(lambda m: f"]({m.group(1)}.qmd{m.group(2) or ''})", text)
 
 
+def inject_review_widget(text: str, widget: str) -> str:
+    """フロントマターの直後（本文の先頭）に承認ウィジェットを挿む。
+
+    ページを開いた瞬間に見える位置＝一番上。widget は ```{=html} ... ``` の
+    生ブロック（review_actions.widget_html が作る）。
+    """
+    lines = text.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == "---")
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        return widget + "\n\n" + text
+    lines[end + 1:end + 1] = ["", widget, ""]
+    return "\n".join(lines)
+
+
+WIDGET_DIR_KIND = {"specs": "spec", "test-specs": "testspec"}
+
+
+def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
+    """docs/specs|test-specs/<fid>.md が承認待ちなら、承認ウィジェットを埋めて返す。
+
+    承認待ちでない（reviewed/approved 済み・skeleton 未着手）場合や、
+    functions.json に該当が無い（骨子生成前・手動追加直後の一時ファイル等）場合は
+    そのまま body を返す——render 全体をここで落とさないよう例外は握りつぶす。
+    """
+    parts = rel.parts
+    if len(parts) != 2 or parts[0] not in WIDGET_DIR_KIND:
+        return body
+    kind = WIDGET_DIR_KIND[parts[0]]
+    fid = Path(parts[1]).stem
+    try:
+        widget = review_actions.widget_html(str(project_root), kind, fid)
+    except Exception as e:                          # noqa: BLE001 — render を止めない
+        print(f"note: {rel} の承認ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
+        return body
+    return inject_review_widget(body, widget) if widget else body
+
+
 def transform_yml(text: str) -> str:
     text = re.sub(r"\.md\b", ".qmd", text)          # render グロブと navbar href
     if "wbs/*.qmd" not in text:                     # 旧テンプレ救済: WBS分割ページを render 対象に
         text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
                       "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
+    if "pipeline.html" not in text:                 # 旧テンプレ救済: バッチ状況リンクを navbar に追加
+        text = re.sub(
+            r"(?m)^(\s*)- href: api/index\.html\s*\n\s*text:[^\n]*$",
+            lambda m: m.group(0) + f"\n{m.group(1)}- href: pipeline.html"
+                                   f"\n{m.group(1)}  text: バッチ状況",
+            text, count=1)
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
@@ -87,6 +135,7 @@ def build_shadow(docs: Path, work: Path) -> int:
         elif src.suffix in DOC_SUFFIXES:
             dst.parent.mkdir(parents=True, exist_ok=True)
             body = transform_doc(src.read_text(encoding="utf-8-sig"))
+            body = maybe_inject_review_widget(docs.parent, rel, body)
             dst.with_suffix(".qmd").write_text(body, encoding="utf-8", newline="\n")
             n += 1
         else:
@@ -232,6 +281,11 @@ def main() -> None:
     if not api_index.exists():                   # ④前でもナビバーの API リンクを切らさない
         api_index.parent.mkdir(parents=True, exist_ok=True)
         api_index.write_text(API_PLACEHOLDER, encoding="utf-8", newline="\n")
+    # ナビバーの「バッチ状況」の実体。serve_site.py 配信時は同内容のライブページが
+    # ルートで優先されるが、素の http.server や EXE 同梱スナップショットでも 404 にしない
+    import serve_site                            # 隣のファイル（ページ定義を共有）
+    (site / "pipeline.html").write_text(serve_site.PIPELINE_PAGE,
+                                        encoding="utf-8", newline="\n")
     print(f"wrote {site}: {done_msg}")
 
 

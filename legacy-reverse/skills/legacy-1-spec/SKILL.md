@@ -22,6 +22,9 @@ func-id 省略時は `ledger next` の提案に従う。
 
 ## 新規作成の手順
 
+0. **起動時スキャン**: `docs/review-feedback.md` に対象func-idの「状態: pending」が
+   ないか確認（人がブラウザの承認ウィジェットから「修正依頼」を送っている場合がある）。
+   あれば内容を反映してから「状態: applied」に書き換える
 1. `docs/specs/<func-id>.md`（骨子, status: skeleton）と functions.json、
    `docs/domain-knowledge.md`、レガシー原文の該当範囲を読む
 2. 骨子の空欄を充填する:
@@ -49,7 +52,10 @@ func-id 省略時は `ledger next` の提案に従う。
    検知対象: 根拠 `file:lines` の実在（存在しない行の引用＝ハルシネーション）、
    🟢なのに根拠なし、プレースホルダ残存（＝記入の省略）、必須節欠落、原本ハッシュ不一致
 5. **人へレビュー依頼**（単発モードのみ）: 変更点サマリ＋🟡🔴一覧＋open ISSUE を提示
+   （人はブラウザの承認ウィジェットからも直接承認/修正依頼できる。その場合はこの手順を
+   待たず `/review-action` 側で完結する）
 6. 人のOKが出たら status: reviewed に更新 → `ledger wbs`
+   （ブラウザ経由で承認された場合はこの更新は済んでいるので不要）
 
 ## バッチモード（複数関数を連続処理 → 一斉レビュー。全件・2000件規模対応）
 
@@ -63,7 +69,8 @@ func-id 省略時は `ledger next` の提案に従う。
 
 1. **再開チェック（毎回最初に）**: `spec_review_report`（`review_checks.py report`）を実行し、
    `machine_ng_funcs` が空でなければ**先にそれらを書き直す**
-   （前回中断が draft 書きかけで起きた場合、ここで機械的に検出される）
+   （前回中断が draft 書きかけで起きた場合、ここで機械的に検出される）。
+   `docs/review-feedback.md` に「状態: pending」があれば同様に先に反映する
 2. 対象を機械的に選定:
    ```bash
    ledger next --all --phase 1 --skip-draft --limit <チャンク数>
