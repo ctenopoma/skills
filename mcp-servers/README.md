@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | [data-mcp](data-mcp/) | DuckDB ベースのデータ処理。CSV/Parquet の読み込み・プロファイル・SQL 集計・書き出し。大きいデータをコンテキストに入れないための道具 | `pip install "mcp[cli]" duckdb` |
 | [stats-mcp](stats-mcp/) | 統計計算。群間比較(t検定/ANOVA)・独立性検定・相関・正規性検定・ベースラインモデル(RandomForest+CV)。LLM に計算させないための道具 | `pip install "mcp[cli]" pandas scipy scikit-learn` |
+| [legacy-reverse-mcp](legacy-reverse-mcp/) | レガシー移植パイプライン([legacy-reverse](../legacy-reverse/) skill)の機械操作を型付きツール化(26個)。登録方法は対象プロジェクトの `.mcp.json` 経由(サーバの README 参照) | `pip install "mcp[cli]"` |
 
 ## 登録(パスは各自の clone 先に読み替え)
 
