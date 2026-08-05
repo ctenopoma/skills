@@ -47,6 +47,11 @@ KINDS = {
                 "verify_fn": pipeline.verify_testcode},
     "impl": {"label": "④", "noun": "実装", "prompt_template": "/legacy-4-impl {fid}",
             "verify_fn": pipeline.verify_impl},
+    "test": {"label": "⑤", "noun": "テスト", "prompt_template": "/legacy-5-test {fid}",
+             "verify_fn": pipeline.verify_test, "retries": 0},
+    # ⑤は1回のheadless実行の中でAI自身が「修正→再実行」をattempt上限までループする設計
+    # （legacy-5-test/SKILL.md）。orchestrator側で追加リトライすると、blocked中は
+    # ledger verify に断られるだけの空実行になる（SKILL.mdで明示的に禁止）ので retries=0
 }
 
 
@@ -95,7 +100,7 @@ def _current_run_state(root: Path) -> dict | None:
 
 
 def _decide_kind(root: Path, fid: str) -> str | None:
-    """この関数の①仕様書ページに出す実行ボタンの種別を決める。①〜④のうち
+    """この関数の①仕様書ページに出す実行ボタンの種別を決める。①〜⑤のうち
     次に着手すべきものを1つ返す（無ければ None＝ボタンを出さない）。
 
     ①draft中・②generated中は承認ウィジェット（review_actions）側が担当するので
@@ -126,24 +131,29 @@ def _decide_kind(root: Path, fid: str) -> str | None:
         return "testcode"
     if not s["impl_ok"]:
         return "impl"
+    if s["blocked_by"]:
+        return None                          # ⑤裁定待ち。再実行は空実行になるので出さない
+    if not s["test_ok"]:
+        return "test"
     return None
 
 
 def trigger_widget_html(root: str, fid: str) -> str | None:
-    """①〜④のうち次に着手すべきものがあるときだけ実行ボタンを返す。無ければ None。"""
+    """①〜⑤のうち次に着手すべきものがあるときだけ実行ボタンを返す。無ければ None。"""
     rootp = Path(root).resolve()
     kind = _decide_kind(rootp, fid)
     if not kind:
         return None
     cfg = KINDS[kind]
     label, noun = cfg["label"], cfg["noun"]
+    verb = "実行" if kind == "test" else "作成"
     return f"""```{{=html}}
 <div id="run-{fid}" class="lr-run-widget"
      style="border:2px solid #0891b2;border-radius:10px;padding:14px 18px;margin:0 0 22px;
             background:#ecfeff;font-family:system-ui,sans-serif">
   <div style="font-weight:700;margin-bottom:6px">{label}{noun} — 未着手（{fid}）</div>
   <p style="margin:4px 0 10px;color:#155e75">
-    headless Claude を1回起動して{noun}を作成します（数分かかります）。
+    headless Claude を1回起動して{noun}を{verb}します（数分かかります）。
   </p>
   <button onclick="lrRun.start('{fid}','{kind}')"
           style="background:#0891b2;color:#fff;border:0;border-radius:6px;padding:8px 16px;
@@ -235,7 +245,7 @@ def _run_background_inner(root: Path, fid: str, kind: str) -> None:
     try:
         ok, why, r, cost, _ = pipeline.run_one(
             fid, claude_cmd, [], root, cfg["prompt_template"], RUN_DEFAULTS.max_turns,
-            RUN_DEFAULTS.timeout, RUN_DEFAULTS.retries, RUN_DEFAULTS.backoff_base,
+            RUN_DEFAULTS.timeout, cfg.get("retries", RUN_DEFAULTS.retries), RUN_DEFAULTS.backoff_base,
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
             verify_fn=cfg["verify_fn"])
         status.counts(1 if ok else 0, 0 if ok else 1)
@@ -295,3 +305,80 @@ def start(root: str, fid: str, kind: str = "spec") -> dict:
         # 早期returnした場合（検証NG・func未存在等）はここで必ず解放する
         if not started:
             _release_lock(rootp)
+
+
+# ---------- ⑥完了検証（LLM不要・全関数横断なので①〜⑤とは別の仕組み） ----------
+#
+# ⑥は headless Claude を呼ばない純粋な機械チェック（ledger check）で、
+# 数秒〜数十秒で終わる。①〜⑤のような「バックグラウンドスレッド起動＋
+# ポーリングで進捗表示」は不要——POSTをブロックしたまま同期的に実行して結果を返す。
+# ただし①〜⑤の実行中に割り込んで整合性の低い状態を検証しても意味が薄いので、
+# 排他ロックだけは共有する。
+
+def check_widget_html(root: str) -> str | None:
+    """WBSトップページ（docs/index.qmd）に出す⑥実行ボタン。常に表示する
+    （未完了でも「今どれだけ足りないか」の一覧を見る用途で実行してよい設計のため）。
+    functions.json が無い等の異常時は None。
+    """
+    rootp = Path(root).resolve()
+    if not (rootp / "data" / "functions.json").exists():
+        return None
+    cc = rootp / "docs" / "completion-check.md"
+    status_line = "<p>まだ実行されていません。</p>"
+    if cc.exists():
+        fm = parse_frontmatter(cc.read_text(encoding="utf-8-sig"))
+        st = fm.get("status")
+        if st == "pass":
+            status_line = '<p style="color:#166534">前回の結果: ✅ pass</p>'
+        elif st == "fail":
+            status_line = ('<p style="color:#991b1b">前回の結果: ❌ fail'
+                           '（<a href="completion-check.html">不備一覧</a>）</p>')
+    return f"""```{{=html}}
+<div id="run-check" class="lr-run-widget"
+     style="border:2px solid #0891b2;border-radius:10px;padding:14px 18px;margin:14px 0 22px;
+            background:#ecfeff;font-family:system-ui,sans-serif">
+  <div style="font-weight:700;margin-bottom:6px">⑥完了検証</div>
+  {status_line}
+  <button onclick="lrCheck.start()"
+          style="background:#0891b2;color:#fff;border:0;border-radius:6px;padding:8px 16px;
+                 font-weight:600;cursor:pointer">⑥を実行する</button>
+  <span id="run-check-msg" style="margin-left:10px;font-size:.9rem"></span>
+</div>
+<script>
+window.lrCheck = window.lrCheck || {{
+  start(){{
+    const msg = document.getElementById("run-check-msg");
+    msg.textContent = "実行中…（数十秒かかることがあります）";
+    fetch("/run-check", {{method:"POST"}})
+      .then(r => r.json().then(d => ({{status:r.status, d}})))
+      .then(({{status, d}}) => {{
+        msg.textContent = d.message || (d.ok ? "完了" : "失敗");
+        msg.style.color = d.ok ? "#166534" : "#991b1b";
+        if(d.ok) setTimeout(() => location.reload(), 800);
+      }})
+      .catch(e => {{ msg.textContent = "通信エラー: " + e; msg.style.color = "#991b1b"; }});
+  }}
+}};
+</script>
+```"""
+
+
+def run_check(root: str) -> dict:
+    """⑥完了検証（ledger check）を実行し、結果に応じてサイトを更新する。同期処理。"""
+    rootp = Path(root).resolve()
+    if _current_run_state(rootp):
+        return {"ok": False, "message": "①〜⑤が実行中です。完了を待ってから実行してください"}
+    if not _acquire_lock(rootp):
+        return {"ok": False, "message": "他の実行が開始処理中です。数秒待ってから再試行してください"}
+    try:
+        scripts = Path(__file__).resolve().parent
+        r = subprocess.run([sys.executable, str(scripts / "ledger.py"), "--root", str(rootp), "check"],
+                           capture_output=True, text=True)
+        passed = r.returncode == 0
+        subprocess.run([sys.executable, str(scripts / "render_site.py"), "--root", str(rootp)],
+                       capture_output=True)
+        return {"ok": True, "passed": passed,
+                "message": "⑥完了検証: ✅ pass 🎉" if passed
+                           else "⑥完了検証: ❌ fail（不備一覧は completion-check を参照）"}
+    finally:
+        _release_lock(rootp)

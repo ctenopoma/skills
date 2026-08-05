@@ -86,12 +86,21 @@ WIDGET_DIR_KIND = {"specs": "spec", "test-specs": "testspec"}
 
 
 def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
-    """docs/specs|test-specs/<fid>.md が承認待ちなら、承認ウィジェットを埋めて返す。
+    """docs/specs|test-specs/<fid>.md が承認待ちなら承認ウィジェットを、
+    docs/index.qmd（WBSトップ）なら⑥完了検証ボタンを埋めて返す。
 
     承認待ちでない（reviewed/approved 済み・skeleton 未着手）場合や、
     functions.json に該当が無い（骨子生成前・手動追加直後の一時ファイル等）場合は
     そのまま body を返す——render 全体をここで落とさないよう例外は握りつぶす。
     """
+    if rel == Path("index.qmd"):
+        try:
+            widget = browser_run.check_widget_html(str(project_root))
+        except Exception as e:                       # noqa: BLE001 — render を止めない
+            print(f"note: {rel} の⑥実行ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
+            return body
+        return inject_review_widget(body, widget) if widget else body
+
     parts = rel.parts
     if len(parts) != 2 or parts[0] not in WIDGET_DIR_KIND:
         return body
@@ -100,7 +109,7 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
     try:
         widget = review_actions.widget_html(str(project_root), kind, fid)
         if not widget and kind == "spec":
-            # 承認待ちでなければ、①/②未着手の実行トリガーを試す（試作機能）
+            # 承認待ちでなければ、①〜⑤未着手の実行トリガーを試す（試作機能）
             widget = browser_run.trigger_widget_html(str(project_root), fid)
     except Exception as e:                          # noqa: BLE001 — render を止めない
         print(f"note: {rel} の承認ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")

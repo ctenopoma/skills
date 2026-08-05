@@ -116,11 +116,36 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   検証NG等での早期returnはその場で解放する
 - FROZEN・ローカルホスト限定などのガードは `/review-action` と共通（serve_site.py の
   `WRITE_ROUTES` にまとめてある）
-- 現状は①〜④のみ。⑤は「④修正→⑤再実行」をAI自身がループする構造（トリガー自体は
-  `/legacy-5-test F-xxxx` を1回叩くだけでよいはず）だが、トリアージ(b)(c)は人の
-  裁定が要るため verify_fn の設計が①〜④と異なる。⑥はLLM不要な純機械チェック
-  （`ledger check` を直接叩くだけで済み、run_one すら不要）、⑦は探索的な
-  改善ループで①〜④とは形が違う。いずれも別途設計が要る
+- 現状は①〜⑤。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
+
+### ⑤（テスト実行）の verify_fn が①〜④と違う点
+
+`verify_test` は `retries=0` で呼ばれる（KINDS の `"test"` エントリで指定。
+`run_one` は `cfg.get("retries", RUN_DEFAULTS.retries)` で kind ごとの上書きに対応）。
+理由: legacy-5-test/SKILL.md の設計上、(a)実装バグは1回の headless 実行の中で
+AI 自身が「src/ 修正→⑤再実行」を attempt 上限までループし、pass か blocked
+（attempt上限到達で自動 ISSUE 起票）のどちらかで自然に止まる。**blocked は
+orchestrator から見て「異常な失敗」ではなく「設計どおりの正常な停止」**——
+ここで orchestrator 側がさらにリトライしても `ledger verify` が blocked を検知して
+即座に断るだけの空実行になる（SKILL.md で「attempt を稼ぐための空実行」は
+明示的に禁止）。`_decide_kind` も `blocked_by` が立っている間は "test" を返さず
+ボタンを出さない（人が ISSUE に回答して `unblock` するまで再実行できない）。
+`classify_ng` は「裁定待ち」を専用の分類（⛔人の裁定待ち・正常）に振り分け、
+機械的な異常（claude起動不可・タイムアウト等）と区別して集計する。
+
+### ⑥（完了検証）は browser_run.py の中でも別枠
+
+⑥は headless Claude を呼ばない純粋な機械チェック（`ledger check`）で、数秒〜
+数十秒で終わる。①〜⑤のような「バックグラウンドスレッド起動＋ポーリング」は
+不要——`browser_run.run_check()` が POST をブロックしたまま同期的に実行して
+結果を返す。ボタンは docs/index.qmd（WBSトップ）に常に表示される
+（`browser_run.check_widget_html`。未完了でも「今どれだけ足りないか」を見る用途で
+実行してよい設計のため、①〜⑤のような条件付き表示にしていない）。
+排他は①〜⑤と同じ `.legacy-reverse/browser-run.lock` を共有する
+（バッチ/ブラウザの①〜⑤実行中は拒否。ただし CLI バッチと ⑥ の間には
+pipeline-status.json 経由のチェックのみで、check 実行の直前に CLI バッチが
+割り込む微小な隙間は残る——`ledger check` は読み取り専用の状態スナップショットで、
+いつでも再実行してよい性質のツールなので許容している）。
 
 `/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
 **中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。
