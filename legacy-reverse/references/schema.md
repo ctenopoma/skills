@@ -64,6 +64,8 @@
 ```
 
 - `func_id` は `F-` + 4桁連番。`calls` は func_id の配列（コールグラフの正データ）
+- **`F-0000` はメインルーチン予約番号**（Fortran の `program` ユニット / C の `main`。
+  kind: program）。コールグラフの根になるため、推奨着手順では最後に回る
 - `test_file` は ⓪では省略可。③が確定させる
 - `unresolved_calls`（任意）— 抽出時に functions.json 内で解決できなかった呼び出し名。
   別言語の抽出（extract_c.py 等）が走った時点で自動解決されて calls に移る

@@ -194,7 +194,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
     iface_depth = 0
 
     def close_unit(frame, end_ln):
-        if frame.get("kind") in ("subroutine", "function") and not frame["iface"]:
+        if frame.get("kind") in ("subroutine", "function", "program") and not frame["iface"]:
             frame["end"] = end_ln
             units.append(frame)
             for e in frame["entries"]:
@@ -222,8 +222,15 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
             stack.append({"kind": "interface"})
             continue
         if re.match(r"^(module|submodule)\s*(?!procedure\b)[a-z(]", low) \
-                or re.match(r"^program\s+\w+", low) or re.match(r"^block\s*data\b", low):
+                or re.match(r"^block\s*data\b", low):
             stack.append({"kind": "container"})
+            continue
+        mp = re.match(r"^program\s+(\w+)", low)
+        if mp:                                    # メインルーチン（merge で F-0000 を割り当てる）
+            stack.append({"kind": "program", "name": mp.group(1), "args": [],
+                          "result": None, "file": rel, "start": ln, "end": None,
+                          "stmts": [], "entries": [], "iface": iface_depth > 0,
+                          "is_main": True})
             continue
 
         ms, mf = RE_SUB.match(low), RE_FUNC.match(low)
@@ -238,7 +245,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
             continue
 
         holder = next((f for f in reversed(stack)
-                       if f.get("kind") in ("subroutine", "function")), None)
+                       if f.get("kind") in ("subroutine", "function", "program")), None)
         me = RE_ENTRY.match(low)
         if me and holder is not None:
             holder["entries"].append(
@@ -252,7 +259,7 @@ def scan_file(rel: str, stmts: list, warnings: list) -> list:
 
     while stack:
         frame = stack.pop()
-        if frame.get("kind") in ("subroutine", "function"):
+        if frame.get("kind") in ("subroutine", "function", "program"):
             warnings.append(f"{rel}: {frame['name']} の end が見つからない（EOFで閉じた）")
             close_unit(frame, stmts[-1][0] if stmts else frame["start"])
     return units
@@ -276,7 +283,8 @@ def naive_count(stmts: list) -> int:
         if iface or low.startswith("end"):
             continue
         if re.match(r"^(?:(?:recursive|pure|elemental|impure|module)\s+)*subroutine\s+\w+", low) \
-           or RE_FUNC.match(low) or low.startswith("entry "):
+           or RE_FUNC.match(low) or low.startswith("entry ") \
+           or re.match(r"^program\s+\w+", low):
             n += 1
     return n
 
@@ -434,7 +442,13 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             new_calls = [c for c in call_names]  # 名前のまま。後段で func_id 化
             f.setdefault("_call_names", new_calls)
         else:
-            f = {"func_id": f"F-{next_num:04d}",
+            # メインルーチン（Fortran program / C main）は予約番号 F-0000
+            if u.get("is_main") and not any(x["func_id"] == "F-0000" for x in funcs):
+                fid = "F-0000"
+            else:
+                fid = f"F-{next_num:04d}"
+                next_num += 1
+            f = {"func_id": fid,
                  # Fortran は大文字慣習、C/C++ は原文の大小文字を保つ（display_name）
                  "legacy": {"file": u["file"],
                             "name": u.get("display_name") or u["name"].upper(),
@@ -444,7 +458,6 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
                  "inputs": an["inputs"], "outputs": an["outputs"],
                  "globals": an["globals"], "external_files": an["external_files"],
                  "calls": [], "_call_names": call_names}
-            next_num += 1
             funcs.append(f)
             by_key[k] = f
             report["added"].append(f["func_id"])

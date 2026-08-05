@@ -199,6 +199,7 @@ def scan_c_file(rel: str, code: str, warnings: list) -> tuple:
                     j += 1
                 start_ln = code.count("\n", 0, stmt_start + len(header) - len(header.lstrip())) + 1
                 units.append({"file": rel, "name": name, "display_name": name,
+                              "is_main": name == "main",   # C の main も F-0000 対象
                               "kind": "method" if "::" in name else "function",
                               "start": start_ln, "end": code.count("\n", 0, j) + 1,
                               "params": params, "ret": ret,
