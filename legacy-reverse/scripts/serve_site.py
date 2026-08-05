@@ -287,11 +287,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    WRITE_ROUTES = ("/review-action", "/run-phase")
+
     def do_POST(self) -> None:
-        # ①②の仕様書ページに埋め込まれた承認ウィジェット（review_actions.widget_html）が叩く。
-        # 書き込み系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
-        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換えさせない）。
-        if self.path != "/review-action":
+        # ①②の仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
+        # 書き込み・実行系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
+        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換え・実行させない）。
+        if self.path not in self.WRITE_ROUTES:
             self.send_error(404)
             return
         if self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -299,7 +301,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if FROZEN:
             self._send_json(403, {"ok": False,
-                                  "message": "配布版（EXE）はスナップショットのためレビュー操作できません。"
+                                  "message": "配布版（EXE）はスナップショットのため操作できません。"
                                              "生成元のプロジェクトを serve_site.py で開いてください"})
             return
         if not self.state_root:
@@ -313,22 +315,34 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import review_actions
-        action = payload.get("action")
         try:
-            if action == "approve":
-                res = review_actions.approve(str(self.state_root), payload.get("kind", ""),
-                                             payload.get("func_id", ""),
-                                             payload.get("approver") or "unknown")
-            elif action == "request_changes":
-                res = review_actions.request_changes(
-                    str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
-                    payload.get("approver") or "unknown", payload.get("comment") or "")
+            if self.path == "/review-action":
+                res = self._handle_review_action(payload)
             else:
-                res = {"ok": False, "message": f"不明な action: {action}"}
+                res = self._handle_run_phase(payload)
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
             res = {"ok": False, "message": f"内部エラー: {e}"}
         self._send_json(200 if res.get("ok") else 422, res)
+
+    def _handle_review_action(self, payload: dict) -> dict:
+        import review_actions
+        action = payload.get("action")
+        if action == "approve":
+            return review_actions.approve(str(self.state_root), payload.get("kind", ""),
+                                          payload.get("func_id", ""),
+                                          payload.get("approver") or "unknown")
+        if action == "request_changes":
+            return review_actions.request_changes(
+                str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
+                payload.get("approver") or "unknown", payload.get("comment") or "")
+        return {"ok": False, "message": f"不明な action: {action}"}
+
+    def _handle_run_phase(self, payload: dict) -> dict:
+        # 試作: ①（spec）のみ対応。kind を増やす場合は browser_run.py 側に追記する
+        if payload.get("kind") != "spec":
+            return {"ok": False, "message": "現在ブラウザからの実行は①（spec）のみ対応です"}
+        import browser_run
+        return browser_run.start(str(self.state_root), payload.get("func_id", ""))
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない

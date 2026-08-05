@@ -72,6 +72,26 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
 
+### ブラウザからの単発実行（browser_run.py。試作・①のみ）
+
+「1関数だけ様子を見ながら進めたい」向けに、pipeline.py の実行ロジック
+（`run_one_spec` / `RunStatus` / 起動プリフライト・agent-logs 保存）をそのまま流用した
+単発トリガーがある。render_site.py が `docs/specs/<fid>.md` が skeleton の間だけ
+そのページに「①を実行する」ボタンを埋め込み、押すと serve_site.py の `POST /run-phase`
+が `browser_run.start()` を呼ぶ:
+
+- 実行はバックグラウンドスレッドで行い、POSTは即座に返る（数分かかる処理をHTTPで
+  待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える
+- **排他制御は pipeline-status.json を pipeline.py の無人バッチと共有する**ことで実現。
+  バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様
+  （同じ「実行スロット」を取り合う設計。ロックファイルを別途持たない）
+- 完了後は review_actions._refresh を呼び、WBS・一斉レビュー表・サイトを更新する
+  （status が draft になれば、次のレンダリングで承認ウィジェットに自動的に切り替わる）
+- FROZEN・ローカルホスト限定などのガードは `/review-action` と共通（serve_site.py の
+  `WRITE_ROUTES` にまとめてある）
+- 現状は①のみ。②以降に広げる場合は run_one_spec 相当の関数を各フェーズに用意し、
+  browser_run.py の kind 分岐と trigger_widget_html の対象拡張が必要
+
 ## 再開（レジューム）
 
 進捗の正はすべてファイル（functions.json / ledger.json / 各フロントマター）にあり、
