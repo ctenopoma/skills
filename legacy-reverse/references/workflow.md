@@ -179,9 +179,11 @@ orchestrator から見て「異常な失敗」ではなく「設計どおりの�
 ⑥は headless Claude を呼ばない純粋な機械チェック（`ledger check`）で、数秒〜
 数十秒で終わる。①〜⑤のような「バックグラウンドスレッド起動＋ポーリング」は
 不要——`browser_run.run_check()` が POST をブロックしたまま同期的に実行して
-結果を返す。ボタンは docs/index.qmd（WBSトップ）に常に表示される
-（`browser_run.check_widget_html`。未完了でも「今どれだけ足りないか」を見る用途で
-実行してよい設計のため、①〜⑤のような条件付き表示にしていない）。
+結果を返す。ボタンは docs/index.qmd（WBSトップ）に出るが、**全関数の⑤が pass する
+まで表示しない**（`browser_run.check_widget_html`。時期が来る前のボタンは
+「①も終わっていないのに⑥が押せる」という誤解のもとになるため。
+⑦のウィジェットも同様に⑥が pass するまで表示しない。途中の不足確認は
+WBS の進捗表・spec-review.md、CLI なら `ledger check` が担う）。
 排他は①〜⑤・CLI バッチと同じ `.legacy-reverse/run.lock` を共有する
 （バッチも同じロックを取るようになったため、check 実行中にバッチが割り込む
 隙間は無い。逆に⑥の数十秒はバッチ開始がロック取得失敗で断られるが、

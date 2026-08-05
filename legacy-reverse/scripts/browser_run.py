@@ -684,18 +684,25 @@ def _run_cancellable(cmd: list, cwd: Path, timeout: int,
 
 
 def analyze_widget_html(root: str) -> str | None:
-    """WBSトップページに出す⑦分析ウィジェット（⑥の下）。functions.json が無ければ None。"""
+    """WBSトップページに出す⑦分析ウィジェット（⑥の下）。
+
+    **⑥が pass するまでは表示しない**（⑦の前提が⑥pass。時期前のボタンは出さない）。
+    リンクは実在するページのみ張る（リンク切れを出さない）。
+    """
     rootp = Path(root).resolve()
     if not (rootp / "data" / "functions.json").exists():
         return None
     cc = rootp / "docs" / "completion-check.md"
-    ok6 = (cc.exists() and
-           parse_frontmatter(cc.read_text(encoding="utf-8-sig")).get("status") == "pass")
+    if not (cc.exists() and
+            parse_frontmatter(cc.read_text(encoding="utf-8-sig")).get("status") == "pass"):
+        return None                              # ⑥pass までは⑦を出さない
     lines = []
-    an = rootp / "docs" / "analysis.md"
-    if an.exists():
-        lines.append('<p>前回の分析: <a href="analysis.html">analysis</a>'
-                     '（定量データ: <a href="quant.html">quant</a>・<a href="perf.html">perf</a>）</p>')
+    links = [(name, label) for name, label in
+             (("analysis", "analysis"), ("quant", "quant"), ("perf", "perf"))
+             if (rootp / "docs" / f"{name}.md").exists()]
+    if links:
+        items = "・".join(f'<a href="{n}.html">{l}</a>' for n, l in links)
+        lines.append(f"<p>前回の結果: {items}</p>")
     else:
         lines.append("<p>まだ実行されていません。</p>")
     if (rootp / "bench.py").exists():
@@ -703,15 +710,9 @@ def analyze_widget_html(root: str) -> str | None:
     else:
         lines.append('<p style="color:#854d0e">⚠ bench.py（代表ワークロード）が無いため'
                      "テスト負荷のスモーク計測になります。ルートに bench.py を置くと本命計測</p>")
-    if ok6:
-        btn = ('<button onclick="lrAnalyze.start()" '
-               'style="background:#7c3aed;color:#fff;border:0;border-radius:6px;'
-               'padding:8px 16px;font-weight:600;cursor:pointer">⑦分析を実行する</button>')
-    else:
-        lines.append('<p style="color:#991b1b">前提: ⑥完了検証が pass していること（上の⑥から実行）</p>')
-        btn = ('<button disabled title="⑥がpassすると実行できます" '
-               'style="background:#cbd5e1;color:#64748b;border:0;border-radius:6px;'
-               'padding:8px 16px;font-weight:600;cursor:not-allowed">⑦分析を実行する</button>')
+    btn = ('<button onclick="lrAnalyze.start()" '
+           'style="background:#7c3aed;color:#fff;border:0;border-radius:6px;'
+           'padding:8px 16px;font-weight:600;cursor:pointer">⑦分析を実行する</button>')
     return f"""```{{=html}}
 <div id="run-analyze" class="lr-run-widget"
      style="border:2px solid #7c3aed;border-radius:10px;padding:14px 18px;margin:14px 0 22px;
@@ -828,15 +829,21 @@ def _analyze_background_inner(root: Path, claude_cmd: list,
 # 排他ロックだけは共有する。
 
 def check_widget_html(root: str) -> str | None:
-    """WBSトップページ（docs/index.qmd）に出す⑥実行ボタン。常に表示する
-    （未完了でも「今どれだけ足りないか」の一覧を見る用途で実行してよい設計のため）。
-    functions.json が無い等の異常時は None。
+    """WBSトップページ（docs/index.qmd）に出す⑥実行ボタン。
+
+    **全関数の⑤が pass するまでは表示しない**（時期が来る前のボタンは「もう押せるの？」
+    という誤解のもとになるため。途中の不備確認は WBS の進捗表・spec-review.md が担う）。
+    functions.json が無い等の異常時も None。
     """
     rootp = Path(root).resolve()
     if not (rootp / "data" / "functions.json").exists():
         return None
+    p = _project(rootp)
+    funcs = p.funcs()
+    if not funcs or not all(p.status_of(f)["test_ok"] for f in funcs):
+        return None                              # ①〜⑤が全部終わるまで⑥は出さない
     cc = rootp / "docs" / "completion-check.md"
-    status_line = "<p>まだ実行されていません。</p>"
+    status_line = "<p>全関数の⑤が完了しています。⑥完了検証を実行してください。</p>"
     if cc.exists():
         fm = parse_frontmatter(cc.read_text(encoding="utf-8-sig"))
         st = fm.get("status")
