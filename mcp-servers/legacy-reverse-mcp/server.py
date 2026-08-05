@@ -167,6 +167,49 @@ def spec_review_report(root: str = ".") -> dict:
 # ---------- 台帳（書き込み） ----------
 
 @mcp.tool()
+def add_function(root: str, name: str, file: str = "", lines: str = "",
+                 module: str | None = None, new_name: str | None = None,
+                 calls: str | None = None) -> dict:
+    """人の指示で関数を後追い追加する（⓪の抽出漏れ・関数分割など）。
+
+    manual フラグ付きで採番されるので、抽出の再実行で「ソースに無い」警告は出ない。
+    追加後は functions.json の inputs/outputs/desc/signature を充填し、
+    generate_skeletons → generate_wbs で①〜⑤の対象に載る。
+    """
+    args = ["add", name]
+    if file:
+        args += ["--file", file]
+    if lines:
+        args += ["--lines", lines]
+    if module:
+        args += ["--module", module]
+    if new_name:
+        args += ["--new-name", new_name]
+    if calls:
+        args += ["--calls", calls]
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def exclude_function(root: str, func_id: str, reason: str = "") -> dict:
+    """関数を移植対象から外す（デッドコード等の人の判断）。①〜⑥・WBSから除外される。
+
+    functions.json から物理削除はしない（再抽出で別IDとして復活するため）。
+    WBS の「対象外の関数」に理由つきで載り、include_function で復帰できる。
+    """
+    args = ["exclude", func_id]
+    if reason:
+        args += ["--reason", reason]
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def include_function(root: str, func_id: str) -> dict:
+    """対象外にした関数を①〜⑤の対象へ復帰させる。"""
+    return _ledger(root, "include", func_id)
+
+
+@mcp.tool()
 def generate_wbs(root: str = ".") -> dict:
     """functions.json＋各成果物フロントマターから docs/index.qmd（WBS）を再生成する。"""
     return _ledger(root, "wbs")

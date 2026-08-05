@@ -49,6 +49,9 @@ ledger verify F-xxxx                        # ハッシュ連鎖検証（②stal
 ledger wbs                                  # WBS再生成
 ledger next-issue                           # 次の ISSUE 番号
 ledger unblock F-xxxx                       # 裁定反映後のブロック解除
+ledger add NAME [--file legacy/x.f ...]     # 関数の後追い追加（→ skeletons → wbs）
+ledger exclude F-xxxx --reason "..."        # 移植対象から外す（物理削除はしない）
+ledger include F-xxxx                       # 対象外からの復帰
 ```
 
 ## 機械レビュー（ハルシネーション検知）

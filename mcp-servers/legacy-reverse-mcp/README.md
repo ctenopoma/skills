@@ -27,6 +27,7 @@
 | 機械レビュー | **review_spec / review_testspec / review_all / spec_review_report**（根拠引用の実在・省略・トレーサビリティのハルシネーション検知ゲート、①draftの一斉レビュー表生成） | review_checks.py |
 | 台帳(読) | pipeline_status / next_action / next_actions / progress_summary / verify / next_issue_id | ledger.py |
 | 台帳(書) | generate_wbs / generate_skeletons / freeze_tests / block / unblock / phase_start / phase_end / completion_check / sphinx_index | ledger.py |
+| 台帳(書) | **add_function / exclude_function / include_function**（人の指示による関数の後追い追加・対象外化・復帰。物理削除の代わり） | ledger.py |
 | 実行系 | **run_tests**（verify→pytest→報告書生成の⑤一括） | tc_report_plugin.py + collect_results.py |
 | 実行系 | check_stubs / profile | check_stubs.py / profile_run.py |
 | 出力系 | render_site（Quarto→Sphinxの正順を内包） / build_pdf / build_viewer（配布用EXE） | quarto / sphinx / pdf_book.py / build_viewer.py |

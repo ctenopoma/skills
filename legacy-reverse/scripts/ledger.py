@@ -13,6 +13,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   status [<func-id>]         フェーズ状況を表示（機械可読 JSON も可: --json）
   next                       次に着手すべき関数を提案（トポロジカル順）
   next-issue                 次の ISSUE 番号を表示
+  add <name> [--file ...]    関数を後追い追加（人の指示。manual フラグ付きで採番）
+  exclude <func-id> [--reason ...] / include <func-id>
+                             移植対象から外す／復帰させる（物理削除はしない）
   freeze-tests <func-id>     テストコードのハッシュを ledger.json に記録（③完了時）
   block <func-id> <issue-id> / unblock <func-id>
   phase-start <n> <func-id> / phase-end
@@ -87,10 +90,14 @@ class Project:
         self.ledger = load_json(self.ledger_path, {})
 
     def funcs(self) -> list:
+        """移植対象の関数のみ（excluded を除く）。①〜⑥・WBS・next は常にこれを見る。"""
+        return [f for f in self.all_funcs() if not f.get("excluded")]
+
+    def all_funcs(self) -> list:
         return self.functions.get("functions", [])
 
     def func(self, func_id: str) -> dict:
-        for f in self.funcs():
+        for f in self.all_funcs():
             if f["func_id"] == func_id:
                 return f
         sys.exit(f"error: {func_id} は functions.json に存在しない")
@@ -366,6 +373,16 @@ def cmd_wbs(p: Project, args) -> None:
         lines.append(_func_row(i, fmap[fid], stats[fid]))
     lines.append(":::")
 
+    # ---- 対象外（人が exclude した関数。黙って消さず、理由ごと見えるようにする） ----
+    excluded = [f for f in p.all_funcs() if f.get("excluded")]
+    if excluded:
+        lines += ["", f"# 対象外の関数（{len(excluded)} 件・移植しない）", "",
+                  "<!-- ledger exclude で対象外化したもの。ledger include F-xxxx で復帰 -->", "",
+                  "| func-id | レガシー | 理由 |", "|------|------|------|"]
+        for f in excluded:
+            leg = f"{f['legacy'].get('file', '')}: {f['legacy'].get('name', '')}"
+            lines.append(f"| {f['func_id']} | {leg} | {f.get('excluded_reason', '')} |")
+
     imps = sorted((p.docs / "improvements").glob("*.md"))
     if imps:
         lines += ["", "# ⑦ 改善イタレーション", "",
@@ -396,7 +413,7 @@ def cmd_skeletons(p: Project, args) -> None:
         if out.exists() and not args.force:
             continue
         legacy_p = p.root / f["legacy"]["file"]
-        lhash = sha8(legacy_p) if legacy_p.exists() else ""
+        lhash = sha8(legacy_p) if legacy_p.is_file() else ""   # 手動追加は file 未設定があり得る
         num = fid.replace("-", "")
 
         def rows(items, cols):
@@ -488,6 +505,7 @@ def cmd_status(p: Project, args) -> None:
         summary["tampered"] = [s["func_id"] for s in out if s["test_code_tampered"]]
         summary["failing"] = [s["func_id"] for s in out
                               if s["test"] == "fail" and not s["blocked_by"]]
+        summary["excluded"] = sum(1 for f in p.all_funcs() if f.get("excluded"))
         print(json.dumps(summary, ensure_ascii=False, indent=1))
         return
     if args.json:
@@ -557,6 +575,84 @@ def cmd_next_issue(p: Project, args) -> None:
     nums = [int(m.group(1)) for f in (p.docs / "issues").glob("ISSUE-*.md")
             if (m := re.match(r"ISSUE-(\d+)", f.name))]
     print(f"ISSUE-{(max(nums) + 1 if nums else 1):03d}")
+
+
+def cmd_add(p: Project, args) -> None:
+    """人の指示による関数の後追い追加（⓪の抽出漏れ・関数分割など）。
+
+    manual フラグを付けて採番する——extract_fortran の再実行が
+    「ソースに無い関数」として警告し続けないようにするため。
+    物理的な手書き追記と違い、func_id の重複や既存キーとの衝突を防げる。
+    """
+    if not p.functions:
+        sys.exit("error: data/functions.json がない（先に⓪の抽出を実行する）")
+    funcs = p.functions.setdefault("functions", [])
+    name = args.name.upper()
+    file = (args.file or "").replace("\\", "/")
+    for f in funcs:
+        if f["legacy"].get("name", "").upper() == name and f["legacy"].get("file", "") == file:
+            sys.exit(f"error: 同じ legacy file/name のエントリが既にある: {f['func_id']}"
+                     "（対象外からの復帰なら include を使う）")
+    calls = [c for c in (args.calls or "").split(",") if c]
+    known = {f["func_id"] for f in funcs}
+    unknown = [c for c in calls if c not in known]
+    if unknown:
+        sys.exit(f"error: --calls に未知の func-id: {', '.join(unknown)}")
+    snake = re.sub(r"\W", "_", (args.new_name or args.name).lower())
+    package = p.functions.get("project", {}).get("package")
+    stem = re.sub(r"\W", "_", Path(file).stem.lower()) if file else snake
+    module = args.module or (f"src/{package}/{stem}.py" if package else f"src/{stem}.py")
+    nums = [int(m.group(1)) for f in funcs if (m := re.match(r"F-(\d+)", f["func_id"]))]
+    fid = f"F-{(max(nums) + 1 if nums else 1):04d}"
+    funcs.append({
+        "func_id": fid, "manual": True,
+        "legacy": {"file": file, "name": name, "lines": args.lines or "", "kind": args.kind},
+        "new": {"module": module, "name": snake, "signature": ""},
+        "inputs": [], "outputs": [], "globals": [], "external_files": [],
+        "calls": calls,
+    })
+    save_json(p.data / "functions.json", p.functions)
+    print(f"added: {fid} {name}（manual・module={module}）")
+    print("next: functions.json の inputs/outputs/desc/signature を充填 → "
+          "ledger skeletons → ledger wbs（以後は他の関数と同じく①〜⑤を回す）")
+
+
+def cmd_exclude(p: Project, args) -> None:
+    """関数を移植対象から外す（デッドコード・重複・移植不要の判断）。
+
+    functions.json から物理削除はしない——extract の再実行で別 func_id として
+    復活し、成果物との紐付けが切れるため。フラグで対象外にする。
+    """
+    f = p.func(args.func_id)
+    if f.get("excluded"):
+        sys.exit(f"error: {args.func_id} は既に対象外")
+    f["excluded"] = True
+    if args.reason:
+        f["excluded_reason"] = args.reason
+    save_json(p.data / "functions.json", p.functions)
+    fid = args.func_id
+    print(f"excluded: {fid} {f['legacy'].get('name', '')}（理由: {args.reason or '未記載'}）")
+    arts = [rp for rp in (f"docs/specs/{fid}.md", f"docs/test-specs/{fid}.md",
+                          f.get("test_file") or "", f["new"].get("module", ""))
+            if rp and (p.root / rp).exists()]
+    if arts:
+        print("note: 既存の成果物は残るが①〜⑥・WBSの対象から外れる: " + ", ".join(arts))
+    callers = [g["func_id"] for g in p.funcs() if fid in g.get("calls", [])]
+    if callers:
+        print("warn: 対象内の関数がこの関数を呼んでいる: " + ", ".join(callers)
+              + " → 呼び出し側の仕様・実装の扱いを確認（判断が要るなら ISSUE 起票）")
+    print("next: ledger wbs で反映（「対象外の関数」の表に載る）")
+
+
+def cmd_include(p: Project, args) -> None:
+    """対象外にした関数を①〜⑤の対象へ復帰させる。"""
+    f = p.func(args.func_id)
+    if not f.get("excluded"):
+        sys.exit(f"error: {args.func_id} は対象外になっていない")
+    f.pop("excluded", None)
+    f.pop("excluded_reason", None)
+    save_json(p.data / "functions.json", p.functions)
+    print(f"included: {args.func_id}（対象に復帰。ledger wbs で反映）")
 
 
 def cmd_freeze(p: Project, args) -> None:
@@ -671,6 +767,10 @@ def cmd_check(p: Project, args) -> None:
              "# 判定サマリ", "", "| チェック | 結果 | 不備件数 |", "|---------|:---:|:---:|"]
     for i, nm in enumerate(names):
         lines.append(f"| {nm} | {'✅' if counts[i] == 0 else '❌'} | {counts[i]} |")
+    n_excl = sum(1 for f in p.all_funcs() if f.get("excluded"))
+    lines += ["", f"検証対象: {len(order)} 関数"
+              + (f"（対象外 {n_excl} 件は検証しない。WBS の「対象外の関数」を参照）"
+                 if n_excl else "")]
     lines += ["", "# 不備一覧", ""]
     if rows:
         lines += ["| 関数 | 不備 |", "|------|------|"] + [f"| {a} | {b} |" for a, b in rows]
@@ -692,6 +792,18 @@ def main() -> None:
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
     s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）")
     sub.add_parser("next-issue")
+    s = sub.add_parser("add", help="関数を後追い追加（人の指示。manual フラグ付きで採番）")
+    s.add_argument("name", help="レガシー側の関数名")
+    s.add_argument("--file", default="", help="レガシーファイル（例: legacy/tax.f。無いなら省略可）")
+    s.add_argument("--lines", default="", help="行範囲（例: 120-240）")
+    s.add_argument("--kind", default="subroutine")
+    s.add_argument("--module", help="新実装の配置先（既定: src/<package>/<file名>.py）")
+    s.add_argument("--new-name", dest="new_name", help="新関数名（既定: name の snake_case）")
+    s.add_argument("--calls", help="呼び出す func-id をカンマ区切り（例: F-0001,F-0002）")
+    s = sub.add_parser("exclude", help="関数を移植対象から外す（物理削除はしない）")
+    s.add_argument("func_id"); s.add_argument("--reason", default="", help="対象外の理由（WBSに載る）")
+    s = sub.add_parser("include", help="対象外にした関数を復帰させる")
+    s.add_argument("func_id")
     s = sub.add_parser("freeze-tests"); s.add_argument("func_id")
     s = sub.add_parser("block"); s.add_argument("func_id"); s.add_argument("issue_id")
     s = sub.add_parser("unblock"); s.add_argument("func_id")
@@ -703,6 +815,7 @@ def main() -> None:
     p = Project(Path(args.root).resolve())
     {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
+     "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,
      "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,
      "phase-start": cmd_phase_start, "phase-end": cmd_phase_end, "check": cmd_check,
      "sphinx-index": cmd_sphinx_index}[args.cmd](p, args)

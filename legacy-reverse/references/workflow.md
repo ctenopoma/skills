@@ -83,6 +83,20 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 （func_id 不変・手修正保持）なので安全。全関数を列挙した長大な出力をコンテキストに
 読み込まないこと（summary と next --all で足りる）。
 
+## 関数リストの人による調整（⓪以降いつでも）
+
+人の「この関数も追加して」「この関数は移植しない」は ledger の専用コマンドで反映する。
+**functions.json のエントリの物理削除・手書き追記はしない**（⓪の再実行で別IDとして
+復活・重複し、成果物との紐付けが切れる）:
+
+- 追加: `ledger add NAME [--file legacy/x.f --lines 10-50 --calls F-0001,...]`
+  → manual フラグ付きで採番。inputs/outputs/desc/signature を充填してから
+  `ledger skeletons` → `ledger wbs`。以後は通常の①〜⑤対象
+- 対象外: `ledger exclude F-xxxx --reason "..."` → ①〜⑥・WBS・next から外れ、
+  WBS の「対象外の関数」に理由つきで残る。既存成果物は消さない。
+  呼び出し元が対象内に残る場合は警告が出る（必要なら ISSUE で裁定）
+- 復帰: `ledger include F-xxxx`
+
 ## ISSUE 運用
 
 - 採番は全体通し。`docs/issues/` の最大番号+1（`ledger.py next-issue` が返す）

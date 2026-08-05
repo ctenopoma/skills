@@ -64,6 +64,13 @@
 
 - `func_id` は `F-` + 4桁連番。`calls` は func_id の配列（コールグラフの正データ）
 - `test_file` は ⓪では省略可。③が確定させる
+- 任意フィールド（人の後追い調整。`ledger add / exclude / include` が読み書きする）:
+  - `"manual": true` — 人の指示で後追い追加したエントリ（`ledger add`）。
+    抽出の再実行で「ソースに無い」警告を出さない。実ソースで確認されたら自動で外れる
+  - `"excluded": true` + `"excluded_reason": "..."` — 移植対象外（`ledger exclude`）。
+    ①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に理由つきで載る
+- **エントリの物理削除は禁止**。抽出の再実行でソースから別 func_id として復活し、
+  成果物との紐付けが切れる。対象から外すのは必ず `ledger exclude`（フラグ）で行う
 
 ## data/ledger.json
 
