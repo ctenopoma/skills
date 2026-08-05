@@ -318,6 +318,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._send_bytes(json.dumps(data, ensure_ascii=False).encode("utf-8"),
                          "application/json; charset=utf-8", code)
 
+    @staticmethod
+    def _mark_stale_status(body: bytes) -> bytes:
+        """クラッシュ残骸の running を「停止（異常終了）」に補正して配る。
+
+        実行ボタン側（pipeline.current_run_state）は PID の死活で残骸を無視するが、
+        /pipeline.html は状態ファイルをそのまま描くため、補正しないと画面だけが
+        永遠に「実行中」に見える。ファイル自体は書き換えない（読み取り専用の補正）。
+        EXE 等で pipeline を import できない場合はそのまま返す。
+        """
+        try:
+            import pipeline
+            d = json.loads(body)
+            if (d.get("state") in ("running", "waiting_rate")
+                    and not pipeline._pid_alive(d.get("pid"))):
+                d["state"] = "stopped"
+                d["current"] = None
+                d["reason"] = "前回の実行が異常終了しています（実行プロセスが存在しない）。再実行できます"
+                return json.dumps(d, ensure_ascii=False).encode("utf-8")
+        except Exception:                        # noqa: BLE001 — 表示補正の失敗で配信を止めない
+            pass
+        return body
+
     def do_GET(self) -> None:
         if self.path == "/favicon.ico" and not (Path(self.directory) / "favicon.ico").exists():
             self.send_response(204)                  # ブラウザが必ず取りに来る。404 でログを汚さない
@@ -332,7 +354,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.state_root:
                 sp = self.state_root / ".legacy-reverse" / "pipeline-status.json"
                 try:
-                    body = sp.read_bytes()
+                    body = self._mark_stale_status(sp.read_bytes())
                 except OSError:
                     pass
             self._send_bytes(body, "application/json; charset=utf-8")
