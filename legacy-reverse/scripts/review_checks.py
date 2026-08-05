@@ -254,7 +254,11 @@ def make_report(root: str) -> dict:
             # 表のセルに入れるので | はエスケープ（表崩れ防止）
             overview = body.splitlines()[0][:60].replace("|", "\\|") if body else ""
         c = r["confidence"]
-        mech = "✅" if r["ok"] else f"❌ {len(r['problems'])}件"
+        # #review-<fid> は render_site.py が仕様書ページに埋め込む承認ウィジェットの位置
+        # （機械レビュー結果の全文と、承認/修正依頼ボタンがそこにある）
+        review_link = f"specs/{fid}.html#review-{fid}"
+        mech = (f"[✅]({review_link})" if r["ok"]
+               else f"[❌ {len(r['problems'])}件]({review_link})")
         iss = " ".join(f"[{i}](issues/{i}.md)" for i in open_issues.get(fid, [])) or "—"
         name = f["new"].get("name", fid)
         rows.append(f"| [{name}](specs/{fid}.md) | {overview} "

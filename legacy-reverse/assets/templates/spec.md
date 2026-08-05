@@ -2,6 +2,8 @@
 title: "関数仕様書: {{new_name}}"
 func-id: "{{func_id}}"
 status: skeleton        # skeleton(0で生成) → draft(①でLLM充填) → reviewed(人が確認)
+reviewed-by: null       # 承認者（ブラウザの承認ウィジェット or チャット承認で自動記入）
+reviewed-date: null
 legacy:
   file: "{{legacy_file}}"
   name: "{{legacy_name}}"

@@ -250,9 +250,14 @@ def _func_row(i: int, f: dict, s: dict, pre: str = "") -> str:
     fid = s["func_id"]
     name = f["new"].get("name", fid)
     deps = ", ".join(f.get("calls", [])) or "なし"
-    c1 = _mark(s["spec_ok"], f"{pre}specs/{fid}.md",
+    # draft / generated（＝承認待ち）は render_site.py が仕様書ページに埋め込む
+    # 承認ウィジェットへ直接ジャンプさせる（#review-<fid>）。ブラウザから完結できるように
+    spec_href = f"{pre}specs/{fid}.md" + ("#review-" + fid if s["spec"] == "draft" else "")
+    ts_href = (f"{pre}test-specs/{fid}.md"
+              + ("#review-" + fid if s["test_spec"] == "generated" else ""))
+    c1 = _mark(s["spec_ok"], spec_href,
                "" if s["spec_ok"] or s["spec"] == "-" else s["spec"])
-    c2 = _mark(s["test_spec_ok"], f"{pre}test-specs/{fid}.md",
+    c2 = _mark(s["test_spec_ok"], ts_href,
                "stale⚠" if s["test_spec_stale"]
                else ("" if s["test_spec_ok"] or s["test_spec"] == "-" else s["test_spec"]))
     c3 = "⚠改変" if s["test_code_tampered"] else ("✅" if s["test_code_ok"] else "☐")
@@ -505,6 +510,8 @@ def cmd_skeletons(p: Project, args) -> None:
             f'title: "関数仕様書: {f["new"].get("name", fid)}"',
             f'func-id: "{fid}"',
             "status: skeleton",
+            "reviewed-by: null",
+            "reviewed-date: null",
             "legacy:",
             f'  file: "{f["legacy"]["file"]}"',
             f'  name: "{f["legacy"]["name"]}"',

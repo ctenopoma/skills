@@ -246,12 +246,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     verbose = False
     state_root: Path = None      # プロジェクトルート（.legacy-reverse のライブ状態の読み元）
 
-    def _send_bytes(self, body: bytes, ctype: str) -> None:
-        self.send_response(200)
+    def _send_bytes(self, body: bytes, ctype: str, code: int = 200) -> None:
+        self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_json(self, code: int, data: dict) -> None:
+        self._send_bytes(json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                         "application/json; charset=utf-8", code)
 
     def do_GET(self) -> None:
         if self.path == "/favicon.ico" and not (Path(self.directory) / "favicon.ico").exists():
@@ -282,6 +286,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
             return
         super().do_GET()
+
+    def do_POST(self) -> None:
+        # ①②の仕様書ページに埋め込まれた承認ウィジェット（review_actions.widget_html）が叩く。
+        # 書き込み系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
+        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換えさせない）。
+        if self.path != "/review-action":
+            self.send_error(404)
+            return
+        if self.client_address[0] not in ("127.0.0.1", "::1"):
+            self._send_json(403, {"ok": False, "message": "ローカルホストからのみ実行できます"})
+            return
+        if FROZEN:
+            self._send_json(403, {"ok": False,
+                                  "message": "配布版（EXE）はスナップショットのためレビュー操作できません。"
+                                             "生成元のプロジェクトを serve_site.py で開いてください"})
+            return
+        if not self.state_root:
+            self._send_json(400, {"ok": False, "message": "プロジェクトルートが特定できません"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, OSError):
+            self._send_json(400, {"ok": False, "message": "不正なリクエスト"})
+            return
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import review_actions
+        action = payload.get("action")
+        try:
+            if action == "approve":
+                res = review_actions.approve(str(self.state_root), payload.get("kind", ""),
+                                             payload.get("func_id", ""),
+                                             payload.get("approver") or "unknown")
+            elif action == "request_changes":
+                res = review_actions.request_changes(
+                    str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
+                    payload.get("approver") or "unknown", payload.get("comment") or "")
+            else:
+                res = {"ok": False, "message": f"不明な action: {action}"}
+        except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
+            res = {"ok": False, "message": f"内部エラー: {e}"}
+        self._send_json(200 if res.get("ok") else 422, res)
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない
