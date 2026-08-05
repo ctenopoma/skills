@@ -16,6 +16,7 @@ serve_site.py から呼ばれる:
   - start(root, fid, kind): POST /run-phase の実処理（バックグラウンドスレッドで起動して即返す）
 """
 import json
+import os
 import sys
 import threading
 import types
@@ -45,6 +46,34 @@ KINDS = {
 
 def _status_path(root: Path) -> Path:
     return root / ".legacy-reverse" / "pipeline-status.json"
+
+
+def _lock_path(root: Path) -> Path:
+    return root / ".legacy-reverse" / "browser-run.lock"
+
+
+def _acquire_lock(root: Path) -> bool:
+    """ブラウザ発の実行を1つに絞る排他ロック。取れたら True。
+
+    pipeline-status.json の state チェックだけでは「チェックしてから実際に
+    予約する（RunStatus を作る）までの隙間」で二重起動できてしまう——
+    start() は即座に返り、状態ファイルへの書き込みはバックグラウンドスレッド側で
+    後から起きるため、ほぼ同時に届いた2つの POST（ダブルクリック・複数タブ）が
+    両方ともチェックを通り抜ける余地がある。O_CREAT|O_EXCL のファイル作成は
+    OS レベルで原子的なので、ここでチェックと予約を1操作にまとめて隙間を無くす。
+    """
+    lock = _lock_path(root)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
+
+def _release_lock(root: Path) -> None:
+    _lock_path(root).unlink(missing_ok=True)
 
 
 def _current_run_state(root: Path) -> dict | None:
@@ -147,6 +176,13 @@ window.lrRun = window.lrRun || (function(){{
 
 
 def _run_background(root: Path, fid: str, kind: str) -> None:
+    try:
+        _run_background_inner(root, fid, kind)
+    finally:
+        _release_lock(root)   # 実行中ずっと保持し、完了/異常終了のどちらでも必ず外す
+
+
+def _run_background_inner(root: Path, fid: str, kind: str) -> None:
     cfg = KINDS[kind]
     status = pipeline.RunStatus(root, f"{cfg['label']}（ブラウザ単発）", 1, RUN_DEFAULTS)
     try:
@@ -184,18 +220,31 @@ def start(root: str, fid: str, kind: str = "spec") -> dict:
         cur = (running.get("current") or {}).get("func_id")
         return {"ok": False,
                 "message": f"既に実行中です（{cur or '不明'}）。完了を待つか /pipeline.html を確認してください"}
-    p = Project(rootp)
-    try:
-        p.func(fid)
-    except SystemExit:
-        return {"ok": False, "message": f"{fid} が functions.json に存在しない"}
-    # 直前のクリック競合等に備え、サーバ側でも実行条件（trigger_widget_html と同じ判定）を再確認する
-    if _decide_kind(rootp, fid) != kind:
+    # ここから実際にスレッドを起動するまでの間に別のリクエストが割り込む隙間があるため、
+    # 上のチェックだけでなく原子的なロックでも縛る（二重起動の実害を防ぐ本命はこちら）
+    if not _acquire_lock(rootp):
         return {"ok": False,
-                "message": f"{cfg['label']}を実行できる状態ではありません（既に着手済みか、他で更新されています）"}
+                "message": "他の実行が開始処理中です。数秒待ってから再試行してください"}
+    started = False
     try:
-        pipeline.preflight_claude(pipeline.find_claude(None))
-    except SystemExit as e:
-        return {"ok": False, "message": str(e)}
-    threading.Thread(target=_run_background, args=(rootp, fid, kind), daemon=True).start()
-    return {"ok": True, "message": f"{fid} の{cfg['label']}実行を開始しました"}
+        p = Project(rootp)
+        try:
+            p.func(fid)
+        except SystemExit:
+            return {"ok": False, "message": f"{fid} が functions.json に存在しない"}
+        # 直前のクリック競合等に備え、サーバ側でも実行条件（trigger_widget_html と同じ判定）を再確認する
+        if _decide_kind(rootp, fid) != kind:
+            return {"ok": False,
+                    "message": f"{cfg['label']}を実行できる状態ではありません（既に着手済みか、他で更新されています）"}
+        try:
+            pipeline.preflight_claude(pipeline.find_claude(None))
+        except SystemExit as e:
+            return {"ok": False, "message": str(e)}
+        threading.Thread(target=_run_background, args=(rootp, fid, kind), daemon=True).start()
+        started = True
+        return {"ok": True, "message": f"{fid} の{cfg['label']}実行を開始しました"}
+    finally:
+        # 起動に成功した場合はロックの解放をバックグラウンドスレッド側（_run_background）に委ねる。
+        # 早期returnした場合（検証NG・func未存在等）はここで必ず解放する
+        if not started:
+            _release_lock(rootp)

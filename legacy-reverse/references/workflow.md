@@ -90,9 +90,14 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   で描画する。以前は理由を1行に潰していたため、バッチ画面から原因が読めなかった
 - 実行はバックグラウンドスレッドで行い、POSTは即座に返る（数分かかる処理をHTTPで
   待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える
-- **排他制御は pipeline-status.json を pipeline.py の無人バッチと共有する**ことで実現。
-  バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様
-  （同じ「実行スロット」を取り合う設計。ロックファイルを別途持たない）
+- **排他制御は2段構え**。バッチとの排他は pipeline-status.json を共有することで実現
+  （バッチが running/waiting_rate の間は新規のブラウザ実行を拒否し、その逆も同様）。
+  ブラウザ同士の排他（二重クリック・複数タブ）はこれだけでは防げない——
+  start() が即座に返り、状態ファイルへの書き込みはバックグラウンドスレッド側で
+  少し後に起きるため、ほぼ同時の2リクエストが両方ともチェックを通り抜ける隙間が
+  あるため。この隙間は `.legacy-reverse/browser-run.lock`（`O_CREAT|O_EXCL` の
+  原子的なファイル作成）で塞いでいる。ロックは実行完了までスレッド側で保持し、
+  検証NG等での早期returnはその場で解放する
 - 完了後は review_actions._refresh を呼び、WBS・一斉レビュー表・サイトを更新する
   （status が draft/generated になれば、次のレンダリングで承認ウィジェットに
   自動的に切り替わる）

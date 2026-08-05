@@ -325,7 +325,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
     cmd_spec（①無人バッチ）と browser_run.py（ブラウザからの単発実行。①②対応）が共用する。
-    verify_fn(root_str, fid) -> (ok, why) で「完了とみなす条件」を差し替える
+    verify_fn(root_str, fid) -> (ok, why, problems) で「完了とみなす条件」を差し替える
     （① verify_spec / ② verify_testspec）。プロンプトテンプレートも差し替え可能なので
     ①以外のフェーズも同じループに乗る。
     戻り値: (ok, why, r, cost_total, rate_waited) — 呼び出し側の累計をこれで更新する。

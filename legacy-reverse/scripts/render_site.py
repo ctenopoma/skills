@@ -43,7 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import review_actions  # noqa: E402  仕様書ページへの承認ウィジェット埋め込みに使う
-import browser_run  # noqa: E402  ①未着手ページへの「実行する」ボタン埋め込みに使う（試作）
+import browser_run  # noqa: E402  ①②未着手ページへの「実行する」ボタン埋め込みに使う（試作）
 
 MERMAID_FENCE = re.compile(r"^(\s*)```mermaid\s*$", re.MULTILINE)
 MD_LINK = re.compile(r"\]\((?!https?://)([^)\s]+?)\.md(#[^)]*)?\)")
@@ -100,7 +100,7 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
     try:
         widget = review_actions.widget_html(str(project_root), kind, fid)
         if not widget and kind == "spec":
-            # 承認待ちでなければ、①未着手（skeleton）の実行トリガーを試す（試作機能）
+            # 承認待ちでなければ、①/②未着手の実行トリガーを試す（試作機能）
             widget = browser_run.trigger_widget_html(str(project_root), fid)
     except Exception as e:                          # noqa: BLE001 — render を止めない
         print(f"note: {rel} の承認ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
