@@ -161,6 +161,10 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 - **`quarto render docs` を直接叩かない。** Quarto は Mermaid を `.qmd` でしか描けないため、
   render_site.py が `docs/_sitework/` に `.qmd` の影コピーを作ってから render する
   （出力先は従来どおり `docs/_site/`）
+- **レンダリングは差分が既定**（2000関数級の全体レンダは1時間級になるため）。
+  変わったページだけ再レンダするので、フェーズ末の更新は数十秒で済む。
+  _quarto.yml / wbs.css の変更・変更ページ多数のときは自動で全体レンダに切り替わる。
+  差分ではサイト内検索の索引が更新されないため、まとまった節目に `--full` を1回かける
 - **⓪の時点でもリンク切れは出ない**: ナビバーが参照する未生成ページ
   （domain-knowledge / completion-check / analysis / api）は render_site.py が
   「いつ生成されるか」を書いたプレースホルダを影コピー側に自動で置く（成果物 docs/ は汚さない）。

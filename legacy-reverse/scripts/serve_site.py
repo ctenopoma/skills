@@ -179,14 +179,12 @@ def render(root: Path) -> bool:
     if not docs.is_dir():
         print(f"error: {docs} がない", file=sys.stderr)
         return False
-    work = docs / "_sitework"
-    n = render_site.build_shadow(docs, work)
-    r = subprocess.run([render_site.find_quarto(), "render", str(work)])
-    shutil.rmtree(work, ignore_errors=True)
+    # render_site.py の差分レンダリングをそのまま使う（--watch の1周を数十秒に抑える）
+    r = subprocess.run([sys.executable, str(Path(render_site.__file__)),
+                        "--root", str(root)])
     if r.returncode != 0:
-        print(f"error: quarto render 失敗（exit={r.returncode}）", file=sys.stderr)
+        print(f"error: render_site.py 失敗（exit={r.returncode}）", file=sys.stderr)
         return False
-    print(f"rendered {docs / '_site'}（{n} ページ）")
     return True
 
 

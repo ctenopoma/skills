@@ -310,6 +310,8 @@ Rust(PyO3) 化のような大きな施策も、AIが4段階基準（CPUバウン
 | ブラウザが古い内容のまま | ブラウザのキャッシュ | `serve_site.py` はキャッシュを無効にして配る。素の `http.server` の場合は強制リロード（Ctrl+F5） |
 | 配布した EXE が古い進捗を表示する | EXE の中身はビルド時点のスナップショット | `build_viewer.py` で作り直して渡し直す |
 | 図がソースのまま表示される | `quarto render docs` を直接叩いた | `render_site.py` で出し直す（Mermaid は影コピー経由でのみ描画される） |
+| サイト更新に時間がかかる | 全体レンダになっている（初回・テーマ変更・変更ページ多数） | 2回目以降は差分レンダ（変わったページだけ）で数十秒。放置でよい |
+| サイト内検索に新しいページが出ない | 差分レンダは検索索引を更新しない | `render_site.py --root . --full` を1回実行（夜間バッチ後などの節目で） |
 | WBS の関数名が何行にも折れる | `docs/wbs.css` が無い／index.qmd を手編集した | `ledger wbs` で作り直す。CSS はテンプレ（assets/templates/wbs.css）から docs/ にコピー |
 | PDF だけ図が出ない | Mermaid の画像化に Chromium 系ブラウザが要る | `qtpdf.py doctor` で確認。HTML 側はブラウザが描くので影響なし |
 | ⓪で「完全性突合NG」 | 抽出器の2系統カウントが不一致（変則的なソース） | extract-report.json の該当ファイルをAIに調査させる。判断がつかなければ ISSUE |

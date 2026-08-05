@@ -311,12 +311,17 @@ def profile(root: str = ".", script: str | None = None) -> dict:
 
 
 @mcp.tool()
-def render_site(root: str = ".", with_sphinx: bool = True) -> dict:
+def render_site(root: str = ".", with_sphinx: bool = True, full: bool = False) -> dict:
     """docs/ を Quarto で HTML サイト化し、続けて Sphinx API を docs/_site/api に生成する。
 
     quarto を直接呼ばず render_site.py を通す（Mermaid を効かせるための影コピーを作る）。
+    既定は差分レンダリング（変わったページのみ。2000関数でも数十秒）。
+    full=True で全ページ再レンダ（サイト内検索の索引更新もこのときだけ）。
     """
-    r1 = _run([sys.executable, str(SCRIPTS / "render_site.py"), "--root", root])
+    cmd = [sys.executable, str(SCRIPTS / "render_site.py"), "--root", root]
+    if full:
+        cmd.append("--full")
+    r1 = _run(cmd)
     if not r1["ok"]:
         return {"ok": False, "step": "quarto", "output": r1["output"]}
     if with_sphinx and (Path(root).resolve() / "docs-sphinx").exists():
