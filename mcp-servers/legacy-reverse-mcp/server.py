@@ -25,6 +25,7 @@ from mcp.server.fastmcp import FastMCP
 SCRIPTS = Path(__file__).resolve().parents[2] / "legacy-reverse" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from ledger import Project, parse_frontmatter  # noqa: E402
+import extract_c  # noqa: E402
 import extract_fortran  # noqa: E402
 import review_checks  # noqa: E402
 
@@ -128,6 +129,19 @@ def extract_functions(root: str = ".", legacy_dir: str = "legacy",
     """
     return extract_fortran.extract(root, legacy_dir, package,
                                    write=write, infer_calls=infer_calls)
+
+
+@mcp.tool()
+def extract_c_functions(root: str = ".", legacy_dir: str = "legacy",
+                        package: str | None = None, write: bool = True) -> dict:
+    """⓪の機械抽出（C/C++）: Fortran が依存する C/C++ ソースも同じ functions.json に載せる。
+
+    extract_functions（Fortran）と同じマージ規約（func_id 不変・手修正保持）。
+    Fortran↔C の呼び出し（アンダースコア規約含む）は自動でリンクされる——
+    片方の時点で未解決だった呼び出し名は、もう片方の抽出が走った時点で解決される
+    ので実行順は不問。監査ログは data/extract-report-c.json。
+    """
+    return extract_c.extract(root, legacy_dir, package, write=write)
 
 
 # ---------- 機械レビュー（ハルシネーション・省略の検知） ----------

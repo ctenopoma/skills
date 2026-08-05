@@ -24,6 +24,7 @@
 | 分類 | ツール | 対応スクリプト |
 |------|--------|---------------|
 | ⓪機械抽出 | **extract_functions**（Fortran静的解析→functions.json 生成/マージ。再実行=マージで func_id 不変） | extract_fortran.py |
+| ⓪機械抽出 | **extract_c_functions**（C/C++ 静的解析→同じ functions.json にマージ。Fortran↔C の呼び出しを自動リンク） | extract_c.py |
 | 機械レビュー | **review_spec / review_testspec / review_all / spec_review_report**（根拠引用の実在・省略・トレーサビリティのハルシネーション検知ゲート、①draftの一斉レビュー表生成） | review_checks.py |
 | 台帳(読) | pipeline_status / next_action / next_actions / progress_summary / verify / next_issue_id | ledger.py |
 | 台帳(書) | generate_wbs / generate_skeletons / freeze_tests / block / unblock / phase_start / phase_end / completion_check / sphinx_index | ledger.py |

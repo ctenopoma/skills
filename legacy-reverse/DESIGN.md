@@ -114,6 +114,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | ファイル | 責務 | 設計メモ |
 |---|---|---|
 | scripts/extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ | 固定・自由形式、継続行、COMMON/USE/intent、call＋関数参照の呼出推定。**再実行=マージ（func_id不変・手修正保持）**が再開性の要 |
+| scripts/extract_c.py | C/C++ 静的解析 → 同じ functions.json にマージ | Fortran の依存（数値ルーチン・I/Oラッパ）を同一スキーマで抽出。Fortran↔C の呼び出しはアンダースコア規約込みでマージ時に自動リンク（unresolved_calls 経由で実行順不問） |
 | scripts/ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有）。200関数超で WBS を自動分割 |
 | scripts/review_checks.py | ①②の機械レビュー | LLM不使用。書式はテンプレ（assets/templates）に依存 |
 | scripts/render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで**⓪時点でもリンク切れゼロ** |
