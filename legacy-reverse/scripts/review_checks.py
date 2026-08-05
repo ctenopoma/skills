@@ -273,6 +273,7 @@ def make_report(root: str) -> dict:
     else:
         lines.append("レビュー待ちの仕様書（draft）はありません 🎉")
     out = rootp / "docs" / "spec-review.md"
+    out.parent.mkdir(parents=True, exist_ok=True)   # ⓪の骨子生成前に呼ばれても落ちない
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": not ng_funcs, "drafts": len(rows), "machine_ng": len(ng_funcs),
             "machine_ng_funcs": ng_funcs, "path": str(out)}
