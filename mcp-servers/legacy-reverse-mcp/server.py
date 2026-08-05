@@ -31,13 +31,17 @@ import review_checks  # noqa: E402
 mcp = FastMCP("legacy-reverse")
 
 
-def _run(cmd: list, cwd: str | None = None, env_add: dict | None = None) -> dict:
+def _run_raw(cmd: list, cwd: str | None = None, env_add: dict | None = None):
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     if env_add:
         env.update(env_add)
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=cwd, env=env)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", cwd=cwd, env=env)
+
+
+def _run(cmd: list, cwd: str | None = None, env_add: dict | None = None) -> dict:
+    r = _run_raw(cmd, cwd, env_add)
     return {"ok": r.returncode == 0, "exit_code": r.returncode,
             "output": (r.stdout + r.stderr).strip()[-4000:]}
 
@@ -86,11 +90,15 @@ def progress_summary(root: str = ".") -> dict:
     2000関数規模でも全関数リストを読まずに状況把握と再開判断ができる。
     """
     import json as _json
-    r = _ledger(root, "status", "--summary")
+    # _run() の「stdout+stderr 連結＋末尾4000字」を通すと、問題関数が数百件を超えた時に
+    # JSON の先頭が切れてパース不能になる（大規模でだけ failed になる）。stdout を丸ごと読む。
+    r = _run_raw([sys.executable, str(SCRIPTS / "ledger.py"), "--root", root,
+                  "status", "--summary"])
     try:
-        return _json.loads(r["output"])
+        return _json.loads(r.stdout)
     except ValueError:
-        return {"ok": False, "output": r["output"]}
+        return {"ok": False, "exit_code": r.returncode,
+                "output": (r.stdout + r.stderr).strip()[-4000:]}
 
 
 @mcp.tool()
