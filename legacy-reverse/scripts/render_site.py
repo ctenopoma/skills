@@ -67,6 +67,12 @@ def transform_yml(text: str) -> str:
     if "wbs/*.qmd" not in text:                     # 旧テンプレ救済: WBS分割ページを render 対象に
         text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
                       "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
+    if "pipeline.html" not in text:                 # 旧テンプレ救済: バッチ状況リンクを navbar に追加
+        text = re.sub(
+            r"(?m)^(\s*)- href: api/index\.html\s*\n\s*text:[^\n]*$",
+            lambda m: m.group(0) + f"\n{m.group(1)}- href: pipeline.html"
+                                   f"\n{m.group(1)}  text: バッチ状況",
+            text, count=1)
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
@@ -232,6 +238,11 @@ def main() -> None:
     if not api_index.exists():                   # ④前でもナビバーの API リンクを切らさない
         api_index.parent.mkdir(parents=True, exist_ok=True)
         api_index.write_text(API_PLACEHOLDER, encoding="utf-8", newline="\n")
+    # ナビバーの「バッチ状況」の実体。serve_site.py 配信時は同内容のライブページが
+    # ルートで優先されるが、素の http.server や EXE 同梱スナップショットでも 404 にしない
+    import serve_site                            # 隣のファイル（ページ定義を共有）
+    (site / "pipeline.html").write_text(serve_site.PIPELINE_PAGE,
+                                        encoding="utf-8", newline="\n")
     print(f"wrote {site}: {done_msg}")
 
 
