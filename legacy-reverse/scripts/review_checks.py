@@ -35,8 +35,37 @@ PLACEHOLDER = re.compile(r"<!--\s*[①⓪]?で?充填|<!--\s*①で充填")
 EVIDENCE_KINDS = ("仕様書🟢", "人間確認済み", "レガシー実測", "⚠未確定")
 
 
+# レンダ時は全 draft ページからチェックが呼ばれ、引用ごとにレガシー原本を読み直すと
+# 2000関数級で分単位になる。原本（レガシーソース）は事実上不変なので、stat
+# （mtime+size）が変わるまで行数とハッシュを使い回す。stat 検証付きなので、
+# 長寿命プロセス（serve_site.py）から呼ばれても古い値を返さない。
+_FILE_CACHE: dict = {}          # {path: ((mtime_ns, size), {"lines": int, "sha8": str})}
+
+
+def _file_cache_entry(path: Path) -> dict:
+    st = path.stat()
+    key, sig = str(path), (st.st_mtime_ns, st.st_size)
+    hit = _FILE_CACHE.get(key)
+    if hit and hit[0] == sig:
+        return hit[1]
+    entry: dict = {}
+    _FILE_CACHE[key] = (sig, entry)
+    return entry
+
+
 def sha8(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+    e = _file_cache_entry(path)
+    if "sha8" not in e:
+        e["sha8"] = hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+    return e["sha8"]
+
+
+def _line_count(path: Path) -> int:
+    e = _file_cache_entry(path)
+    if "lines" not in e:
+        e["lines"] = len(path.read_text(encoding="utf-8",
+                                        errors="replace").splitlines())
+    return e["lines"]
 
 
 def _frontmatter(text: str) -> dict:
@@ -67,7 +96,7 @@ def _check_citations(root: Path, body: str) -> tuple:
         if not p.exists():
             problems.append(f"引用先が存在しない: {rel}:{a}" + (f"-{b}" if b != a else ""))
             continue
-        n = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+        n = _line_count(p)
         if a < 1 or b < a or b > n:
             problems.append(f"引用行が範囲外: {rel}:{a}-{b}（実ファイルは {n} 行）")
         else:
