@@ -1,6 +1,7 @@
 ---
 title: "データ仕様"
 subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷移"
+date: 2026-08-07
 ---
 
 ::: {.callout-note}
@@ -19,6 +20,19 @@ subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷�
 - 機械可読メタデータは YAML フロントマターに集約。WBS・⑥はフロントマター走査で自動生成
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない
   (前例: coverage → tc-coverage に改名)
+- **表示専用の使い捨てデータは `.legacy-reverse/` に隔離**する。進捗の正は常に成果物側にあり、
+  `.legacy-reverse/` を消しても失われるのは実行ログと画面表示だけ
+
+## 正データが壊れたときの多層防御
+
+`functions.json` は全スクリプトが毎回読む。ここが壊れると無人バッチが途中で止まるため、
+**AI の編集ミス(末尾カンマ等)を 3 段で受け止める**。
+
+| 段 | 仕組み | 効果 |
+|----|-------|------|
+| 1. 発生の直後 | `hooks/guard_json.py`(PostToolUse)が編集直後に構文検証 | 壊れた位置(行・列)を添えて**エージェント自身に差し戻す**。人を待たずにその場で直る |
+| 2. 読み込み時 | `ledger.load_json` が行番号つきの明示エラーで停止 | 生の traceback ではなく「どこが・どう壊れ・どう直すか」を出す |
+| 3. 実行系 | バッチ・単発・サーバがこれを「データ異常のため停止」として扱う | 画面に理由が残る(無言で止まらない) |
 
 # 対象プロジェクトのディレクトリ構成
 
@@ -33,6 +47,7 @@ subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷�
     index.qmd           # WBS(ledger.py wbs で自動生成。手編集禁止)
     wbs/                # 200 関数超で自動生成されるファイル別明細(手編集禁止)
     spec-review.md      # ① draft の一斉レビュー表(自動生成。手編集禁止)
+    review-feedback.md  # ブラウザからの修正依頼(サーバが追記・skill が applied 化)
     _site/              # HTML 出力(render_site.py が作り直す。git 管理外)
     _sitework/          # render 用の .qmd 影コピー(作業用。残らない)
     conventions.md      # プロジェクト規約(⓪で確定。人が編集可)
@@ -43,20 +58,31 @@ subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷�
     issues/ISSUE-xxx.md          # 質問と裁定(回答欄は人が記入可)
     improvements/XXX-nnn.md      # ⑦ 施策票
     completion-check.md          # ⑥(自動生成)
+    quant.md / perf.md           # ⑦ 定量計測の結果(quant_analyze.py が生成)
+    analysis.md                  # ⑦ 施策候補(AI が実測に基づいて記入)
   docs-sphinx/          # ④ API ドキュメント設定(テンプレから⓪で配置)
   data/
     functions.json      # ⓪の解析結果(正データ)
     extract-report.json # ⓪機械抽出の監査ログ
     ledger.json         # ハッシュ・ブロック状態(スクリプト専用)
-  .legacy-reverse/
+  .legacy-reverse/      # 実行時データ(git 管理外・消しても成果物は失われない)
     state.json          # 実行中フェーズ(hook の判定に使う)
+    run.lock            # 実行スロットの排他(PID 入り。残骸は自動解除)
+    pipeline-status.json  # ライブ進捗(バッチ実行状況ページが読む・表示専用)
+    pipeline-log.jsonl  # 実行ログ 1 行 1 試行(結果・コスト・所要)
+    agent-logs/F-xxxx.txt # エージェント応答の全文(失敗原因の一次情報)
+    batch-priority.json # ⭐優先の割り込み順(画面が書く)
     last-run.json       # pytest プラグインの出力(⑤の一時データ)
-    pipeline-log.jsonl  # 無人バッチの実行ログ(関数別の結果・コスト・所要)
+    quant.json          # ⑦の実測データ(機械可読)
 ```
+
+`state.json` と `run.lock` は役割が違う。前者は **hook が「いまどのフェーズか」を
+判定するためのフェーズ状態**、後者は **実行の二重起動を防ぐ排他ロック**。
 
 # data/functions.json
 
-⓪の機械抽出(extract_fortran.py)が生成・マージする正データ。
+⓪の機械抽出(extract_fortran.py / extract_c.py)が生成・マージする正データ。
+言語混在プロジェクトでは複数の抽出器が同じファイルにマージする。
 
 ```json
 {
@@ -87,8 +113,25 @@ subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷�
 ```
 
 - `func_id` は `F-` + 4 桁連番。**採番は抽出器が行い、マージ再実行でも不変**
+- `F-0000` はメインルーチンの予約番号(Fortran の program / C の main)。
+  コールグラフの根なので推奨着手順では最後に回る
 - `calls` は func_id の配列 — コールグラフの正データ(WBS の推奨着手順=葉から、の根拠)
+- `unresolved_calls`(任意)は抽出時に解決できなかった呼び出し名。**別言語の抽出が
+  走った時点で自動的に解決されて `calls` に移る**ので、抽出の実行順を問わない
 - `test_file` は⓪では省略可。③が確定させる
+
+## 人が後から調整するためのフラグ
+
+⓪の抽出漏れ・関数分割・デッドコードは、人の指示で後追い調整する
+(`ledger add` / `exclude` / `include`、MCP では `add_function` 等)。
+
+| フラグ | 意味 | 設計判断 |
+|--------|------|---------|
+| `manual: true` | 人の指示で後追い追加したエントリ | 抽出の再実行で「ソースに無い」警告を出さない。実ソースで確認されたら自動で外れる |
+| `excluded: true` + `excluded_reason` | 移植対象外 | ①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に**理由つきで残る** |
+
+**エントリの物理削除は禁止**。抽出を再実行するとソースから別の func_id として復活し、
+既存の成果物との紐付けが切れるため。対象から外すのは必ずフラグで行う。
 
 ## data/extract-report.json(監査ログ)
 
@@ -129,6 +172,55 @@ subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷�
 
 - フェーズ skill が開始時に `ledger.py phase-start <n> <func-id>`、終了時に `phase-end` で管理
 - hook(guard_tests.py)は phase が 4 または 5 のとき tests/ への Edit/Write を拒否する
+
+# .legacy-reverse/pipeline-status.json
+
+実行中の状態。**表示専用の使い捨て**で、進捗の正ではない(正は成果物側)。
+書き込みはアトミック(tmp → replace)なので、読み手が壊れた JSON を掴むことはない。
+
+```json
+{
+  "state": "running",
+  "mode": "連続実行(ブラウザ)",
+  "pid": 12345,
+  "total_targets": 62, "done": 34, "failed": 5,
+  "cost_usd": 11.83,
+  "rate_waited_sec": 340, "wait_until": null,
+  "current": { "func_id": "F-0032", "attempt": 1, "started_at": "2026-08-07T06:12:03" },
+  "ng_kinds": { "機械レビューNG": 3, "検証NG": 2 },
+  "recent": [
+    { "func_id": "F-0019", "ok": false, "phase": "spec",
+      "kind": "機械レビューNG", "problems": ["SPEC-…: 根拠引用がない"],
+      "sec": 233, "cost_usd": 0.66, "attempt": 2, "at": "2026-08-07T06:03:28" }
+  ],
+  "metrics": { "median_sec": 112, "success_rate": 0.872,
+               "eta_sec": 2576, "avg_cost_usd": 0.303 }
+}
+```
+
+| キー | 意味 |
+|------|------|
+| state | `running` / `waiting_rate` / `stopped` / `finished` / `not_running` |
+| pid | 書いたプロセス。**死んでいれば画面側が「異常終了」に読み替える**(残骸で永久に実行中に見えるのを防ぐ) |
+| recent[].phase | どの工程だったか(`spec` / `testspec` / …)。連続実行は工程横断なので、これが無いと結果行が何の失敗か分からない |
+| recent[].problems | 機械レビューの指摘の全文。画面で箇条書きにする(件数だけ出して探しに行かせない) |
+| metrics.median_sec | 成功した実行の所要時間の中央値。画面の進捗バーの基準になる |
+
+# .legacy-reverse/batch-priority.json
+
+画面の「⭐優先」が書く割り込み指示。スクリプト専用。
+
+```json
+{ "order": ["F-0033", "F-0021"], "retry": ["F-0021"] }
+```
+
+| キー | 意味 | 消費 |
+|------|------|------|
+| order | 実行順の割り込み。この順で走査結果の先頭に並べ替える | 残り続ける(⭐解除まで) |
+| retry | 失敗スキップ集合からの解除対象 | **次の走査で消費されるワンショット** |
+
+`retry` をワンショットにするのは、毎回解除すると失敗し続ける関数が無限に再試行されて
+バッチが進まなくなるため。
 
 # フロントマターの status 遷移(完了判定の正)
 

@@ -10,9 +10,9 @@
 |------|---------|
 | [slides/index.html](slides/index.html) | 初見の操作者（⓪→⑦を進めながら覚えるチュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
-| [MANUAL.md](MANUAL.md) / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処） |
+| [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
-| [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、章別 PDF は同梱の `pdf/`。再生成は `make_pdf.py`） |
+| [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、章別 PDF は同梱の `pdf/`。再生成は `make_pdf.py`） |
 | [references/workflow.md](references/workflow.md) / [schema.md](references/schema.md) | フェーズskill・スクリプト（規則とデータの正） |
 
 ## 構成
@@ -31,15 +31,22 @@ legacy-reverse/
     legacy-7-analyze/      # ⑦ 分析・改善（挙動保存）
   scripts/
     extract_fortran.py     # ⓪ Fortran機械抽出 → functions.json 生成/マージ（再実行=マージで再開安全）
-    pipeline.py            # ①の無人バッチドライバ（1関数=1 headlessプロセス。トークン上限なしで全件実行）
+    extract_c.py           # ⓪ C/C++機械抽出（同じ functions.json にマージ。Fortran↔C の呼出も突合）
+    pipeline.py            # 無人バッチドライバ + 実行ループ本体（1関数=1 headlessプロセス）
     ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証
-    review_checks.py       # ①②の機械レビュー（引用実在・省略・トレーサビリティのハルシネーション検知）
+    review_checks.py       # ①②の機械レビュー・一斉レビュー表（ハルシネーション検知）
+    serve_site.py          # ローカル配信 + 実行・承認 API（バッチ実行状況ページを内蔵）
+    browser_run.py         # ブラウザからの単発/連続実行・残タスク走査・⭐優先
+    review_actions.py      # ①②の承認・修正依頼、⑤の裁定（サーバ側で機械レビューを再検証）
+    render_site.py         # docs/ → HTMLサイト（差分レンダ・ウィジェット焼き込み）
     tc_report_plugin.py    # pytest プラグイン（TCマーカー別の結果収集）
     collect_results.py     # ②と突合して結果報告書を自動生成（実装率・attempt・自動block）
     check_stubs.py         # ④のスタブ検出（空実装/NotImplementedError/TODO）
+    quant_analyze.py       # ⑦の定量計測（cProfile+radon/ruff/bandit/pip-audit。LLM不使用）
   hooks/
     guard_tests.py         # PreToolUse: ④⑤中の tests/ 編集を拒否
-    settings-example.json  # 対象プロジェクトへの hook 登録例
+    guard_json.py          # PostToolUse: 壊れた JSON をエージェントに差し戻す（正データ保護）
+    settings-example.json  # 対象プロジェクトへの hook 登録例（上記2本）
   references/
     schema.md              # プロジェクト構成・functions.json/ledger.json スキーマ・status遷移
     workflow.md            # 共通規則（情報遮断・ハッシュ連鎖・ISSUE・承認・ループ）
@@ -84,9 +91,15 @@ HTML は `scripts/render_site.py`（Mermaid を効かせるため .qmd 影コピ
 閲覧は `scripts/serve_site.py`（127.0.0.1 のみ・プロジェクトごとに固定ポート・`--watch` で自動再レンダリング）、
 レビュアーへの配布は `scripts/build_viewer.py`（サイト同梱の単体実行ファイル。相手に Python も Quarto も不要）。
 
-`MANUAL.md` を直したら `MANUAL.pdf` も作り直す（quarto-typst-pdf skill を使う。
-日本語フォントと絵文字フォントが入った環境で実行すること）:
+`MANUAL.md` を直したら `MANUAL.html` と `MANUAL.pdf` も作り直す
+（日本語フォントと絵文字フォントが入った環境で実行すること）:
 
 ```bash
-python <quarto-typst-pdf>/scripts/qtpdf.py build . MANUAL.md --design engineering-note
+python <skillsリポジトリ>/docs/legacy-reverse/make_manual.py          # HTML + PDF
+python <skillsリポジトリ>/docs/legacy-reverse/make_manual.py --html   # HTML だけ（速い）
 ```
+
+`MANUAL.html` は画像・CSS・JS をすべて埋め込んだ**単一ファイル**なので、
+そのまま渡せば相手はダブルクリックで開ける（サーバ・ネットワーク不要）。
+設計・仕様書の側は `docs/legacy-reverse/make_pdf.py` と
+`quarto render docs/legacy-reverse` で再生成する。

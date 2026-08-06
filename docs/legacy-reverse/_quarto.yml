@@ -16,6 +16,8 @@ website:
         href: index.qmd
       - text: "スキル設計"
         href: architecture.qmd
+      - text: "画面設計"
+        href: screens.qmd
       - text: "MCPサーバ"
         href: mcp-server.qmd
       - text: "運用設計"
@@ -38,6 +40,10 @@ website:
             href: data.qmd
           - text: "品質ゲート仕様"
             href: quality.qmd
+      - section: "画面(詳細)"
+        contents:
+          - text: "画面設計"
+            href: screens.qmd
       - section: "MCPサーバ(詳細)"
         contents:
           - text: "legacy-reverse-mcp 仕様"
@@ -58,3 +64,7 @@ format:
     number-sections: false
     code-overflow: wrap
     smooth-scroll: true
+    # neutral を明示しないと subgraph のクラスタ背景が濃色になり、
+    # 中のノード文字が読めなくなる(既定テーマは本文テーマの色を拾うため)
+    mermaid:
+      theme: neutral

@@ -27,8 +27,9 @@ NAMES = {
     "pipeline.qmd": "2_パイプライン仕様.md",
     "data.qmd": "3_データ仕様.md",
     "quality.qmd": "4_品質ゲート仕様.md",
-    "mcp-server.qmd": "5_MCPサーバ仕様.md",
-    "operations.qmd": "6_運用設計.md",
+    "screens.qmd": "5_画面設計.md",
+    "mcp-server.qmd": "6_MCPサーバ仕様.md",
+    "operations.qmd": "7_運用設計.md",
 }
 
 

@@ -1,9 +1,10 @@
 ---
 title: "アーキテクチャと設計判断"
 subtitle: "スキル群の構造と、そうした理由"
+date: 2026-08-07
 ---
 
-# 責務の分離: skills / scripts / MCP / hooks
+# 責務の分離: skills / scripts / MCP / hooks / 画面
 
 本システムの最重要の設計判断は、**「判断」と「機械処理」を層で分けた**こと。
 
@@ -16,16 +17,21 @@ flowchart TB
     S5 --> S6["legacy-6-check"] --> S7["legacy-7-analyze"]
   end
   subgraph scripts["scripts(機械操作 = 決定的)"]
-    EX["extract_fortran.py"]
+    EX["extract_fortran.py / extract_c.py"]
     LG["ledger.py"]
     RV["review_checks.py"]
     CS["check_stubs.py"] --- CR["collect_results.py"]
     RS["render_site.py"] --- PB["pdf_book.py"]
-    PL["pipeline.py"]
+    PL["pipeline.py"] --- QA["quant_analyze.py"]
+  end
+  subgraph ui["画面(人の操作面)"]
+    SS["serve_site.py<br>配信 + 実行・承認 API"]
+    BR["browser_run.py / review_actions.py<br>ブラウザ実行・承認・裁定"]
   end
   MCP["legacy-reverse-mcp<br>scripts を型付きツール化"] --> scripts
-  HK["hooks/guard_tests.py<br>④⑤中の tests/ 編集拒否"]
+  HK["hooks/guard_tests.py(拒否)<br>hooks/guard_json.py(差し戻し)"]
   skills -->|呼ぶ| scripts
+  ui -->|呼ぶ| scripts
   scripts -->|読み書き| DATA[("functions.json / ledger.json<br>docs/ 成果物")]
 ```
 
@@ -34,10 +40,16 @@ flowchart TB
 | skills | 「いつ・何を・どの順で」の手順書。実作業の判断(レガシー読解・仕様執筆・トリアージ)だけを LLM が行う | LLM は数え上げ・照合・台帳操作をすると誤る(ハルシネーション・省略)。判断以外を持たせない |
 | scripts | 単体でも動く決定的処理 | 列挙・検証・状態管理は再現性が命。LLM を通さない |
 | MCP | scripts を import/subprocess するだけの型付きラッパ | **二重管理なし**。ロジックは常に scripts 側が正 |
-| hooks | PreToolUse でツール呼び出し自体を拒否 | 「プロンプトで禁止」は破られ得る。強制は仕組みで |
+| hooks | PreToolUse は呼び出しを拒否、PostToolUse は結果を検証して差し戻す | 「プロンプトで禁止」は破られ得る。強制は仕組みで |
+| 画面 | 人の操作(トリガ・承認・裁定)の入口。判断もロジックも持たない | LLM に渡すツールではないので MCP 化しない。実行の実体は scripts 側と共有する |
 
 skills から scripts への呼び出しは、MCP 登録済み環境では **MCP ツール優先**、
 未登録なら直接実行。どちらでも実体は同一([運用設計 — 導入](operations.qmd#導入手順)参照)。
+
+**実行の入口は 3 つあるが実体は 1 本。** チャットの skill・CLI の無人バッチ・
+ブラウザのボタンは、いずれも `pipeline.run_one`(headless Claude 1 回 + ファイル状態での
+契約検証)に合流し、同じ実行枠ロックを取り合う。入口を増やしても実行系統は分岐しない
+([画面設計](screens.qmd))。
 
 # フェーズ・スキルの構成
 
@@ -84,16 +96,21 @@ flowchart TB
 | ファイル | 責務 | 設計メモ |
 |---|---|---|
 | extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ | 固定・自由形式、継続行、COMMON/USE/intent、call+関数参照の呼出推定。**再実行 = マージ(func_id 不変・手修正保持)**が再開性の要 |
-| ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック(WBS / next / check が共有)。200 関数超で WBS を自動分割 |
-| review_checks.py | ①②の機械レビュー | LLM 不使用。書式はテンプレ(assets/templates)に依存 |
-| render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで⓪時点でもリンク切れゼロ |
-| pipeline.py | ①の無人バッチドライバ | **1 関数 = 1 headless Claude プロセス**(毎回まっさらなコンテキスト = トークン上限に依存しない)。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止 |
+| extract_c.py | C/C++ 静的解析 → 同じ functions.json にマージ | Fortran↔C の呼び出しをアンダースコア規約込みで突合。**抽出の実行順に依存しない**(後から走った側が未解決名を解決する) |
+| ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック(WBS / next / check が共有)。200 関数超で WBS を自動分割。**正データが壊れていたら行番号つきで停止**する(黙って空扱いにしない) |
+| review_checks.py | ①②の機械レビュー・一斉レビュー表の生成 | LLM 不使用。書式はテンプレ(assets/templates)に依存。表は「承認できる行」が上に来る順で出す |
+| render_site.py | docs/ → HTML サイト・**ウィジェットの焼き込み** | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。**差分レンダが既定**(2000 関数で数十秒)。承認・実行ボタンはここで各ページに埋め込まれる = **UI は再レンダ時点のスナップショット** |
+| pipeline.py | 無人バッチドライバ・実行ループの実体 | **1 関数 = 1 headless Claude プロセス**(毎回まっさらなコンテキスト = トークン上限に依存しない)。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止。`run_one` は 3 つの入口が共有する |
+| browser_run.py | ブラウザからの単発実行・連続実行・残タスク走査 | `_decide_kind` が「次に着手すべき 1 工程」を決める唯一の判定。連続実行は 1 件ごとに再走査するので、承認が下りた関数を自動で拾う |
+| review_actions.py | ①②の承認・修正依頼、⑤の裁定 | **承認時にサーバ側で機械レビューを再実行**してから確定(クライアント表示を信用しない)。完了後に WBS・一斉レビュー表・サイトを再生成 |
+| serve_site.py | ローカル配信 + 実行・承認 API | 127.0.0.1 のみ・プロジェクト別固定ポート・`--watch`。**書き込み POST は 4 段のガード**(接続元・Host/Origin・EXE 判定・ルート限定)。人の操作の入口なので MCP 化しない |
 | collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号(0 pass / 1 fail / 2 blocked / 3 mismatch)。attempt 上限 3 で自動 block |
 | check_stubs.py | ④のスタブ検出 | 空実装・NotImplementedError・TODO/FIXME |
+| quant_analyze.py | ⑦の定量計測(LLM 不使用) | cProfile + radon / ruff / bandit / pip-audit を機械実行し quant.json・quant.md に残す。**計測せずに提案しない**ための 1 段目 |
 | pdf_book.py | 種別ごとの合本 PDF | quarto-typst-pdf skill に委譲 |
-| serve_site.py | ローカル配信 | 127.0.0.1 のみ・プロジェクト別固定ポート・`--watch`。常駐なので MCP 化しない |
-| build_viewer.py | 配布用単体実行ファイル | サイト+配信サーバを PyInstaller で 1 ファイル化。受け手に Python / Quarto 不要 |
-| hooks/guard_tests.py | ④⑤中の tests/ 編集拒否 | state.json(phase-start / end)を見て判定 |
+| build_viewer.py | 配布用単体実行ファイル | サイト+配信サーバを PyInstaller で 1 ファイル化。受け手に Python / Quarto 不要。**閲覧専用**(書き込み API は 403) |
+| hooks/guard_tests.py | ④⑤中の tests/ 編集拒否(PreToolUse) | state.json(phase-start / end)を見て判定 |
+| hooks/guard_json.py | 編集直後の JSON 構文検証(PostToolUse) | 壊れていたら exit 2 で**エージェント自身に差し戻す**。正データの破損でバッチが止まるのを源流で断つ |
 
 # スケール設計(2000 関数級)
 
@@ -112,7 +129,10 @@ flowchart TB
 
 | 拡張 | 方法 |
 |---|---|
-| 新レガシー言語(C# 等) | extract_fortran.py と同じ出力契約(functions.json スキーマ+ extract-report)で抽出器を追加し、MCP ツールに登録 |
-| 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格(対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ)にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
+| 新レガシー言語(C# 等) | extract_fortran.py / extract_c.py と同じ出力契約(functions.json スキーマ + extract-report)で抽出器を追加し、MCP ツールに登録。既存の抽出結果とはマージされ、実行順は問わない |
+| 新フェーズの自動運転化 | ①〜⑤は実装済み(`browser_run.KINDS` に「プロンプト・検証関数・リトライ数」を 1 行足す形)。⑥は LLM 不使用の同期実行、⑦は計測 → 提案の 2 段。**新しい工程を足すときも骨格は同じ**: 対象選定 → headless 実行 → ファイル状態で契約検証 → ログ |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント(①と legacy だけを読む)をドライバ段に挿入 |
+| ⑦の改善適用ループ | 現状は「計測 → 提案」まで。施策票の承認 → 適用 → 再計測 → 達成判定のイタレーションは形が大きく異なるため別設計 |
 | 新言語ターゲット | 現状 Python+pytest。将来 JS / Rust 拡張を想定 |
+
+関連: [画面設計](screens.qmd) — 実行・承認の入口としての画面層の詳細

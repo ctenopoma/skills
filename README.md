@@ -8,8 +8,8 @@
 | ディレクトリ | 内容 |
 | --- | --- |
 | [legacy-reverse/](legacy-reverse/) | レガシーコード(Fortran / C# 等)を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン(skill 本体・スクリプト・hook) |
-| [mcp-servers/legacy-reverse-mcp/](mcp-servers/legacy-reverse-mcp/) | 上記の機械操作を型付きツール化した MCP サーバ(26 ツール) |
-| [docs/legacy-reverse/](docs/legacy-reverse/) | 設計・仕様書(Quarto サイト+章別 PDF 7 冊同梱) |
+| [mcp-servers/legacy-reverse-mcp/](mcp-servers/legacy-reverse-mcp/) | 上記の機械操作を型付きツール化した MCP サーバ(30 ツール) |
+| [docs/legacy-reverse/](docs/legacy-reverse/) | 設計・仕様書(Quarto サイト+章別 PDF 8 冊同梱) |
 | [quarto-typst-pdf/](quarto-typst-pdf/) | PDF 出力の依存 skill(legacy-reverse の pdf_book.py・MANUAL/設計書の PDF 再生成が使う) |
 
 ## まず読むもの
@@ -18,8 +18,16 @@
 | --- | --- |
 | [legacy-reverse/slides/index.html](legacy-reverse/slides/index.html) | 初見の操作者(ブラウザで開くだけのチュートリアル) |
 | [legacy-reverse/QUICKREF.md](legacy-reverse/QUICKREF.md) | 作業中の操作者(コマンド即引き 1 枚) |
-| [legacy-reverse/MANUAL.md](legacy-reverse/MANUAL.md) / MANUAL.pdf | 操作者(背景と操作の意味・トラブル対処) |
+| [legacy-reverse/MANUAL.md](legacy-reverse/MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者(背景と操作の意味・トラブル対処)。HTML は画像込みの**単一ファイル**なのでそのまま配れる |
 | [docs/legacy-reverse/pdf/](docs/legacy-reverse/pdf/) | 設計者・保守者・運用管理者(設計・仕様書。章別 PDF) |
+
+ドキュメントの再生成:
+
+```bash
+python docs/legacy-reverse/make_manual.py   # MANUAL.html + MANUAL.pdf
+python docs/legacy-reverse/make_pdf.py      # 設計・仕様書の章別 PDF
+quarto render docs/legacy-reverse           # 設計・仕様書の HTML サイト(_site/)
+```
 
 ## 導入(対象プロジェクト側)
 

@@ -1,6 +1,7 @@
 ---
 title: "MCP サーバ仕様"
-subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツール"
+subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 30 ツール"
+date: 2026-08-07
 ---
 
 # 設計方針(全体)
@@ -32,10 +33,10 @@ subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツ�
 
 | 対象 | 理由 |
 |------|------|
-| serve_site.py(配信) | 常駐プロセスのため。人が端末で立てる |
-| hooks/guard_tests.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
+| serve_site.py / browser_run.py / review_actions.py | 常駐プロセスであり、かつ**人の操作の入口**(実行・承認・裁定の API)。LLM に渡すツールではない |
+| hooks/guard_tests.py・guard_json.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
 
-# ツールリファレンス(26)
+# ツールリファレンス(30)
 
 ## 台帳(読み取り) — ledger.py
 
@@ -48,11 +49,12 @@ subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツ�
 | `verify` | root, func_id | dict | ハッシュ連鎖(①→②、③改変、blocked)の検証。`ok=false` なら `problems` に理由 |
 | `next_issue_id` | root | str | 次に使う ISSUE 番号(全体通し) |
 
-## ⓪ 機械抽出 — extract_fortran.py
+## ⓪ 機械抽出 — extract_fortran.py / extract_c.py
 
 | ツール | 引数 | 返り値 | 説明 |
 |--------|------|--------|------|
 | `extract_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | Fortran ソースを静的解析し functions.json を生成/マージ。**再実行は常にマージ(func_id 不変・手修正保持)**。返り値に完全性突合の差分・推定呼び出し・未解決名の件数。詳細は data/extract-report.json |
+| `extract_c_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | C/C++ を同じ functions.json にマージ。**Fortran↔C の呼び出しをアンダースコア規約込みで突合**するので、抽出の実行順は問わない(後から走った側が未解決名を解決する)。監査ログは data/extract-report-c.json |
 
 ## 機械レビュー — review_checks.py
 
@@ -69,6 +71,9 @@ subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツ�
 
 | ツール | 引数 | 返り値 | 説明 |
 |--------|------|--------|------|
+| `add_function` | root, legacy_file, legacy_name, new_module?, new_name?, lines?, note? | dict | ⓪の抽出漏れ・関数分割を後追いで追加。**`manual: true` が付くので再抽出で「ソースに無い」警告が出ない**(実ソースで確認されたら自動で外れる) |
+| `exclude_function` | root, func_id, reason | dict | 移植対象外にする(デッドコード等)。①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に**理由つきで残る**。**物理削除はしない**(再抽出で別 ID として復活し成果物との紐付けが切れるため) |
+| `include_function` | root, func_id | dict | 除外を取り消して対象に戻す |
 | `generate_wbs` | root | dict | functions.json+成果物フロントマターから docs/index.qmd(WBS)を再生成 |
 | `generate_skeletons` | root, force=False | dict | functions.json から仕様書骨子を生成(既存はスキップ) |
 | `freeze_tests` | root, func_id | dict | ③完了時にテストコードのハッシュを台帳へ記録(以降の改変を検知可能に) |
@@ -91,7 +96,7 @@ subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 26 ツ�
 
 | ツール | 引数 | 返り値 | 説明 |
 |--------|------|--------|------|
-| `render_site` | root, with_sphinx=True | dict | docs/ を Quarto で HTML 化 → 続けて Sphinx API を docs/_site/api に生成(**正順を内包**)。quarto 直叩きせず render_site.py を通す(Mermaid 影コピーのため) |
+| `render_site` | root, with_sphinx=True, full=False | dict | docs/ を Quarto で HTML 化 → 続けて Sphinx API を docs/_site/api に生成(**正順を内包**)。quarto 直叩きせず render_site.py を通す(Mermaid 影コピーのため)。**既定は差分レンダ**(変わったページだけ。2000 関数でも数十秒)。`full=True` のときだけ全ページ再レンダし、**サイト内検索の索引も更新**する |
 | `build_pdf` | root, kind, title, output | dict | 種別ごとの合本 PDF。kind: `specs / test-specs / test-results` |
 | `build_viewer` | root, name?, port?, render=True, onedir=False | dict | WBS/仕様書サイト同梱の単体実行ファイル(EXE)を dist/ に生成。**1〜2 分かかるため呼び出し側のタイムアウトに注意**。PyInstaller 必要 |
 

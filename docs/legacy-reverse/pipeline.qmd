@@ -1,22 +1,29 @@
 ---
 title: "パイプライン仕様(⓪〜⑦)"
 subtitle: "各フェーズの入出力・完了判定・人の関与"
+date: 2026-08-07
 ---
 
 # フェーズ一覧(全体)
 
-フェーズのトリガはすべて人(スラッシュコマンド)。AI が勝手に次フェーズへ進むことはない。
+**最初のトリガは必ず人が引く**。AI が勝手に次フェーズへ進むことはない。
+起動の入口は 3 つあるが、実行の実体(headless Claude 1 回 + ファイル状態での契約検証)は
+共通で、同じ実行枠ロックを取り合う。
 
-| フェーズ | 起動 | 入力 | 出力 | 完了判定(機械) |
-|---|---|---|---|---|
-| ⓪ 解析 | `/legacy-0-analyze` | legacy/ 全部 | functions.json・骨子・WBS・規約 | 抽出器の完全性突合 |
-| ① 仕様書 | `/legacy-1-spec F-xxxx` | legacy/ 該当関数+DK | docs/specs/*.md | status: reviewed(人 OK) |
-| ② テスト仕様 | `/legacy-2-testspec F-xxxx` | ①(reviewed)+規約 | docs/test-specs/*.md | status: approved かつ spec-hash 一致 |
-| ③ テストコード | `/legacy-3-testcode F-xxxx` | ②(approved)+規約 | tests/ | ledger の freeze ハッシュ一致 |
-| ④ 実装 | `/legacy-4-impl F-xxxx` | ①(reviewed)+規約 | src/ | モジュール存在かつスタブ検知ゼロ |
-| ⑤ テスト | `/legacy-5-test F-xxxx` | 実行結果+①② | docs/test-results/ | result: pass(実装率 100%・失敗 0) |
-| ⑥ 完了検証 | `/legacy-6-check` | 全成果物 | completion-check.md | ledger check + review all が exit 0 |
-| ⑦ 分析・改善 | `/legacy-7-analyze` | src/・docs/・計測 | analysis.md・施策票 | テスト全 pass 維持(挙動保存) |
+| フェーズ | 起動(チャット) | 起動(ブラウザ) | 入力 | 出力 | 完了判定(機械) |
+|---|---|---|---|---|---|
+| ⓪ 解析 | `/legacy-0-analyze` | — | legacy/ 全部 | functions.json・骨子・WBS・規約 | 抽出器の完全性突合 |
+| ① 仕様書 | `/legacy-1-spec F-xxxx` | 仕様書ページ / 連続実行 | legacy/ 該当関数+DK | docs/specs/*.md | status: reviewed(人 OK) |
+| ② テスト仕様 | `/legacy-2-testspec F-xxxx` | 仕様書ページ / 連続実行 | ①(reviewed)+規約 | docs/test-specs/*.md | status: approved かつ spec-hash 一致 |
+| ③ テストコード | `/legacy-3-testcode F-xxxx` | 仕様書ページ / 連続実行 | ②(approved)+規約 | tests/ | ledger の freeze ハッシュ一致 |
+| ④ 実装 | `/legacy-4-impl F-xxxx` | 仕様書ページ / 連続実行 | ①(reviewed)+規約 | src/ | モジュール存在かつスタブ検知ゼロ |
+| ⑤ テスト | `/legacy-5-test F-xxxx` | 仕様書ページ / 連続実行 | 実行結果+①② | docs/test-results/ | result: pass(実装率 100%・失敗 0) |
+| ⑥ 完了検証 | `/legacy-6-check` | WBS トップ(全⑤完了後) | 全成果物 | completion-check.md | ledger check + review all が exit 0 |
+| ⑦ 分析・改善 | `/legacy-7-analyze` | WBS トップ(⑥pass 後) | src/・docs/・計測 | analysis.md・施策票 | テスト全 pass 維持(挙動保存) |
+
+**連続実行**は①〜⑤を工程横断で自動的に回す(1 件ごとに全関数を再走査し、
+次に着手できる工程を選ぶ)。承認待ち・裁定待ちはスキップするので、
+自動で進む範囲と人が要る範囲がそのまま分かれる。詳細は [画面設計](screens.qmd)。
 
 # 情報遮断表
 
@@ -56,8 +63,11 @@ subtitle: "各フェーズの入出力・完了判定・人の関与"
 - draft 化の直後に機械レビュー(`review_checks.py spec`)を通し、NG ゼロにしてから人に出す
 - 🟡🔴 項目は ISSUE(仮説+Yes/No)として人へ。回答は domain-knowledge.md に蓄積され再質問を防ぐ
 - **バッチモード**: 「まとめて N 件」で複数関数を draft まで連続処理し、
-  一斉レビュー表(docs/spec-review.md)で人がまとめて OK / 個別修正指示
-- **全件(数百〜2000 件)は無人ドライバ pipeline.py** で回す([運用設計](operations.qmd#無人バッチ実行pipelinepy)参照)
+  一斉レビュー表(docs/spec-review.md)で人がまとめて処理する。表は
+  「承認できる → ISSUE あり → AI 修正待ち」の順に並び、**行内のボタンで承認・修正依頼が
+  完結する**([画面設計](screens.qmd))
+- **全件(数百〜2000 件)は無人ドライバ pipeline.py** で回す([運用設計](operations.qmd#無人バッチ実行pipelinepy)参照)。
+  ブラウザの連続実行でも同じことができ、そちらは①以降の工程も続けて進む
 - draft の書き直しは自由。reviewed の書き直しは②が stale になるため人の了承を先に取る
 - **spec-gap 改訂**: ④が詰まって起票された ISSUE への対応も①の担当
   (レガシー確認・根拠付きで仕様を更新 → ハッシュ伝搬で下流に再生成が波及)
@@ -119,7 +129,10 @@ flowchart LR
 - **④⑤ループ上限は 3 回**(attempt = 最後の裁定以降の⑤実行回数)。
   到達で triage ISSUE 自動起票 → ledger に blocked_by 記録 → WBS ⛔。
   ④⑤ skill は blocked 中の実行を拒否
-- 復帰: 人が ISSUE を裁定 → AI が反映(applied) → `ledger unblock` → 人が⑤を再トリガ(attempt リセット)
+- 復帰: 人が ISSUE を裁定 → AI が反映(applied) → `ledger unblock` → ⑤を再トリガ(attempt リセット)。
+  **ブラウザではこれが 1 操作に統合されている** — 裁定待ちの関数の仕様書ページに
+  ISSUE の質問がそのまま出て、回答を送ると「ISSUE への記入(answered)→ unblock →
+  サイト更新」まで済む。リロード後に「⑤を実行する」ボタンに切り替わる
 
 ## ⑥ 完了検証
 
@@ -127,14 +140,21 @@ flowchart LR
   `review_checks.py all`(①②の全関数機械レビュー)が両方 exit 0 で pass
 - docs/completion-check.md を自動生成。不備リストが出たら該当フェーズへ差し戻し
 - 最終レンダリング(HTML サイト+PDF 合本)もここで実施
+- LLM を使わないので数十秒で終わる。WBS トップのボタンからも実行できるが、
+  **全関数の⑤が完了するまでボタン自体を出さない**(時期の来ていない操作を見せない)
 
 ## ⑦ 分析・改善
 
 移植完了後の DevOps ループ。**1 施策 = 1 票 = 1 イタレーション**。
 
-1. **計測・走査**: profile_run.py(cProfile)/ radon / ruff / bandit / pip-audit を実行し
-   候補を docs/analysis.md(OPT- / REF- / SEC- 施策台帳)に列挙。
-   ホットスポット判断は**代表ワークロード**(実データ規模)で行い、単体テスト負荷だけでは断定しない
+1. **計測・走査**: ここは**2 段構え**にしてある。「計測せずに提案しない」を仕組みで担保するため。
+   - 1 段目(LLM 不使用): `quant_analyze.py` が cProfile + radon / ruff / bandit / pip-audit を
+     機械実行し、実測データを `.legacy-reverse/quant.json` と `docs/quant.md`・`docs/perf.md` に残す
+   - 2 段目: AI がその実測データだけを読んで docs/analysis.md(OPT- / REF- / SEC- 施策台帳)に
+     候補を記入する。**施策の適用・コード変更・施策票の起票はここではしない**
+
+   ホットスポット判断は**代表ワークロード**(ルートの `bench.py`)で行う。
+   無い場合はテスト負荷のスモーク計測になり、その旨が計測サマリに明記される
 2. **項目確定**: 候補を施策票(docs/improvements/OPT-001.md 等)に昇格。
    票には目的・**検証可能な成功基準(baseline → 目標)**・改善仕様。人が承認
 3. **イタレーション**: 適用(1 施策 = 1 コミット)→ **テスト全 pass 確認** → 再計測 →
