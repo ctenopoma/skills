@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/skills/legacy-reverse/hooks/guard_json.py"
+          }
+        ]
+      }
     ]
   }
 }

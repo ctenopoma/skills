@@ -62,7 +62,28 @@ KINDS = {
 
 # 実行中のブラウザ単発（このプロセス内で高々1つ。プロセス間の排他は run.lock が担う）
 _ACTIVE_MU = threading.Lock()
-_ACTIVE: dict = {}       # {"fid", "kind", "cancel": Event, "thread": Thread}
+_ACTIVE: dict = {}       # {"fid", "kind", "cancel": Event, "thread": Thread,
+                         #  "item_cancel": Event（バッチの現在の1件だけ中止する用）, "current_fid"}
+
+
+class _AnyEvent:
+    """複数 Event の OR ビュー。run_one にはこれを渡し、「バッチ全体の中止」と
+    「この1件だけスキップ」のどちらでも実行中の claude を止められるようにする。"""
+
+    def __init__(self, *events):
+        self._events = events
+
+    def is_set(self) -> bool:
+        return any(e.is_set() for e in self._events)
+
+    def wait(self, timeout=None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if self.is_set():
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            time.sleep(0.2)
 
 
 # --- Project のロードキャッシュ -------------------------------------------
@@ -393,10 +414,14 @@ def _run_background_inner(root: Path, fid: str, kind: str, claude_cmd: list,
             fid, claude_cmd, [], root, cfg["prompt_template"], RUN_DEFAULTS.max_turns,
             RUN_DEFAULTS.timeout, cfg.get("retries", RUN_DEFAULTS.retries), RUN_DEFAULTS.backoff_base,
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
-            verify_fn=cfg["verify_fn"], cancel_event=cancel_event)
+            verify_fn=cfg["verify_fn"], cancel_event=cancel_event, phase=kind)
         status.counts(1 if ok else 0, 0 if ok else 1)
     except KeyboardInterrupt:
         status.finish("stopped", "レート待機の累計上限に到達")
+        return
+    except SystemExit as e:                      # 壊れた正データ（load_json）等の明示停止
+        status.result(fid, False, f"データ異常: {e}", "データ異常", 0, 0.0, {}, 1)
+        status.finish("stopped", f"データ異常のため停止: {e}")
         return
     except Exception as e:                        # noqa: BLE001 — バックグラウンドで例外を握り潰さない
         status.result(fid, False, f"内部エラー: {e}", "内部エラー", 0, 0.0, {}, 1)
@@ -482,7 +507,63 @@ def start(root: str, fid: str, kind: str = "spec") -> dict:
 # 承認待ち（draft/generated）・裁定待ち（blocked）・完了は対象外なので、
 # 人はサイト上で承認・裁定だけしていけばよい。停止は /run-cancel（中止ボタン）。
 
+def _priority_path(root: Path) -> Path:
+    return root / ".legacy-reverse" / "batch-priority.json"
+
+
+def _load_priority(root: Path) -> dict:
+    """優先キュー: {"order": [優先fid…（⭐順）], "retry": [失敗スキップを解除するfid…]}。
+
+    order は実行順の割り込み（_scan_targets が先頭に並べ替える）。retry は
+    「⭐優先して再実行」用のワンショット——バッチの失敗スキップ集合から次の走査で
+    取り除かれ、消費される（毎走査解除だと失敗し続ける関数が無限ループするため）。
+    """
+    try:
+        d = json.loads(_priority_path(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        d = {}
+    return {"order": list(d.get("order") or []), "retry": list(d.get("retry") or [])}
+
+
+def _save_priority(root: Path, d: dict) -> None:
+    p = _priority_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def prioritize(root: str, fid: str, on: bool = True) -> dict:
+    """POST /batch-priority の実処理。⭐優先のON/OFF（バッチ実行中でなくても設定できる）。"""
+    rootp = Path(root).resolve()
+    try:
+        _project(rootp).func(fid)
+    except SystemExit:
+        return {"ok": False, "message": f"{fid} が functions.json に存在しない"}
+    d = _load_priority(rootp)
+    if on:
+        if fid not in d["order"]:
+            d["order"].append(fid)
+        if fid not in d["retry"]:
+            d["retry"].append(fid)     # 失敗スキップ済みでも次の走査で拾い直す
+        msg = f"{fid} を優先しました（いまの1件が終わり次第、先頭に割り込みます）"
+    else:
+        d["order"] = [x for x in d["order"] if x != fid]
+        d["retry"] = [x for x in d["retry"] if x != fid]
+        msg = f"{fid} の優先を解除しました"
+    _save_priority(rootp, d)
+    return {"ok": True, "message": msg}
+
+
 def _scan_targets(root: Path, skip: set) -> list:
+    # ⭐優先の retry 分は失敗スキップを解除してから走査する（skip を直接削る。
+    # ワンショット消費なので保存し直す）
+    prio = _load_priority(root)
+    if prio["retry"]:
+        for fid in prio["retry"]:
+            for entry in [s for s in skip if s[0] == fid]:
+                skip.discard(entry)
+        _save_priority(root, {"order": prio["order"], "retry": []})
     p = _project(root)
     out = []
     for f in p.funcs():
@@ -490,7 +571,93 @@ def _scan_targets(root: Path, skip: set) -> list:
         kind = _decide_kind(root, fid, include_rerun=True)
         if kind and (fid, kind) not in skip:
             out.append((fid, kind))
+    # ⭐優先を先頭へ（⭐順）。それ以外は functions.json 順のまま（安定ソート）
+    rank = {fid: i for i, fid in enumerate(prio["order"])}
+    out.sort(key=lambda t: (0, rank[t[0]]) if t[0] in rank else (1, 0))
     return out
+
+
+def _queue_entry(root: Path, p: Project, f: dict) -> dict | None:
+    """1関数の残タスク（/batch-queue の1行）。
+
+    自動実行待ちは kind=spec〜test、人待ちは approve-spec / approve-testspec /
+    adjudicate。どちらでもない（完了・⓪未了）は None。
+    """
+    fid = f["func_id"]
+    kind = _decide_kind(root, fid, include_rerun=True)
+    if kind:
+        return {"func_id": fid, "kind": kind, "auto": True}
+    sp = root / "docs" / "specs" / f"{fid}.md"
+    if not sp.exists():
+        return None
+    st = parse_frontmatter(sp.read_text(encoding="utf-8-sig")).get("status")
+    if st == "draft":
+        return {"func_id": fid, "kind": "approve-spec", "auto": False}
+    if st != "reviewed":
+        return None
+    tsp = root / "docs" / "test-specs" / f"{fid}.md"
+    if (tsp.exists()
+            and parse_frontmatter(tsp.read_text(encoding="utf-8-sig")).get("status") == "generated"):
+        return {"func_id": fid, "kind": "approve-testspec", "auto": False}
+    blocked = (p.ledger.get(fid) or {}).get("blocked_by")
+    if blocked:
+        return {"func_id": fid, "kind": "adjudicate", "auto": False, "issue": blocked}
+    return None
+
+
+def batch_queue(root: str, q: str = "", chip: str = "") -> dict:
+    """GET /batch-queue の実処理。残タスク一覧（実行順）＋件数集計＋検索。
+
+    2000関数規模では全 frontmatter を読む（数秒かかりうる）ので、フロントは
+    ポーリングに載せず、表示時・検索時・操作後にだけ呼ぶこと。応答は50件で打ち切り、
+    検索はサーバ側で行う（全件をブラウザに送らない）。
+    """
+    rootp = Path(root).resolve()
+    p = _project(rootp)
+    rank = {fid: i for i, fid in enumerate(_load_priority(rootp)["order"])}
+    entries = []
+    for f in p.funcs():
+        e = _queue_entry(rootp, p, f)
+        if not e:
+            continue
+        leg, new = f.get("legacy") or {}, f.get("new") or {}
+        e["name"] = new.get("name") or leg.get("name") or ""
+        e["file"] = leg.get("file") or new.get("module") or ""
+        e["starred"] = e["func_id"] in rank
+        entries.append(e)
+    entries.sort(key=lambda e: (0, rank[e["func_id"]]) if e["func_id"] in rank else (1, 0))
+    # 実行中の1件（あれば）を除いた「次N」の通し番号を振る。⭐で実行中の関数より
+    # 前に割り込んだ行が「次0」になるのを防ぐため、番号付けはサーバ側で行う
+    cur = None
+    try:
+        sd = json.loads((rootp / ".legacy-reverse" / "pipeline-status.json")
+                        .read_text(encoding="utf-8"))
+        if sd.get("state") in ("running", "waiting_rate"):
+            cur = (sd.get("current") or {}).get("func_id")
+    except (OSError, ValueError):
+        pass
+    pos = 0
+    for e in entries:                      # 自動実行待ちのみ番号を振る（人待ちはスキップされる）
+        if e["auto"] and e["func_id"] == cur:
+            e["now"] = True
+        elif e["auto"]:
+            pos += 1
+            e["pos"] = pos
+    counts: dict = {}
+    for e in entries:
+        k = e["kind"] if e["auto"] else "human"
+        counts[k] = counts.get(k, 0) + 1
+    lst = entries
+    if chip == "human":
+        lst = [e for e in lst if not e["auto"]]
+    elif chip:
+        lst = [e for e in lst if e["auto"] and e["kind"] == chip]
+    if q:
+        ql = q.lower()
+        lst = [e for e in lst
+               if ql in f"{e['func_id']} {e['name']} {e['file']}".lower()]
+    return {"ok": True, "total": len(entries), "counts": counts,
+            "hits": len(lst), "items": lst[:50]}
 
 
 def batch_start(root: str, max_funcs: int = 0, budget_usd: float = 0) -> dict:
@@ -562,15 +729,24 @@ def _batch_background_inner(root: Path, claude_cmd: list, cancel_event: threadin
                 break
             fid, kind = targets[0]
             cfg = KINDS[kind]
+            item_cancel = threading.Event()      # /run-skip でこの1件だけ中止する用
+            with _ACTIVE_MU:
+                _ACTIVE["item_cancel"] = item_cancel
+                _ACTIVE["current_fid"] = fid
             ok, why, r, cost_total, rate_waited = pipeline.run_one(
                 fid, claude_cmd, [], root, cfg["prompt_template"], ns.max_turns,
                 ns.timeout, cfg.get("retries", ns.retries), ns.backoff_base,
                 ns.backoff_max, ns.rate_wait_total, status, cost_total, rate_waited,
-                verify_fn=cfg["verify_fn"], cancel_event=cancel_event)
-            if why == "中止された" or cancel_event.is_set():
+                verify_fn=cfg["verify_fn"], phase=kind,
+                cancel_event=_AnyEvent(cancel_event, item_cancel))
+            if cancel_event.is_set():
                 stop_reason = "中止された"
                 break
-            if ok:
+            if why == "中止された":
+                # /run-skip（この1件だけスキップ）。バッチは止めずに次へ進む
+                failed += 1                      # consecutive_fail は数えない（人の操作のため）
+                skip.add((fid, kind))
+            elif ok:
                 done += 1
                 consecutive_fail = 0
                 if kind == "impl":
@@ -590,6 +766,10 @@ def _batch_background_inner(root: Path, claude_cmd: list, cancel_event: threadin
             status.counts(done, failed, total=done + failed + len(targets))
     except KeyboardInterrupt:
         stop_reason = "レート待機の累計上限に到達"
+    except SystemExit as e:
+        # ledger.load_json 等は壊れた正データ（functions.json 等）を SystemExit で報告する。
+        # デーモンスレッドで握らないと画面に理由が残らないまま止まる
+        stop_reason = f"データ異常のため停止: {e}"
     except Exception as e:                        # noqa: BLE001 — バックグラウンドで例外を握り潰さない
         stop_reason = f"内部エラー: {e}"
 
@@ -618,6 +798,25 @@ def cancel(root: str) -> dict:
                 "message": "このサーバから開始した実行はありません（バッチは Ctrl+C で停止してください）"}
     act["cancel"].set()
     return {"ok": True, "message": f"{act['fid']} に中止を要求しました（停止まで数秒かかります）"}
+
+
+def skip_current(root: str) -> dict:
+    """POST /run-skip の実処理。連続実行の「いまの1件」だけ中止して次へ進ませる。
+
+    長引いている1件を諦めたいがバッチは止めたくない、という操作。スキップされた
+    (関数, 工程) は失敗スキップと同じ扱いになり、⭐優先で再度対象にできる。
+    """
+    with _ACTIVE_MU:
+        if _ACTIVE.get("kind") != "batch":
+            return {"ok": False,
+                    "message": "連続実行中ではありません（単発の実行は「停止」で中止できます）"}
+        ev = _ACTIVE.get("item_cancel")
+        cur = _ACTIVE.get("current_fid") or ""
+    if not ev:
+        return {"ok": False, "message": "スキップできる実行がありません（起動直後の可能性）"}
+    ev.set()
+    return {"ok": True,
+            "message": f"{cur or 'いまの1件'} をスキップします（バッチは次の関数へ進みます）"}
 
 
 def shutdown(timeout: float = 20.0) -> None:

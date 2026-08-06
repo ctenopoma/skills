@@ -145,10 +145,10 @@ PIPELINE_PAGE = """<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
 <title>バッチ実行状況</title>
 <style>
 :root{color-scheme:light dark}
-body{font-family:"Segoe UI",system-ui,sans-serif;max-width:1080px;margin:24px auto;padding:0 16px;
+body{font-family:"Segoe UI",system-ui,sans-serif;max-width:1240px;margin:24px auto;padding:0 16px;
      color:#1f2937;background:#fff;line-height:1.6}
 @media(prefers-color-scheme:dark){body{color:#e5e7eb;background:#111827}
- .card{background:#1f2937!important}.recent tr:hover{background:#374151!important}}
+ .card,.panel{background:#1f2937!important}.row:hover{background:#374151!important}}
 h1{font-size:1.3rem;margin:0 0 4px}
 a{color:#4f46e5}
 .muted{color:#9ca3af;font-size:.85rem}
@@ -156,54 +156,136 @@ a{color:#4f46e5}
 .running{background:#dcfce7;color:#166534}.waiting{background:#fef9c3;color:#854d0e}
 .stopped{background:#fee2e2;color:#991b1b}.finished{background:#dbeafe;color:#1e40af}
 .none{background:#e5e7eb;color:#374151}
-.cards{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
+.cards{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}
 .card{background:#f9fafb;border-radius:10px;padding:10px 16px;min-width:120px}
 .card .v{font-size:1.25rem;font-weight:700}.card .k{font-size:.78rem;color:#9ca3af}
 .bar{height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin:6px 0}
 .bar>div{height:100%;background:#4f46e5;transition:width .5s}
-.bar>div.f{background:#dc2626}
-table{border-collapse:collapse;width:100%;font-size:.88rem;margin:8px 0}
-th,td{padding:5px 10px;border-bottom:1px solid #37415122;text-align:left;vertical-align:top}
 .ok{color:#16a34a;font-weight:700}.ng{color:#dc2626;font-weight:700}
+.panel{background:#f9fafb;border-radius:10px;padding:12px 16px}
+.cols{display:grid;grid-template-columns:5fr 7fr;gap:16px;align-items:start;margin-top:16px}
+@media(max-width:960px){.cols{grid-template-columns:1fr}}
+.panel h2{font-size:1.02rem;margin:0 0 8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.tab{border:1px solid #9ca3af55;background:transparent;border-radius:999px;
+     padding:2px 12px;font-size:.82rem;cursor:pointer;color:inherit}
+.tab.on{background:#4f46e5;border-color:#4f46e5;color:#fff}
+.row{display:flex;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid #37415122;
+     font-size:.9rem;border-radius:6px}
+.kind{font-weight:700;width:1.4em;text-align:center}
+.fid{font-weight:600;min-width:5.5em}
+.ord{color:#9ca3af;font-size:.85rem;width:3.2em;text-align:right;flex-shrink:0}
+.grow{flex:1;min-width:0}
+.btn{border:1px solid #9ca3af88;background:transparent;border-radius:6px;color:inherit;
+     padding:2px 10px;font-size:.8rem;cursor:pointer;white-space:nowrap;text-decoration:none}
+.btn.pri{border-color:#d97706;color:#d97706}
+.btn.pri.on{background:#d97706;color:#fff}
+.btn.ap{border-color:#16a34a;color:#16a34a}
+.btn.rj{border-color:#dc2626;color:#dc2626}
+.btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff;font-weight:600;padding:6px 16px;font-size:.9rem}
+.btn.stop{border-color:#991b1b;color:#991b1b;padding:6px 16px;font-size:.9rem}
+select,input[type=text],input[type=search]{padding:5px 8px;border:1px solid #9ca3af;border-radius:6px;
+     background:transparent;color:inherit}
+.tag{font-size:.72rem;border-radius:4px;padding:1px 6px;font-weight:600;white-space:nowrap}
+.tag.wait{background:#fef9c3;color:#854d0e}
+.tag.block{background:#fee2e2;color:#991b1b}
+.tag.now{background:#dcfce7;color:#166534}
+.ngdetail{background:#fee2e2;border-radius:8px;padding:6px 10px;color:#991b1b;
+          font-size:.82rem;margin:4px 0}
+.ngdetail ul{margin:2px 0 0;padding-left:20px}
+@media(prefers-color-scheme:dark){.ngdetail{background:#7f1d1d33;color:#fca5a5}}
+.resrow{border-bottom:1px solid #37415122;padding:6px 4px;font-size:.9rem}
+.resrow .meta{color:#9ca3af;font-size:.78rem}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;align-items:center}
 details pre{white-space:pre-wrap;background:#37415115;padding:8px;border-radius:6px;
             font-size:.8rem;max-height:220px;overflow:auto}
-details summary{cursor:pointer}
-.ngdetail{background:#fee2e2;border-radius:8px;padding:8px 12px;color:#991b1b;margin-top:6px}
-.ngdetail ul{margin:4px 0 0;padding-left:20px}
-@media(prefers-color-scheme:dark){.ngdetail{background:#7f1d1d33;color:#fca5a5}}
+details summary{cursor:pointer;font-size:.8rem;color:#9ca3af}
 </style></head><body>
+
 <h1>バッチ実行状況 <span id="state" class="badge none">--</span></h1>
 <div class="muted"><a href="/">← WBS へ</a> ／ 2.5秒ごとに自動更新 ／
   最終更新: <span id="upd">--</span></div>
-<div class="card" style="margin:14px 0;padding:12px 16px">
-  <div style="font-weight:600;margin-bottom:6px">連続実行（①〜⑤の機械実行を自動で回す）</div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <input id="bmax" type="number" min="1" placeholder="上限件数（空=全部）"
-           style="width:150px;padding:5px 8px;border:1px solid #9ca3af;border-radius:6px">
-    <input id="bbudget" type="number" min="0" step="0.5" placeholder="予算$（空=無制限）"
-           style="width:150px;padding:5px 8px;border:1px solid #9ca3af;border-radius:6px">
-    <button onclick="batchStart()" style="background:#4f46e5;color:#fff;border:0;
-            border-radius:6px;padding:7px 16px;font-weight:600;cursor:pointer">開始</button>
-    <button onclick="batchStop()" style="background:#fff;border:1px solid #991b1b;color:#991b1b;
-            border-radius:6px;padding:7px 16px;cursor:pointer">停止</button>
+
+<div class="panel" style="margin:14px 0">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <span style="font-weight:600">連続実行</span>
+    <select id="bmax">
+      <option value="0">全部</option>
+      <option value="1">お試しに1件だけ</option>
+      <option value="10">10件まで</option>
+      <option value="50">50件まで</option>
+      <option value="100">100件まで</option>
+    </select>
+    <button class="btn primary" onclick="batchStart()">開始</button>
+    <button class="btn stop" onclick="batchStop()">停止</button>
     <span id="bmsg" class="muted"></span>
   </div>
-  <div class="muted" style="margin-top:4px">承認待ち（①②）と裁定待ち（⑤⛔）はスキップして進みます。
-    実行中もWBS上で承認・裁定でき、次の走査で自動的に拾われます。</div>
+  <div class="muted" style="margin-top:4px">残タスクを実行順に自動で回します（承認・裁定待ちはスキップして進み、
+    このページで承認・裁定すると次の走査で拾われます）。⭐で順番に割り込めます</div>
 </div>
-<div id="now" style="margin:14px 0;font-size:1.05rem"></div>
+
+<div class="panel" id="nowcard" style="display:none;margin:12px 0;
+     display:none;gap:14px;align-items:center;flex-wrap:wrap">
+  <div style="font-size:1.05rem" id="nowmain"></div>
+  <div style="flex:1;min-width:180px;max-width:280px">
+    <div class="bar" style="margin:2px 0"><div id="nowbar" style="width:0%"></div></div>
+    <div class="muted" id="nowela"></div>
+  </div>
+  <a class="btn" id="nowlog" target="_blank" href="#">応答ログ（前回まで）</a>
+  <button class="btn" id="nowskip" onclick="skipCurrent()">この件をスキップ</button>
+</div>
+
 <div class="bar"><div id="barok" style="width:0%"></div></div>
 <div id="counts" class="muted"></div>
 <div class="cards" id="cards"></div>
-<div id="ngbox"></div>
-<h2 style="font-size:1.05rem">直近の結果</h2>
-<table class="recent"><thead><tr><th>時刻</th><th>関数</th><th>結果</th><th>試行</th>
-<th>秒</th><th>ターン</th><th>$</th><th>内容</th></tr></thead><tbody id="recent"></tbody></table>
+
+<div class="cols">
+<div class="panel">
+  <h2>残タスク <span class="muted" id="qtotal">--</span></h2>
+  <input type="search" id="qsearch" placeholder="検索: F-番号・関数名・レガシーファイル"
+         style="width:100%;box-sizing:border-box;margin-bottom:8px">
+  <div class="tabs" id="qchips"></div>
+  <div id="queue" class="muted">読み込み中…</div>
+  <div class="muted" id="qfoot" style="margin-top:6px"></div>
+</div>
+
+<div class="panel">
+  <h2>結果 <span class="muted" id="rcount"></span>
+    <span id="rmsg" class="muted" style="font-weight:400"></span></h2>
+  <div class="tabs">
+    <button class="tab on" id="rtab-" onclick="setRtab('')">すべて</button>
+    <button class="tab" id="rtab-ng" onclick="setRtab('ng')">NGのみ <span id="ngn"></span></button>
+  </div>
+  <div id="results" class="muted">--</div>
+</div>
+</div>
+
 <script>
 const esc = s => (s??"").toString().replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtEta = s => s==null ? "--" : (s>=3600 ? Math.floor(s/3600)+"時間"+Math.round(s%3600/60)+"分" : Math.round(s/60)+"分");
 const STATES = {running:["実行中","running"], waiting_rate:["レート待機中","waiting"],
                 stopped:["停止","stopped"], finished:["完了","finished"], not_running:["未実行","none"]};
+const PHASES = {spec:["①","仕様書"], testspec:["②","テスト仕様書"], testcode:["③","テストコード"],
+                impl:["④","実装"], test:["⑤","テスト"]};
+const HUMANS = {"approve-spec":["①","仕様書の承認待ち","wait"],
+                "approve-testspec":["②","テスト仕様書の承認待ち","wait"],
+                "adjudicate":["⑤","裁定待ち","block"]};
+const CHIP_ORDER = ["spec","testspec","testcode","impl","test"];
+let running = false, currentFid = null, medianSec = null, chipK = "", tickN = 0;
+let queueItems = [];          // 直近の /batch-queue 結果（実行中カードの名前引きにも使う）
+
+function approver(){
+  let n = localStorage.getItem("lr_approver");
+  if(!n){ n = prompt("承認者名を入力してください（次回から省略されます）") || "unknown";
+          localStorage.setItem("lr_approver", n); }
+  return n;
+}
+function jsonPost(url, body){
+  return fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+                     body: JSON.stringify(body || {})}).then(r => r.json());
+}
+
+// ---- ステータス（2.5秒ポーリング） ----
 async function tick(){
   let d;
   try{ d = await (await fetch("/pipeline-status.json",{cache:"no-store"})).json(); }
@@ -212,88 +294,251 @@ async function tick(){
   const st = document.getElementById("state");
   st.textContent = label + (d.reason ? "：" + d.reason : ""); st.className = "badge " + cls;
   document.getElementById("upd").textContent = d.updated_at || "--";
+  running = d.state === "running" || d.state === "waiting_rate";
+  currentFid = d.current ? d.current.func_id : null;
+  medianSec = (d.metrics||{}).median_sec || null;
+  renderNow(d);
   if(d.state === "not_running"){
-    document.getElementById("now").textContent = "パイプラインはまだ実行されていません（pipeline.py 実行中にこのページが更新されます）";
-    return;
+    document.getElementById("counts").textContent =
+      "パイプラインはまだ実行されていません（「開始」で連続実行、またはWBSの各ページから単発実行）";
+  } else {
+    const total = d.total_targets||0, done = d.done||0, failed = d.failed||0;
+    document.getElementById("barok").style.width = total ? (100*(done+failed)/total)+"%" : "0%";
+    document.getElementById("counts").textContent =
+      `処理 ${done+failed} / ${total} 件（成功 ${done}・失敗 ${failed}・残り ${Math.max(total-done-failed,0)}）`
+      + (d.rate_waited_sec ? `／レート待機 ${d.rate_waited_sec}s` : "");
+    const m = d.metrics||{};
+    document.getElementById("cards").innerHTML = [
+      ["成功率", m.success_rate!=null ? Math.round(m.success_rate*100)+"%" : "--"],
+      ["中央値/件", m.median_sec!=null ? Math.round(m.median_sec)+"s" : "--"],
+      ["残り見込み", fmtEta(m.eta_sec)],
+      ["累計コスト" + (m.avg_cost_usd!=null ? `（平均 $${m.avg_cost_usd.toFixed(3)}/件）` : ""),
+       "$"+(d.cost_usd??0).toFixed(2)],
+    ].map(([k,v])=>`<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
   }
-  const total = d.total_targets||0, done = d.done||0, failed = d.failed||0;
-  let now = "";
-  if(d.state === "waiting_rate"){
-    now = "⏸ レートリミット/利用枠の回復待ち（" + esc(d.wait_until||"") + " に再開予定）";
-  } else if(d.current){
-    const t0 = new Date(d.current.started_at), el = Math.max(0, Math.round((Date.now()-t0)/1000));
-    now = "▶ いま <b>" + esc(d.current.func_id) + "</b> を実行中（試行" + d.current.attempt +
-          "・" + Math.floor(el/60) + "分" + el%60 + "秒経過）";
-  }
-  document.getElementById("now").innerHTML = now;
-  document.getElementById("barok").style.width = total ? (100*(done+failed)/total)+"%" : "0%";
-  document.getElementById("counts").textContent =
-    `処理 ${done+failed} / ${total} 件（成功 ${done}・失敗 ${failed}・残り ${Math.max(total-done-failed,0)}）`;
-  const m = d.metrics||{};
-  document.getElementById("cards").innerHTML = [
-    ["成功率", m.success_rate!=null ? Math.round(m.success_rate*100)+"%" : "--"],
-    ["中央値/件", m.median_sec!=null ? Math.round(m.median_sec)+"s" : "--"],
-    ["残り見込み", fmtEta(m.eta_sec)],
-    ["累計コスト", "$"+(d.cost_usd??0).toFixed(2) + (d.budget_usd ? " / $"+d.budget_usd : "")],
-    ["平均コスト/件", m.avg_cost_usd!=null ? "$"+m.avg_cost_usd.toFixed(3) : "--"],
-    ["レート待機", (d.rate_waited_sec||0)+"s"],
-  ].map(([k,v])=>`<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
-  const ng = Object.entries(d.ng_kinds||{});
-  document.getElementById("ngbox").innerHTML = !ng.length ? "" :
-    "<h2 style='font-size:1.05rem'>失敗の内訳</h2><table>" +
-    ng.sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td><b>${v}</b> 件</td></tr>`).join("") +
-    "</table>";
-  renderRecent(d.recent||[]);
+  renderResults(d.recent||[]);
+  tickN++;
+  if(tickN % 6 === 0) loadQueue();   // 残タスクは走査が重いので約15秒ごと
 }
 
-// 「直近の結果」は中身が変わった時だけ再描画する。2.5秒ごとに innerHTML を
-// 丸ごと差し替えると、人が読もうと開いた <details> が毎回リセットされて
-// 「チカチカして即閉じる」ことになるため（報告された不具合）。
-// 変化があって再描画する場合も、開いていた行は開いたまま復元する。
-let lastRecentJson = null;
-function renderRecent(recent){
-  const json = JSON.stringify(recent);
-  if(json === lastRecentJson) return;      // 何も変わっていなければ触らない
-  lastRecentJson = json;
-  const box = document.getElementById("recent");
-  const openIds = new Set([...box.querySelectorAll("details[open]")].map(el => el.dataset.rid));
-  box.innerHTML = recent.map((r, i) => {
-    const rid = r.func_id + "|" + (r.at || i);
-    const res = r.ok ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>';
-    let body = "";
-    if(!r.ok){
-      const problems = r.problems || [];
-      const ngbox = problems.length
-        ? `<div class="ngdetail"><b>${esc(r.kind||"")}（${problems.length}件）</b>` +
-          `<ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`
-        : (r.why ? `<p>${esc(r.why)}</p>` : "");
-      body = `<details${openIds.has(rid) ? " open" : ""} data-rid="${esc(rid)}">` +
-        `<summary>${esc(r.kind||"")}${problems.length ? "" : (r.why ? ": " + esc(r.why) : "")}</summary>` +
-        ngbox +
-        `<pre>${esc(r.tail || "(応答記録なし)")}</pre>` +
-        `<a href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答全文を開く</a></details>`;
+// ---- 実行中カード ----
+function renderNow(d){
+  const card = document.getElementById("nowcard");
+  if(d.state === "waiting_rate"){
+    card.style.display = "flex";
+    document.getElementById("nowmain").innerHTML =
+      "⏸ レートリミット/利用枠の回復待ち（" + esc(d.wait_until||"") + " に再開予定）";
+    document.getElementById("nowbar").style.width = "0%";
+    document.getElementById("nowela").textContent = "";
+    document.getElementById("nowskip").style.display = "none";
+    return;
+  }
+  if(d.state !== "running" || !d.current){ card.style.display = "none"; return; }
+  card.style.display = "flex";
+  const fid = d.current.func_id;
+  const it = queueItems.find(x => x.func_id === fid);
+  const ph = PHASES[(it||{}).kind] || null;
+  const el = Math.max(0, Math.round((Date.now() - new Date(d.current.started_at))/1000));
+  document.getElementById("nowmain").innerHTML =
+    `▶ <a href="/specs/${esc(fid)}.html"><b>${esc(fid)}</b></a>` +
+    (ph ? ` ${ph[0]}${ph[1]}` : "") +
+    ` <span class="muted">${it ? esc(it.name + " / " + it.file) + "・" : ""}試行${d.current.attempt}</span>`;
+  const med = medianSec || 120;
+  const bar = document.getElementById("nowbar");
+  bar.style.width = Math.min(100, el/med*100) + "%";
+  bar.style.background = el > med*2 ? "#dc2626" : el > med ? "#d97706" : "#16a34a";
+  document.getElementById("nowela").textContent =
+    `経過 ${Math.floor(el/60)}分${el%60}秒` + (medianSec ? `（中央値 ${Math.round(med)}s）` : "") +
+    (el > med*2 ? "・長引いています" : "");
+  document.getElementById("nowlog").href = "/agent-logs/" + esc(fid) + ".txt";
+  document.getElementById("nowskip").style.display = "";
+}
+function skipCurrent(){
+  jsonPost("/run-skip", {}).then(d => {
+    document.getElementById("bmsg").textContent = d.message || "";
+  }).catch(()=>{});
+}
+
+// ---- 残タスク（表示時・検索時・操作後だけ取得。ポーリングには載せない） ----
+function loadQueue(){
+  const q = document.getElementById("qsearch").value.trim();
+  fetch("/batch-queue?q=" + encodeURIComponent(q) + "&chip=" + encodeURIComponent(chipK),
+        {cache:"no-store"})
+    .then(r => r.json())
+    .then(d => {
+      if(!d.ok){
+        document.getElementById("queue").innerHTML =
+          `<div class="muted">${esc(d.message||"取得できません")}</div>`;
+        return;
+      }
+      renderQueue(d, q);
+    })
+    .catch(()=>{});
+}
+function renderQueue(d, q){
+  queueItems = d.items || [];
+  document.getElementById("qtotal").textContent = d.total.toLocaleString() + "件";
+  const c = d.counts || {};
+  const autoTotal = d.total - (c.human||0);
+  const allOpt = document.querySelector("#bmax option[value='0']");
+  if(allOpt) allOpt.textContent = `全部（残り${autoTotal.toLocaleString()}件）`;
+  document.getElementById("qchips").innerHTML =
+    [`<button class="tab${chipK===""?" on":""}" onclick="setChip('')">すべて</button>`]
+    .concat(CHIP_ORDER.filter(k=>c[k]).map(k =>
+      `<button class="tab${chipK===k?" on":""}" onclick="setChip('${k}')">${PHASES[k][0]}${c[k]}</button>`))
+    .concat(c.human ? [`<button class="tab${chipK==="human"?" on":""}" style="border-color:#d97706;color:${chipK==="human"?"#fff":"#d97706"};${chipK==="human"?"background:#d97706;":""}"
+        onclick="setChip('human')">人待ち ${c.human}</button>`] : [])
+    .join("");
+  const searching = q || chipK;
+  const shown = searching ? queueItems : queueItems.slice(0, 9);
+  document.getElementById("queue").innerHTML = shown.length
+    ? shown.map(rowHtml).join("")
+    : `<div class="muted">${searching ? "該当なし" : "残タスクはありません"}</div>`;
+  document.getElementById("qfoot").textContent = searching
+    ? `${d.hits}件ヒット` + (d.hits > shown.length ? `（先頭${shown.length}件を表示）` : "")
+    : `実行順で先頭${Math.min(9, queueItems.length)}件を表示中（検索・絞り込みで全件から探せます）` +
+      "。⭐すると、いまの1件が終わり次第先頭に割り込みます";
+}
+function rowHtml(it){
+  const isNow = !!it.now || (running && it.func_id === currentFid);
+  const ord = it.auto ? (isNow ? "今" : "次" + it.pos) : "";
+  const specHref = `/specs/${esc(it.func_id)}.html`;
+  let label, act, tag = "";
+  if(it.auto){
+    const ph = PHASES[it.kind] || ["?", it.kind];
+    label = ph[1] + (it.kind === "test" ? "の実行" : "の作成");
+    act = isNow
+      ? `<span class="tag now">実行中</span>`
+      : `<button class="btn pri${it.starred?" on":""}" onclick="toggleStar('${esc(it.func_id)}',${!it.starred})">
+           ${it.starred ? "⭐ 優先中" : "⭐ 優先"}</button>`;
+    var mark = ph[0];
+  } else {
+    const h = HUMANS[it.kind] || ["?", it.kind, "wait"];
+    var mark = h[0];
+    label = h[1];
+    tag = ` <span class="tag ${h[2]}">人待ち</span>`;
+    if(it.kind === "adjudicate"){
+      act = `<a class="btn" href="/issues/${esc(it.issue||"")}.html" target="_blank">${esc(it.issue||"ISSUE")}</a>
+             <button class="btn ap" onclick="adjudicate('${esc(it.func_id)}','${esc(it.issue||"")}')">裁定…</button>`;
+    } else {
+      const openHref = it.kind === "approve-testspec" ? `/test-specs/${esc(it.func_id)}.html` : specHref;
+      const k = it.kind === "approve-testspec" ? "testspec" : "spec";
+      act = `<a class="btn" href="${openHref}" target="_blank">開く</a>
+             <button class="btn ap" onclick="approve('${esc(it.func_id)}','${k}')">承認</button>
+             <button class="btn rj" onclick="requestChanges('${esc(it.func_id)}','${k}')">修正依頼</button>`;
     }
-    return `<tr><td class="muted">${esc((r.at||"").slice(11))}</td><td>${esc(r.func_id)}</td>` +
-           `<td>${res}</td><td>${r.attempt||""}</td><td>${r.sec??""}</td>` +
-           `<td>${r.num_turns??""}</td><td>${r.cost_usd!=null ? r.cost_usd.toFixed(2):""}</td>` +
-           `<td>${body}</td></tr>`;
+  }
+  return `<div class="row"${isNow ? ' style="background:#dcfce722"' : ""}>
+    <span class="ord">${ord}</span><span class="kind">${mark}</span>
+    <a class="fid" href="${specHref}">${esc(it.func_id)}</a>
+    <span class="grow">${esc(label)}${tag}
+      <span class="muted">${esc((it.name||"") + (it.file ? " / " + it.file : ""))}</span></span>
+    ${act}</div>`;
+}
+function setChip(k){ chipK = k; loadQueue(); }
+function qmsg(m){ document.getElementById("qfoot").textContent = m; }
+function toggleStar(fid, on){
+  jsonPost("/batch-priority", {func_id: fid, on: on})
+    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
+}
+function approve(fid, kind){
+  jsonPost("/review-action", {action:"approve", kind:kind, func_id:fid, approver:approver()})
+    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
+}
+function requestChanges(fid, kind){
+  const c = prompt(fid + " への修正依頼（例: 端数処理の丸め規則が本文に無い）");
+  if(!c || !c.trim()) return;
+  jsonPost("/review-action", {action:"request_changes", kind:kind, func_id:fid,
+                              approver:approver(), comment:c.trim()})
+    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
+}
+function adjudicate(fid, issueId){
+  const c = prompt(fid + " の裁定（" + issueId + " の質問を確認のうえ回答を書く）");
+  if(!c || !c.trim()) return;
+  jsonPost("/review-action", {action:"adjudicate", func_id:fid, issue_id:issueId,
+                              approver:approver(), comment:c.trim()})
+    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
+}
+
+// ---- 結果 ----
+// 中身が変わった時だけ再描画する（2.5秒ごとの丸ごと差し替えは、人が開いた
+// <details> が毎回閉じてチカチカするため）。再描画時も開いていた行は復元する。
+let rtab = "", lastResJson = null;
+function setRtab(t){
+  rtab = t; lastResJson = null;
+  document.querySelectorAll("[id^='rtab-']").forEach(b=>b.classList.remove("on"));
+  document.getElementById("rtab-" + t).classList.add("on");
+  tick();
+}
+function renderResults(recent){
+  const ngs = recent.filter(r=>!r.ok).length;
+  document.getElementById("ngn").textContent = ngs || "";
+  document.getElementById("rcount").textContent = recent.length ? `直近${recent.length}件` : "";
+  const list = rtab === "ng" ? recent.filter(r=>!r.ok) : recent;
+  const json = JSON.stringify([rtab, list, running]);
+  if(json === lastResJson) return;
+  lastResJson = json;
+  const box = document.getElementById("results");
+  const openIds = new Set([...box.querySelectorAll("details[open]")].map(el => el.dataset.rid));
+  if(!list.length){ box.innerHTML = '<div class="muted">まだ結果がありません</div>'; return; }
+  box.innerHTML = list.map((r, i) => {
+    const rid = r.func_id + "|" + (r.at || i);
+    const ph = PHASES[r.phase] || null;
+    const head = (r.ok ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>')
+      + ` <a href="/specs/${esc(r.func_id)}.html"><b>${esc(r.func_id)}</b></a>`
+      + (ph ? ` ${ph[0]}${ph[1]}` : "")
+      + (!r.ok && r.kind ? ` — ${esc(r.kind)}` : "")
+      + ` <span class="meta">${esc((r.at||"").slice(11))}` +
+        `${r.attempt>1 ? "・試行"+r.attempt : ""}・${r.sec??"--"}s` +
+        `${r.cost_usd!=null ? "・$"+r.cost_usd.toFixed(2) : ""}` +
+        `${r.num_turns!=null ? "・"+r.num_turns+"ターン" : ""}</span>`;
+    if(r.ok) return `<div class="resrow">${head}</div>`;
+    const problems = r.problems || [];
+    const ngbox = problems.length
+      ? `<div class="ngdetail"><b>${esc(r.kind||"")}（${problems.length}件）</b>` +
+        `<ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`
+      : (r.why ? `<div class="ngdetail">${esc(r.why)}</div>` : "");
+    const retry = r.phase
+      ? (running
+         ? `<button class="btn pri" onclick="toggleStar('${esc(r.func_id)}',true)">⭐ 優先して再実行</button>`
+         : `<button class="btn" onclick="rerun('${esc(r.func_id)}','${esc(r.phase)}')">再実行</button>`)
+      : "";
+    return `<div class="resrow">${head}${ngbox}
+      <div class="actions">
+        <a class="btn" href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答ログ</a>
+        ${retry}
+        <details${openIds.has(rid) ? " open" : ""} data-rid="${esc(rid)}">
+          <summary>応答の末尾</summary><pre>${esc(r.tail || "(応答記録なし)")}</pre></details>
+      </div></div>`;
   }).join("");
 }
+function rerun(fid, kind){
+  document.getElementById("rmsg").textContent = "開始しています…";
+  jsonPost("/run-phase", {kind:kind, func_id:fid})
+    .then(d => { document.getElementById("rmsg").textContent = d.message || ""; tick(); })
+    .catch(e => { document.getElementById("rmsg").textContent = "通信エラー: " + e; });
+}
+
+// ---- 開始/停止 ----
 function batchPost(url, body){
   const msg = document.getElementById("bmsg");
-  fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
-              body: JSON.stringify(body || {})})
-    .then(r => r.json())
+  jsonPost(url, body)
     .then(d => { msg.textContent = d.message || (d.ok ? "OK" : "失敗"); tick(); })
     .catch(e => { msg.textContent = "通信エラー: " + e
                   + "（serve_site.py で配信していますか？）"; });
 }
 function batchStart(){
-  batchPost("/run-batch", {max_funcs: +document.getElementById("bmax").value || 0,
-                           budget_usd: +document.getElementById("bbudget").value || 0});
+  batchPost("/run-batch", {max_funcs: +document.getElementById("bmax").value || 0});
 }
 function batchStop(){ batchPost("/run-cancel", {}); }
+
+// ---- 初期化 ----
+let qtimer = null;
+document.getElementById("qsearch").addEventListener("input", () => {
+  clearTimeout(qtimer); qtimer = setTimeout(loadQueue, 300);
+});
 tick(); setInterval(tick, 2500);
+loadQueue();
 </script></body></html>
 """
 
@@ -359,6 +604,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     pass
             self._send_bytes(body, "application/json; charset=utf-8")
             return
+        if self.path.startswith("/batch-queue"):
+            # 残タスク一覧（実行順・検索つき）。走査コストがあるのでポーリング対象にしない
+            if FROZEN or not self.state_root:
+                self._send_json(200, {"ok": False,
+                                      "message": "配布版（EXE）では残タスク一覧を表示できません"})
+                return
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlsplit(self.path).query)
+            try:
+                import browser_run
+                res = browser_run.batch_queue(str(self.state_root),
+                                              q=(qs.get("q") or [""])[0],
+                                              chip=(qs.get("chip") or [""])[0])
+            except SystemExit as e:
+                res = {"ok": False, "message": f"データ異常: {e}"}
+            except Exception as e:               # noqa: BLE001 — 一覧の失敗で配信を止めない
+                res = {"ok": False, "message": f"内部エラー: {e}"}
+            self._send_json(200, res)
+            return
         if self.path.startswith("/agent-logs/"):
             name = self.path.rsplit("/", 1)[-1]
             if self.state_root and re.fullmatch(r"[\w.\-]+\.txt", name):
@@ -371,7 +635,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check", "/run-cancel",
-                    "/run-batch", "/run-analyze")
+                    "/run-batch", "/run-analyze", "/run-skip", "/batch-priority")
     LOCAL_NAMES = ("127.0.0.1", "localhost", "::1")
 
     def _cross_site_reason(self) -> str | None:
@@ -437,10 +701,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 res = self._handle_run_cancel(payload)
             elif self.path == "/run-batch":
                 res = self._handle_run_batch(payload)
+            elif self.path == "/run-skip":
+                res = self._handle_run_skip(payload)
+            elif self.path == "/batch-priority":
+                res = self._handle_batch_priority(payload)
             elif self.path == "/run-analyze":
                 res = self._handle_run_analyze(payload)
             else:
                 res = self._handle_run_phase(payload)
+        except SystemExit as e:                      # 壊れた正データ（load_json 等）の明示停止
+            res = {"ok": False, "message": f"データ異常: {e}"}
         except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
             res = {"ok": False, "message": f"内部エラー: {e}"}
         self._send_json(200 if res.get("ok") else 422, res)
@@ -486,6 +756,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return browser_run.batch_start(str(self.state_root),
                                        payload.get("max_funcs") or 0,
                                        payload.get("budget_usd") or 0)
+
+    def _handle_run_skip(self, payload: dict) -> dict:
+        # 連続実行の「いまの1件」だけスキップ（バッチは続行）
+        import browser_run
+        return browser_run.skip_current(str(self.state_root))
+
+    def _handle_batch_priority(self, payload: dict) -> dict:
+        # ⭐優先のON/OFF。次の走査で実行順の先頭に割り込む（失敗スキップも解除）
+        import browser_run
+        return browser_run.prioritize(str(self.state_root),
+                                      payload.get("func_id", ""),
+                                      bool(payload.get("on", True)))
 
     def _handle_run_analyze(self, payload: dict) -> dict:
         # ⑦分析（定量評価 → 施策候補の提案。適用はしない）

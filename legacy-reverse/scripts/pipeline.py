@@ -483,7 +483,8 @@ class RunStatus:
         self.save()
 
     def result(self, fid: str, ok: bool, why: str, kind: str, sec: int,
-               cost_total: float, r: dict, attempt: int, problems: list = None) -> None:
+               cost_total: float, r: dict, attempt: int, problems: list = None,
+               phase: str = None) -> None:
         if ok:
             self.ok_secs.append(sec)
         else:
@@ -491,6 +492,7 @@ class RunStatus:
         self.d["cost_usd"] = round(cost_total, 4)
         self.d["recent"].insert(0, {
             "func_id": fid, "ok": ok, "why": why, "kind": None if ok else kind,
+            "phase": phase,                      # 何の工程だったか（spec/testspec/…。表示用）
             "problems": (problems or [])[:20],   # 機械レビューの理由の全文（表示側で箇条書きにする）
             "sec": sec, "cost_usd": r.get("cost_usd"), "attempt": attempt,
             "num_turns": r.get("num_turns"),
@@ -551,7 +553,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
            prompt_template: str, max_turns: int, timeout: int, retries: int,
            backoff_base: int, backoff_max: int, rate_wait_total: int,
            status: "RunStatus", cost_total: float, rate_waited: int,
-           verify_fn=verify_spec, cancel_event=None) -> tuple:
+           verify_fn=verify_spec, cancel_event=None, phase: str = None) -> tuple:
     """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
     cmd_spec（①無人バッチ）と browser_run.py（ブラウザからの単発実行。①②対応）が共用する。
@@ -600,7 +602,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
                             "why": why, "canceled": True,
                             "sec": round(time.time() - t0)})
             status.result(fid, False, why, "中止", round(time.time() - t0),
-                          cost_total, r, attempt)
+                          cost_total, r, attempt, phase=phase)
             break
 
         attempt += 1
@@ -620,7 +622,8 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
                           "claude_err": (r.get("err") or "")[-200:]})
         log_line(root, entry)
         status.result(fid, ok, why, classify_ng(why, r),
-                      round(time.time() - t0), cost_total, r, attempt, problems=problems)
+                      round(time.time() - t0), cost_total, r, attempt, problems=problems,
+                      phase=phase)
         if ok:
             break
         print(f"  {fid}: 検証NG（{why}）"
@@ -697,7 +700,7 @@ def cmd_spec(args) -> None:
                     fid, claude_cmd, extra, root, args.prompt_template, args.max_turns,
                     args.timeout, args.retries, args.backoff_base, args.backoff_max,
                     args.rate_wait_total, status, cost_total, rate_waited,
-                    verify_fn=verify_spec)
+                    verify_fn=verify_spec, phase="spec")
             except KeyboardInterrupt:
                 print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。"
                       f"停止する（再開は同じコマンド）")

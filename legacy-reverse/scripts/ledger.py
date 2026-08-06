@@ -70,7 +70,14 @@ def parse_frontmatter(text: str) -> dict:
 
 def load_json(path: Path, default=None):
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8-sig"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as e:
+            # AI の編集ミス（末尾カンマ等）で正データが壊れると全スクリプトがここを通る。
+            # 生の traceback ではなく、場所と直し方が分かる1メッセージで止める
+            sys.exit(f"error: {path} が JSON として読めない（{e.lineno}行{e.colno}列: {e.msg}）。\n"
+                     "  AIの編集で壊れた可能性が高い（よくある原因: 末尾の余分なカンマ）。\n"
+                     "  `git diff` で直前の変更を確認して修復するか、`git checkout -- <file>` で戻すこと")
     return default if default is not None else {}
 
 

@@ -153,8 +153,13 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   実行後に再走査する（③が終われば同じ関数の④、承認が下りれば次工程、と自動で進む。
   承認・裁定待ちと完了はスキップ）。失敗した (関数, 工程) は同一バッチ内で再試行せず、
   連続3件失敗で安全停止。5件ごとに `refresh_site` するので、人は実行中も
-  ブラウザで承認・裁定を並行できる。上限件数・予算指定可。停止は単発と同じ
-  `/run-cancel`。レート待機は無人前提なのでバッチ既定の6時間
+  ブラウザで承認・裁定を並行できる。上限件数指定可（予算上限は CLI の
+  `--budget-usd` のみ。ブラウザUIからは外した）。停止は単発と同じ `/run-cancel`。
+  「この1件だけスキップ」は `/run-skip`（item_cancel イベント。バッチは続行）。
+  レート待機は無人前提なのでバッチ既定の6時間。
+  残タスクは `GET /batch-queue`（実行順・検索・件数集計。`_scan_targets` と同じ判定）、
+  ⭐優先は `POST /batch-priority` → `.legacy-reverse/batch-priority.json`
+  （order=割り込み順・retry=失敗スキップの解除。次の走査で反映）
 - CLI の pipeline.py は①専用の従来バッチとして残る（数百件を最初に流す用途）。
   連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する
 - 現状は①〜⑥（⑥は下記別枠）。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る

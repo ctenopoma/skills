@@ -287,7 +287,9 @@ def make_report(root: str) -> dict:
     """①draft 仕様書の一斉レビュー表 docs/spec-review.md を生成する。
 
     バッチ実行（複数関数を連続で draft 化）の後、人がまとめてレビューするための一覧。
-    概要・Confidence 内訳・機械レビュー結果・open ISSUE をリンク付きで並べる。
+    「人がいま動ける行」を上に並べ（承認できる → ISSUEあり → AI修正待ち）、
+    各行に承認・修正依頼ボタンを置いて、この表だけでレビューが完結するようにする
+    （POST先は仕様書ページの承認ウィジェットと同じ /review-action。serve_site.py 配信時のみ有効）。
     """
     rootp = Path(root).resolve()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -318,31 +320,48 @@ def make_report(root: str) -> dict:
         if mo:
             body = re.sub(r"<!--.*?-->", "", mo.group(1), flags=re.S).strip()
             # 表のセルに入れるので | はエスケープ（表崩れ防止）
-            overview = body.splitlines()[0][:60].replace("|", "\\|") if body else ""
+            first = body.splitlines()[0].replace("|", "\\|") if body else ""
+            overview = first[:60] + ("…" if len(first) > 60 else "")
         c = r["confidence"]
+        conf = " ".join(f"{c[k]}{k}" for k in ("🟢", "🟡", "🔴") if c[k]) or "—"
         # #review-<fid> は render_site.py が仕様書ページに埋め込む承認ウィジェットの位置
         # （機械レビュー結果の全文と、承認/修正依頼ボタンがそこにある）
         review_link = f"specs/{fid}.html#review-{fid}"
         mech = (f"[✅]({review_link})" if r["ok"]
                else f"[❌ {len(r['problems'])}件]({review_link})")
-        iss = " ".join(f"[{i}](issues/{i}.md)" for i in open_issues.get(fid, [])) or "—"
+        iss_ids = open_issues.get(fid, [])
+        iss = " ".join(f"[{i}](issues/{i}.md)" for i in iss_ids) or "—"
         name = f["new"].get("name", fid).replace("|", "\\|")
-        rows.append(f"| [{name}](specs/{fid}.md) | {overview} "
-                    f"| {c['🟢']} | {c['🟡']} | {c['🔴']} | {mech} | {iss} |")
+        if r["ok"]:
+            # 承認は lr-widgets.js の lrReview.approve をそのまま使う（サーバ側で
+            # 機械レビューを再検証してから承認する既存経路。メッセージ表示先の
+            # id="review-msg-<fid>" も同じ規約）。修正依頼はこのページの srRequest（prompt入力）
+            act = (f'<button class="sr-approve" '
+                   f'onclick="lrReview.approve(\'{fid}\',\'spec\')">承認</button> '
+                   f'<button class="sr-req" onclick="srRequest(\'{fid}\')">修正依頼…</button>'
+                   f'<span id="review-msg-{fid}" class="sr-msg"></span>')
+        else:
+            act = '<span class="sr-wait">AI修正待ち</span>'
+        # 並び順: 人がいま動ける行が先（0=承認できる, 1=承認できるがISSUEあり, 2=AI修正待ち）
+        group = 2 if not r["ok"] else (1 if iss_ids else 0)
+        rows.append((group, f"| [{name}](specs/{fid}.md) | {overview} "
+                            f"| {conf} | {mech} | {iss} | {act} |"))
+    rows.sort(key=lambda t: t[0])                    # 安定ソート（同グループ内は登録順のまま）
 
-    # page-layout: full — 7列の表を既定の本文幅に押し込むと1行が縦に伸びて
+    # page-layout: full — 列の多い表を既定の本文幅に押し込むと1行が縦に伸びて
     # 「件数のわりに数行しか見えない」状態になるため、このページは全幅で使う
     lines = ["---", 'title: "① 仕様書 一斉レビュー"', "date: last-modified",
              "page-layout: full", "---", "",
              "<!-- review_checks.py report による自動生成。手編集禁止 -->", ""]
     if rows:
         lines += [
-            f"レビュー待ち（draft）: **{len(rows)} 件**。各行のリンクから仕様書を開き、"
-            "🟡🔴 の妥当性と ISSUE の質問を確認してください。", "",
-            "回答の仕方: チャットで「全部OK」または「F-xxxx は修正: 〜」。"
-            "OK されたものを skill が reviewed に更新します。", "",
-            "| 関数 | 概要 | 🟢 | 🟡 | 🔴 | 機械レビュー | 未確定(ISSUE) |",
-            "|------|------|:-:|:-:|:-:|:---:|------|"] + rows
+            f"レビュー待ち（draft）: **{len(rows)} 件**。概要と Confidence を見て、"
+            "そのまま承認するか、関数名リンクで仕様書全文を確認してください。", "",
+            "承認・修正依頼は各行のボタンで完結します（チャットで「全部OK」／"
+            "「F-xxxx は修正: 〜」でも可）。❌ は AI が自己修正するまで承認できません。", "",
+            "| 関数 | 概要 | Confidence | 機械レビュー | 未確定(ISSUE) | 操作 |",
+            "|------|------|:---:|:---:|------|------|"] + [r for _, r in rows]
+        lines += ["", "```{=html}", SPEC_REVIEW_PAGE_JS, "```"]
     else:
         lines.append("レビュー待ちの仕様書（draft）はありません 🎉")
     out = rootp / "docs" / "spec-review.md"
@@ -350,6 +369,109 @@ def make_report(root: str) -> dict:
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": not ng_funcs, "drafts": len(rows), "machine_ng": len(ng_funcs),
             "machine_ng_funcs": ng_funcs, "path": str(out)}
+
+
+# 一斉レビュー表のページ内JS（Quarto の ```{=html} ブロックとして焼き込む）。
+# フィルタチップ・検索・件数表示を表の直前に注入し、修正依頼の prompt 入力を提供する。
+# 承認ボタン本体は lr-widgets.js の lrReview.approve（仕様書ページと同じ実装）。
+SPEC_REVIEW_PAGE_JS = """\
+<script src="/lr-widgets.js"></script>
+<style>
+.sr-approve{background:#4f46e5;color:#fff;border:0;border-radius:6px;padding:3px 12px;
+            cursor:pointer;font-weight:600}
+.sr-req{background:transparent;border:1px solid #4f46e5;color:#4f46e5;border-radius:6px;
+        padding:3px 10px;cursor:pointer;margin-left:6px}
+.sr-wait{color:#9ca3af;font-size:.85em}
+.sr-msg{display:block;font-size:.8em;color:#166534}
+.sr-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.sr-chip{border:1px solid #9ca3af66;background:transparent;border-radius:999px;
+         padding:2px 12px;font-size:.85em;cursor:pointer;color:inherit}
+.sr-chip.on{background:#4f46e5;border-color:#4f46e5;color:#fff}
+.sr-search{padding:5px 10px;border:1px solid #9ca3af;border-radius:6px;min-width:260px;
+           background:transparent;color:inherit}
+.sr-count{color:#9ca3af;font-size:.85em}
+</style>
+<script>
+(function(){
+  function jsonPost(url, body){
+    return fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+                       body: JSON.stringify(body || {})}).then(function(r){ return r.json(); });
+  }
+  window.srRequest = function(fid){
+    var c = prompt(fid + " への修正依頼（例: 端数処理の丸め規則が本文に無い）");
+    if(!c || !c.trim()) return;
+    var name = localStorage.getItem("lr_approver");
+    if(!name){
+      name = prompt("承認者名を入力してください（次回から省略されます）") || "unknown";
+      localStorage.setItem("lr_approver", name);
+    }
+    var el = document.getElementById("review-msg-" + fid);
+    if(el) el.textContent = "送信中…";
+    jsonPost("/review-action", {action:"request_changes", kind:"spec", func_id:fid,
+                                approver:name, comment:c.trim()})
+      .then(function(d){ if(el) el.textContent = d.message || (d.ok ? "送信しました" : "失敗"); })
+      .catch(function(){ if(el) el.textContent =
+        "通信エラー（serve_site.py で配信していますか？）"; });
+  };
+  function setup(){
+    var table = null;
+    document.querySelectorAll("table").forEach(function(t){
+      var h = t.querySelector("thead th, tr th");
+      if(h && h.textContent.trim() === "関数") table = t;
+    });
+    if(!table) return;
+    var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"));
+    rows.forEach(function(tr){
+      tr.dataset.app = tr.querySelector(".sr-approve") ? "1" : "";
+      tr.dataset.iss = /ISSUE-/.test(tr.textContent) ? "1" : "";
+    });
+    var nApp = rows.filter(function(t){ return t.dataset.app === "1"; }).length;
+    var nIss = rows.filter(function(t){ return t.dataset.iss === "1"; }).length;
+    var bar = document.createElement("div");
+    bar.className = "sr-bar";
+    var cnt = document.createElement("span");
+    cnt.className = "sr-count";
+    var state = {mode: "all", q: ""};
+    function apply(){
+      var n = 0;
+      rows.forEach(function(tr){
+        var ok = true;
+        if(state.mode === "app") ok = tr.dataset.app === "1";
+        else if(state.mode === "iss") ok = tr.dataset.iss === "1";
+        else if(state.mode === "wait") ok = tr.dataset.app !== "1";
+        if(ok && state.q) ok = tr.textContent.toLowerCase().indexOf(state.q) >= 0;
+        tr.style.display = ok ? "" : "none";
+        if(ok) n++;
+      });
+      cnt.textContent = n + " / " + rows.length + " 件";
+    }
+    [["all", "すべて"], ["app", "承認できる " + nApp],
+     ["iss", "ISSUEあり " + nIss], ["wait", "AI修正待ち " + (rows.length - nApp)]]
+      .forEach(function(cdef){
+        var b = document.createElement("button");
+        b.className = "sr-chip" + (cdef[0] === "all" ? " on" : "");
+        b.textContent = cdef[1];
+        b.onclick = function(){
+          bar.querySelectorAll(".sr-chip").forEach(function(x){ x.classList.remove("on"); });
+          b.classList.add("on"); state.mode = cdef[0]; apply();
+        };
+        bar.appendChild(b);
+      });
+    var inp = document.createElement("input");
+    inp.className = "sr-search"; inp.type = "search";
+    inp.placeholder = "検索: 関数名・概要・ISSUE";
+    inp.addEventListener("input", function(){
+      state.q = inp.value.trim().toLowerCase(); apply();
+    });
+    bar.appendChild(inp);
+    bar.appendChild(cnt);
+    table.parentNode.insertBefore(bar, table);
+    apply();
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
+  else setup();
+})();
+</script>"""
 
 
 def _print_result(r: dict) -> None:
