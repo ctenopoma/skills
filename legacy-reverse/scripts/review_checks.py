@@ -377,6 +377,18 @@ def make_report(root: str) -> dict:
 SPEC_REVIEW_PAGE_JS = """\
 <script src="/lr-widgets.js"></script>
 <style>
+/* 列幅の固定（Quarto既定は内容比の自動配分で、概要列が関数名列を潰す）。
+   余り幅はすべて概要列(2)に寄せ、関数名(1)は折り返さない */
+#sr-table{table-layout:fixed;width:100%;min-width:58em}
+.sr-scroll{overflow-x:auto}
+#sr-table th:nth-child(1){width:8em}
+#sr-table th:nth-child(3){width:6em}
+#sr-table th:nth-child(4){width:6.5em}
+#sr-table th:nth-child(5){width:7em}
+#sr-table th:nth-child(6){width:12.5em}
+#sr-table td{overflow-wrap:break-word;vertical-align:top}
+#sr-table td:nth-child(1){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sr-table td:nth-child(3),#sr-table td:nth-child(4){white-space:nowrap}
 .sr-approve{background:#4f46e5;color:#fff;border:0;border-radius:6px;padding:3px 12px;
             cursor:pointer;font-weight:600}
 .sr-req{background:transparent;border:1px solid #4f46e5;color:#4f46e5;border-radius:6px;
@@ -420,6 +432,11 @@ SPEC_REVIEW_PAGE_JS = """\
       if(h && h.textContent.trim() === "関数") table = t;
     });
     if(!table) return;
+    table.id = "sr-table";               // 列幅固定CSS（上の #sr-table）を効かせる
+    var wrap = document.createElement("div");   // 画面が狭いときは表だけ横スクロール
+    wrap.className = "sr-scroll";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
     var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"));
     rows.forEach(function(tr){
       tr.dataset.app = tr.querySelector(".sr-approve") ? "1" : "";
@@ -465,7 +482,7 @@ SPEC_REVIEW_PAGE_JS = """\
     });
     bar.appendChild(inp);
     bar.appendChild(cnt);
-    table.parentNode.insertBefore(bar, table);
+    wrap.parentNode.insertBefore(bar, wrap);   // バーはスクロール枠の外（常に見える）
     apply();
   }
   if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
