@@ -61,10 +61,12 @@ KINDS = {
 }
 
 # ブラウザからの全実行（単発・連続・⑦分析）に --dangerously-skip-permissions を付けるか。
-# serve_site.py の起動オプション --skip-permissions が True にする。
-# headless は許可プロンプトに答えられないため、settings.json の permissions.allow で
-# 通すのが基本だが、信頼できる閉じた環境ではこちらの方が確実（CLI の同名オプションと同じ）。
-SKIP_PERMISSIONS = False
+# **既定 True**。ブラウザ実行は「人がボタンを押した」明示操作で、headless は許可
+# ダイアログに答えられないため、付けないと settings.json の permissions.allow を
+# 網羅していない環境で「応答はあるがファイル未更新・全件NG」になる（実際に踏んだ）。
+# サーバ自体が 127.0.0.1 限定 + Host/Origin 検証つきなので、実行できるのは
+# このマシンの人だけ。共有マシン等で外したいときは serve_site.py --no-skip-permissions。
+SKIP_PERMISSIONS = True
 
 
 def _extra_args() -> list:

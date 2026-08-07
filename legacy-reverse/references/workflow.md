@@ -156,9 +156,9 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   ブラウザで承認・裁定を並行できる。上限件数指定可（予算上限は CLI の
   `--budget-usd` のみ。ブラウザUIからは外した）。停止は単発と同じ `/run-cancel`。
   「この1件だけスキップ」は `/run-skip`（item_cancel イベント。バッチは続行）。
-  ブラウザ実行は既定で --dangerously-skip-permissions を**付けない**。
-  settings.json の permissions.allow が基本。閉じた環境では serve_site.py の
-  起動オプション --skip-permissions で全ブラウザ実行に付けられる（browser_run.SKIP_PERMISSIONS）。
+  ブラウザ実行は**既定で --dangerously-skip-permissions を付ける**（browser_run.SKIP_PERMISSIONS=True。
+  ボタン押下は人の明示操作・サーバは 127.0.0.1 限定 + Host/Origin 検証のため）。
+  permissions.allow で管理したい環境は serve_site.py --no-skip-permissions で外せる。
   レート待機は無人前提なのでバッチ既定の6時間。
   残タスクは `GET /batch-queue`（実行順・検索・件数集計。`_scan_targets` と同じ判定）、
   ⭐優先は `POST /batch-priority` → `.legacy-reverse/batch-priority.json`
