@@ -60,6 +60,17 @@ KINDS = {
     # ledger verify に断られるだけの空実行になる（SKILL.mdで明示的に禁止）ので retries=0
 }
 
+# ブラウザからの全実行（単発・連続・⑦分析）に --dangerously-skip-permissions を付けるか。
+# serve_site.py の起動オプション --skip-permissions が True にする。
+# headless は許可プロンプトに答えられないため、settings.json の permissions.allow で
+# 通すのが基本だが、信頼できる閉じた環境ではこちらの方が確実（CLI の同名オプションと同じ）。
+SKIP_PERMISSIONS = False
+
+
+def _extra_args() -> list:
+    return ["--dangerously-skip-permissions"] if SKIP_PERMISSIONS else []
+
+
 # 実行中のブラウザ単発（このプロセス内で高々1つ。プロセス間の排他は run.lock が担う）
 _ACTIVE_MU = threading.Lock()
 _ACTIVE: dict = {}       # {"fid", "kind", "cancel": Event, "thread": Thread,
@@ -411,7 +422,7 @@ def _run_background_inner(root: Path, fid: str, kind: str, claude_cmd: list,
     status = pipeline.RunStatus(root, f"{cfg['label']}（ブラウザ単発）", 1, RUN_DEFAULTS)
     try:
         ok, why, r, cost, _ = pipeline.run_one(
-            fid, claude_cmd, [], root, cfg["prompt_template"], RUN_DEFAULTS.max_turns,
+            fid, claude_cmd, _extra_args(), root, cfg["prompt_template"], RUN_DEFAULTS.max_turns,
             RUN_DEFAULTS.timeout, cfg.get("retries", RUN_DEFAULTS.retries), RUN_DEFAULTS.backoff_base,
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
             verify_fn=cfg["verify_fn"], cancel_event=cancel_event, phase=kind)
@@ -734,7 +745,7 @@ def _batch_background_inner(root: Path, claude_cmd: list, cancel_event: threadin
                 _ACTIVE["item_cancel"] = item_cancel
                 _ACTIVE["current_fid"] = fid
             ok, why, r, cost_total, rate_waited = pipeline.run_one(
-                fid, claude_cmd, [], root, cfg["prompt_template"], ns.max_turns,
+                fid, claude_cmd, _extra_args(), root, cfg["prompt_template"], ns.max_turns,
                 ns.timeout, cfg.get("retries", ns.retries), ns.backoff_base,
                 ns.backoff_max, ns.rate_wait_total, status, cost_total, rate_waited,
                 verify_fn=cfg["verify_fn"], phase=kind,
@@ -997,7 +1008,7 @@ def _analyze_background_inner(root: Path, claude_cmd: list,
         return
     try:
         ok, why, r2, cost, _ = pipeline.run_one(
-            "analyze", claude_cmd, [], root, ANALYZE_PROMPT, RUN_DEFAULTS.max_turns,
+            "analyze", claude_cmd, _extra_args(), root, ANALYZE_PROMPT, RUN_DEFAULTS.max_turns,
             RUN_DEFAULTS.timeout, RUN_DEFAULTS.retries, RUN_DEFAULTS.backoff_base,
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
             verify_fn=pipeline.verify_analysis, cancel_event=cancel_event)

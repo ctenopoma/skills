@@ -858,6 +858,10 @@ def main() -> None:
     ap.add_argument("--render", action="store_true", help="配信前に render_site.py で作り直す")
     ap.add_argument("--watch", action="store_true", help="docs/ を監視して自動再レンダリング（--render を含む）")
     ap.add_argument("--no-open", dest="open", action="store_false", help="ブラウザを自動で開かない")
+    ap.add_argument("--skip-permissions", action="store_true",
+                    help="ブラウザからの実行（単発・連続・⑦分析）すべてに "
+                         "--dangerously-skip-permissions を付ける（信頼できる閉じた環境のみ。"
+                         "基本は settings.json の permissions.allow で許可する）")
     ap.add_argument("--verbose", action="store_true", help="全リクエストをログに出す")
     args = ap.parse_args()
 
@@ -884,6 +888,11 @@ def main() -> None:
 
     Handler.verbose = args.verbose
     Handler.state_root = root      # /pipeline.html 用のライブ状態（.legacy-reverse/）の読み元
+    if args.skip_permissions and not FROZEN:
+        import browser_run
+        browser_run.SKIP_PERMISSIONS = True
+        print("warning: --skip-permissions が有効。ブラウザからの実行はすべて"
+              "許可確認なしで走る（信頼できる閉じた環境でのみ使うこと）")
     httpd = bind_server(args.host, port, functools.partial(Handler, directory=str(site)))
     actual = httpd.server_address[1]
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{actual}/"

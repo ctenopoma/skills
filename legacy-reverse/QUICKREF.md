@@ -108,7 +108,11 @@ python <LR>/scripts/render_site.py --root . --full          # 節目に1回（�
 ```bash
 python <LR>/scripts/serve_site.py --root .          # 配信＋ブラウザを開く（URLはプロジェクト固定）
 python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知して自動再レンダ
+python <LR>/scripts/serve_site.py --root . --skip-permissions  # 閉じた環境: ブラウザ実行の許可確認なし
 ```
+
+ブラウザからの実行が「応答はあるのにファイル未更新・全件NG」なら許可の問題。
+settings.json の permissions.allow を設定するか、上の --skip-permissions で起動する。
 
 **`python -m http.server` で開かないこと。** 承認・実行・裁定のボタンは
 `serve_site.py` 経由でしか動きません（素の配信だと押しても無反応になります）。
