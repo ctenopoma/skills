@@ -7,7 +7,7 @@
 
 | ディレクトリ | 内容 |
 | --- | --- |
-| [legacy-reverse/](legacy-reverse/) | レガシーコード(Fortran / C# 等)を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン(skill 本体・スクリプト・hook) |
+| [legacy-reverse/](legacy-reverse/) | レガシーコード(Fortran / C・C++ 等)を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン(skill 本体・スクリプト・hook) |
 | [mcp-servers/legacy-reverse-mcp/](mcp-servers/legacy-reverse-mcp/) | 上記の機械操作を型付きツール化した MCP サーバ(30 ツール) |
 | [docs/legacy-reverse/](docs/legacy-reverse/) | 設計・仕様書(Quarto サイト+章別 PDF 8 冊同梱) |
 | [quarto-typst-pdf/](quarto-typst-pdf/) | PDF 出力の依存 skill(legacy-reverse の pdf_book.py・MANUAL/設計書の PDF 再生成が使う) |
@@ -36,5 +36,7 @@ quarto render docs/legacy-reverse           # 設計・仕様書の HTML サイ�
 1. `legacy-reverse/` を対象プロジェクトの `.claude/skills/legacy-reverse` に配置
 2. `legacy-reverse/skills/legacy-*` を `.claude/skills/` 直下にもコピー
 3. `legacy-reverse/hooks/settings-example.json` を `.claude/settings.json` にマージ(必須)
-4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を登録(推奨)
-5. Claude Code で `/legacy-reverse` を実行してセットアップ確認
+4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を**絶対パス**で登録(推奨。このリポジトリを参照するので残しておく)
+5. Quarto を入れる(HTML サイト生成に必要)。Claude Code で `/legacy-reverse` を実行してセットアップ確認
+
+合本PDF まで出す場合のみ、`quarto-typst-pdf/` も `.claude/skills/` に置く(HTML だけなら不要)。

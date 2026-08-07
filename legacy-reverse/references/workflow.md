@@ -359,8 +359,13 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
   「いつ生成されるか」を書いたスタブを docs/ に置く（⑥⑦や人の記入で自然に上書き）。
   render_site.py も影コピー側で同じ救済をする（旧プロジェクト・api 用）。
   WBS 側も、仕様書ファイルが存在しない関数はリンクにしない（ledger.py `_spec_ref`）
-- Quarto 未導入なら quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
-  （`~/.local/quarto/bin/quarto`。PATH 登録不要）
+- HTML サイト生成に必要なのは **`quarto` バイナリだけ**（quarto-typst-pdf skill は不要）。
+  未導入なら quarto.org のインストーラ、または管理者権限を避けたい場合は
+  quarto-typst-pdf skill の `qtpdf.py install` でポータブル導入
+  （`~/.local/quarto/bin/quarto`。PATH 登録不要。render_site.py はここも探す）
+- **合本PDF（pdf_book.py）だけは quarto-typst-pdf が必要**。`legacy-reverse` の
+  **隣**のディレクトリから `quarto-typst-pdf/scripts/qtpdf.py` を探すので、
+  対象プロジェクトへ配置する場合は `.claude/skills/` に並べて置く（`--qtpdf` で明示も可）
 - 閲覧は `python <LR>/scripts/serve_site.py --root .`
   - 127.0.0.1 のみに bind（仕様書は社内資料。LAN に出すのは `--host 0.0.0.0` を明示したときだけ）
   - ポートはプロジェクト名から決まる固定値（8100-8899）。複数プロジェクトを同時に立てても

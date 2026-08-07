@@ -30,22 +30,29 @@ date: 2026-08-07
 
 対象プロジェクト側のセットアップ(初回のみ):
 
-1. **skill の配置**
+1. **skill の配置**(cwd は skills リポジトリの中)
    ```bash
-   cp -r skills/legacy-reverse          <project>/.claude/skills/
-   cp -r skills/legacy-reverse/skills/* <project>/.claude/skills/
+   cd <skills>
+   cp -r legacy-reverse          <project>/.claude/skills/
+   cp -r legacy-reverse/skills/* <project>/.claude/skills/
    ```
-   (2 行目は skill 発見のため。フェーズ skill を .claude/skills/ 直下にも置く)
+   2 行目は skill 発見のため(Claude Code は `.claude/skills/` 直下を見る)。
+   以降 `<LR>` = `<project>/.claude/skills/legacy-reverse`、
+   コマンドは断りがなければ `<project>` で実行する
 2. **hook の登録(必須)** — `legacy-reverse/hooks/settings-example.json` を
    `<project>/.claude/settings.json` にマージ。**2 本入っている**:
    `guard_tests.py`(PreToolUse。④⑤中の tests/ 編集を拒否)と
    `guard_json.py`(PostToolUse。壊れた JSON をエージェントに差し戻す)。
    運用中のプロジェクトに後から入れる場合は `PostToolUse` ブロックの追記だけでよい
 3. **MCP サーバの登録(推奨)** — `<project>/.mcp.json` に legacy-reverse-mcp を追加
-   ([MCP サーバ仕様](mcp-server.qmd#登録対象プロジェクトの-mcpjson))。未登録でも動作は同じ
-4. **ツール類** — Quarto(未導入なら quarto-typst-pdf skill の `qtpdf.py install` で
-   ポータブル導入・管理者権限不要)、Chromium 系ブラウザ(PDF の Mermaid 焼き込み用。HTML だけなら不要)、
-   `pip install pytest sphinx sphinx-rtd-theme`(⑦では追加で `radon ruff bandit pip-audit`)
+   ([MCP サーバ仕様](mcp-server.qmd#登録対象プロジェクトの-mcpjson))。未登録でも動作は同じ。
+   **参照先は skills リポジトリ側の絶対パス**なので、skill をコピーした後も
+   リポジトリを残しておく必要がある
+4. **ツール類** — **Quarto**(必須。HTML サイト生成に使う。`render_site.py` が要求するのは
+   `quarto` バイナリだけで、quarto-typst-pdf skill は不要)、
+   `pip install pytest sphinx sphinx-rtd-theme`(⑦では追加で `radon ruff bandit pip-audit`)。
+   **合本PDF を出す場合のみ**追加で: `quarto-typst-pdf/` を `<LR>` の隣にコピー
+   (`pdf_book.py` が兄弟ディレクトリとして qtpdf.py を探すため)＋ Chromium 系ブラウザ
 5. **開始** — `/legacy-reverse` でセットアップ状態を確認 → 新規なら `/legacy-0-analyze`
 
 # 日常運用

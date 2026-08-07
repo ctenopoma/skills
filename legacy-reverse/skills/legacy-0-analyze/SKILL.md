@@ -13,7 +13,7 @@ user-invocable: true
 
 ### 1. ヒアリング（勝手に決めない）
 
-- レガシーコードの場所と言語（Fortran / C# / その他）
+- レガシーコードの場所と言語（機械抽出できるのは Fortran / C・C++。その他は AI と人で列挙）
 - 新パッケージ名・src 配置
 - conventions.md の中身: 型対応表（例: `PIC 9(9)V99`→`Decimal`、`REAL*8`→`float`）、
   命名規則、モック方針。テンプレ `assets/templates/conventions.md` を埋めて

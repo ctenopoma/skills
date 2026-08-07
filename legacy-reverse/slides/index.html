@@ -60,27 +60,66 @@
   <p class="note">役割分担: <strong>AIが書く、機械（スクリプト）が検証する、人が決める。</strong>
   コードや文書をあなたが直接書く必要は基本ない。
   <strong>4つとも、チャットでもブラウザでもできる。</strong></p>
+  <div class="warn"><strong>前提: レガシーを動かせる環境は無くてよい。</strong>
+  「レガシーを実行して出力を突き合わせる」方式ではありません。正しさは
+  <strong>(1) 人が仕様書をレビューして確定する</strong>ことと、
+  <strong>(2) その仕様書だけから独立に作ったテストと実装が⑤で一致する</strong>ことで担保します。
+  つまり<strong>最終品質の上限は①のレビュー品質</strong>です。</div>
 </section>
 
 <!-- 3 -->
 <section class="slide">
-  <h2>セットアップ（最初に1回だけ）</h2>
-  <ol>
-    <li>skill を対象プロジェクトへコピー:
-      <pre><code>cp -r skills/legacy-reverse          &lt;project&gt;/.claude/skills/
-cp -r skills/legacy-reverse/skills/*  &lt;project&gt;/.claude/skills/</code></pre></li>
-    <li><strong>hook を登録（必須）</strong>: <code>hooks/settings-example.json</code> の内容を
-      <code>&lt;project&gt;/.claude/settings.json</code> へマージ。<strong>2本入っている</strong>:
-      <ul style="margin:4px 0 0">
-        <li><code>guard_tests.py</code> — 「AIがテストを書き換えて通す」事故を防ぐ</li>
-        <li><code>guard_json.py</code> — 「AIが関数リスト(JSON)を壊してバッチが止まる」事故を防ぐ</li>
-      </ul></li>
-    <li>MCP サーバを登録（推奨）: <code>&lt;project&gt;/.mcp.json</code> に
-      <code>mcp-servers/legacy-reverse-mcp/server.py</code> を追加。許可プロンプトが減る</li>
-    <li>Quarto 未導入なら <code>qtpdf.py install</code>（管理者権限不要）。
-      <code>pip install pytest sphinx sphinx-rtd-theme</code></li>
-  </ol>
-  <div class="point">準備ができたら Claude Code で <code>/legacy-reverse</code> と打つ。
+  <h2>セットアップ① — 用意するものと skill の配置</h2>
+  <table>
+    <tr><th>必要なもの</th><th>確認</th></tr>
+    <tr><td><strong>Claude Code の CLI が PATH に</strong></td><td><code>claude --version</code>（ボタン実行も無人バッチも裏でこれを呼ぶ）</td></tr>
+    <tr><td>Python 3.10 以上</td><td><code>python --version</code></td></tr>
+    <tr><td>移植先が git 管理下</td><td><code>git status</code></td></tr>
+  </table>
+  <p><strong>skill のコピー（cwd は skills リポジトリの中）:</strong></p>
+  <pre><code>cd &lt;skills&gt;                                    # このリポジトリを clone した場所
+cp -r legacy-reverse          &lt;project&gt;/.claude/skills/
+cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
+  <p class="note">2行必要です。1行目が skill 本体一式、2行目はフェーズ別 skill を
+  <code>.claude/skills/</code> の<strong>直下</strong>にも置くため（Claude Code はここを見て
+  <code>/legacy-1-spec</code> を認識する）。中身が重複しますが、これで正しい状態です。</p>
+  <div class="point">以降このスライドでは <code>&lt;LR&gt;</code> =
+  <strong><code>&lt;project&gt;/.claude/skills/legacy-reverse</code></strong>（コピー先）を指します。
+  コマンドは断りがなければ <code>&lt;project&gt;</code> の中で実行します。</div>
+</section>
+
+<!-- 3b -->
+<section class="slide">
+  <h2>セットアップ② — hook・MCP・ツール類</h2>
+  <p><strong>1. hook を登録（必須）</strong> —
+    <code>&lt;LR&gt;/hooks/settings-example.json</code> の内容を
+    <code>&lt;project&gt;/.claude/settings.json</code> へマージ。<strong>2本入っています</strong>:</p>
+  <ul style="margin:4px 0 10px">
+    <li><code>guard_tests.py</code> — 「AIがテストを書き換えて通す」事故を防ぐ</li>
+    <li><code>guard_json.py</code> — 「AIが関数リスト(JSON)を壊してバッチが止まる」事故を防ぐ</li>
+  </ul>
+  <p><strong>2. MCP サーバを登録（推奨）</strong> — MCP は AI に外部プログラムを「道具」として
+  渡す仕組み。登録すると<strong>実行のたびに出る許可ダイアログが減り</strong>、失敗も減ります
+  （未登録でも動作は同じ）。<code>&lt;project&gt;/.mcp.json</code> を作って:</p>
+  <pre><code>{
+  "mcpServers": {
+    "legacy-reverse": {
+      "command": "python",
+      "args": ["C:/work_space/skills/mcp-servers/legacy-reverse-mcp/server.py"]
+    }
+  }
+}</code></pre>
+  <p class="note">パスは <code>&lt;skills&gt;</code> の<strong>絶対パス</strong>に置き換えてください
+  （上は例）。ここだけコピー先ではなく<strong>元のリポジトリ</strong>を指すので、
+  セットアップ後もリポジトリを消さないでください。</p>
+  <p><strong>3. ツール類</strong> — <strong>Quarto</strong>（進捗サイトの生成に必要。
+  quarto.org のインストーラで入れる。<code>quarto --version</code> が通ればOK）と
+  <code>pip install pytest sphinx sphinx-rtd-theme</code>。</p>
+  <p class="note">管理者権限を使いたくなければ
+  <code>python &lt;skills&gt;/quarto-typst-pdf/scripts/qtpdf.py install</code> でポータブル導入も可。
+  合本PDFまで出すなら、あとで <code>quarto-typst-pdf/</code> も
+  <code>.claude/skills/</code> にコピーします（HTMLだけなら不要）。</p>
+  <div class="point">準備ができたら Claude Code を開き直して <code>/legacy-reverse</code> と打つ。
   セットアップ状態を確認して、次にやることを案内してくれる。</div>
 </section>
 
@@ -110,15 +149,18 @@ cp -r skills/legacy-reverse/skills/*  &lt;project&gt;/.claude/skills/</code></pr
 <!-- 5 -->
 <section class="slide">
   <h2>WBS — 進捗のホーム画面</h2>
-  <p>⓪が終わると HTML の進捗サイトができる。以後、全フェーズの最後に自動更新される。</p>
-  <pre><code>python &lt;LR&gt;/scripts/serve_site.py --root .</code></pre>
+  <p>⓪が終わると HTML の進捗サイトができる。以後、全フェーズの最後に自動更新される。
+  <strong>プロジェクトルートで</strong>次を実行するとブラウザが開く:</p>
+  <pre><code>python &lt;LR&gt;/scripts/serve_site.py --root .
+# &lt;LR&gt; = &lt;project&gt;/.claude/skills/legacy-reverse</code></pre>
   <img class="shot" src="../assets/manual/wbs.png" alt="WBS">
   <p class="shot-cap">トップ = 進捗サマリ・あなたへの質問（Open ISSUES）・関数一覧・コールグラフ</p>
   <table>
     <tr><th>記号</th><th>意味</th><th>あなたの対応</th></tr>
-    <tr><td>✅ / ▲ / ☐</td><td>完了 / 作業中 / 未着手</td><td>なし（眺めるだけ）</td></tr>
-    <tr><td>⛔</td><td>裁定待ちで停止中</td><td><strong>ISSUE に回答する（最優先）</strong></td></tr>
-    <tr><td>⚠</td><td>上流が改訂され要再確認</td><td>該当フェーズの再生成を指示</td></tr>
+    <tr><td>✅ / ▲ / ☐</td><td>完了 / 作業中（承認前） / 未着手</td><td>▲ は承認する</td></tr>
+    <tr><td>⛔</td><td>裁定待ちで<strong>止まっている</strong></td><td><strong>ISSUE に回答する（最優先）</strong></td></tr>
+    <tr><td>⚠</td><td>要再確認。3種類ある（①改訂で②が古い／freeze後にテストが変わった／②の期待値が未確定）</td><td>該当欄に理由が出るので、それに従う</td></tr>
+    <tr><td>❌</td><td>機械レビューNG</td><td>AIの自己修正を待つ（❌のままでは承認できない）</td></tr>
   </table>
   <p class="note">URL（<code>http://127.0.0.1:8xxx/</code>）は<strong>プロジェクトごとに固定</strong>なので
   ブックマークできる。自分のPCの中だけで配信され、社内LANにも出ない。
@@ -196,11 +238,20 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
       （夜間の利用枠リセットを人手なしで跨ぐ）。連続3件失敗は環境異常として停止</li>
     <li>Ctrl-C・電源断はどこでも安全。10件ごとに WBS と一斉レビュー表が自動更新</li>
   </ul>
-  <div class="you"><b>あなたがやること:</b> 事前に <code>.claude/settings.json</code> で
-    必要ツールを許可しておく（headless は許可プロンプトに答えられない）。
+  <div class="you"><b>あなたがやること:</b> 事前に<strong>ツールの実行許可を通しておく</strong>
+    （headless = 画面なしの <code>claude</code> は許可ダイアログに答えられないので、
+    そこで止まると朝まで無駄になる）。方法は2つ:
+    <ul style="margin:6px 0 0">
+      <li><code>&lt;project&gt;/.claude/settings.json</code> の <code>permissions.allow</code> に
+        <code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Bash</code> を許可しておく</li>
+      <li>信頼できる閉じた環境なら <code>--skip-permissions</code> を付けて起動する
+        （共有マシンでは使わない）</li>
+    </ul>
     夜に起動して寝る → 翌朝 <strong>一斉レビュー表</strong>を見て承認するだけ。</div>
-  <p class="note">この CLI は①専用。<strong>②以降も続けて自動で進めたいときは、次ページの
-  「連続実行」</strong>を使う。</p>
+  <p class="note">この CLI は<strong>①専用</strong>。②以降も続けて自動で進めたいときは、次ページの
+  「連続実行」を使う。／ <code>claude</code> が見つからないと言われたら
+  <code>(Get-Command claude).Source</code> で実体パスを調べて
+  <code>--claude-cmd "&lt;パス&gt;"</code> で明示する。</p>
 </section>
 
 <!-- 10 -->
@@ -347,7 +398,9 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
   <div class="you"><b>あなたがやること:</b>
     <ul style="margin:6px 0 0">
       <li><strong>代表ワークロード（実データ規模の入力）を用意する</strong> — 計測の質が決まる。
-        ルートに <code>bench.py</code> を置いておく</li>
+        プロジェクトルートに <code>bench.py</code> を置き、<strong>引数なしで
+        <code>python bench.py</code> を実行すると代表的な処理が一通り走る</strong>ように書く
+        （数十秒〜数分で終わる規模が扱いやすい）。無ければテスト負荷でのスモーク計測になる</li>
       <li>施策票（目的・成功基準 baseline→目標）を<strong>承認する</strong></li>
     </ul>
   </div>
@@ -373,9 +426,11 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
     <tr><td>⛔ を見つけたら</td><td>裁定ウィジェットに回答 → 出てくる「⑤を実行する」を押す</td></tr>
     <tr><td>画面を開く</td><td><code>python &lt;LR&gt;/scripts/serve_site.py --root .</code></td></tr>
   </table>
-  <ul style="margin-top:16px">
-    <li>コマンド即引き: <a href="../QUICKREF.md" style="color:var(--accent)">QUICKREF.md</a>（1枚）</li>
-    <li>背景・トラブル対処の詳説: <a href="../MANUAL.html" style="color:var(--accent)">MANUAL.html</a> / MANUAL.pdf</li>
+  <p class="note"><code>&lt;LR&gt;</code> = <code>&lt;project&gt;/.claude/skills/legacy-reverse</code>。
+  コマンドはプロジェクトルートで実行する。</p>
+  <ul style="margin-top:12px">
+    <li>コマンド即引き: <a href="../QUICKREF.md" style="color:var(--accent)">QUICKREF.md</a>（1枚・テキスト）</li>
+    <li>背景・トラブル対処の詳説: <a href="../MANUAL.html" style="color:var(--accent)">MANUAL.html</a>（ブラウザで開ける）/ MANUAL.pdf</li>
   </ul>
   <div class="point">原則をひとつだけ覚えるなら:
   <strong>AIが書く、機械が検証する、あなたが決める。</strong>

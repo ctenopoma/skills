@@ -35,6 +35,16 @@ NAMES = {
 
 def convert() -> None:
     WORK.mkdir(exist_ok=True)
+    # 章の追加・改番で使われなくなった .md / .pdf を消す。残すと古い番号の PDF が
+    # そのままビルドされ、pdf/ に新旧が並ぶ（例: 5_MCPサーバ仕様 と 6_MCPサーバ仕様）
+    keep = set(NAMES.values())
+    for old in list(WORK.glob("*.md")) + list((WORK / "_pdf").glob("*.pdf")):
+        if old.suffix == ".md" and old.name in keep:
+            continue
+        if old.suffix == ".pdf" and old.with_suffix(".md").name in keep:
+            continue
+        old.unlink()
+        print(f"stale を削除: {old.name}")
     for src_name, dst_name in NAMES.items():
         text = (HERE / src_name).read_text(encoding="utf-8")
         text = text.replace("```{mermaid}", "```mermaid")

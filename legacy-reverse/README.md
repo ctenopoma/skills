@@ -1,6 +1,6 @@
 # legacy-reverse
 
-レガシーコード（Fortran / C# 等）を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン。
+レガシーコード（Fortran / C・C++ 等）を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン。
 
 パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析・改善（挙動保存）
 
@@ -59,11 +59,18 @@ legacy-reverse/
 1. このリポジトリの `legacy-reverse/` を対象プロジェクトの `.claude/skills/legacy-reverse` に配置
 2. `legacy-reverse/skills/legacy-*` を `.claude/skills/` 直下にもコピー（skill発見のため）
 3. `hooks/settings-example.json` を対象プロジェクトの `.claude/settings.json` にマージ
-4. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
+4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を絶対パスで登録（推奨。元リポジトリを参照するので残しておく）
+5. Quarto を入れる（HTML サイト生成に必要。`quarto --version` が通ればよい）
+6. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
+
+合本PDF まで出す場合のみ、`quarto-typst-pdf/` も `.claude/skills/` に置く
+（`pdf_book.py` が `legacy-reverse` の隣として qtpdf.py を探すため。HTML だけなら不要）。
 
 ## 確定事項
 
-- レガシー言語: Fortran / C# など（⓪の解析は言語ごとに都度対応）。新言語: Python＋pytest（将来 JS/Rust 拡張）
+- レガシー言語: **機械抽出は Fortran と C/C++**（extract_fortran.py / extract_c.py）。
+  他言語（COBOL・C# 等）も①以降は同じだが、⓪の関数列挙は AI と人で行う。
+  新言語: Python＋pytest（将来 JS/Rust 拡張）
 - レガシー実行環境なしが基本前提。②の期待値は 仕様🟢＋人間確認 で確定（実測は環境がある場合のみ）
 - ⓪〜⑤のトリガは人。フェーズごとに skill を分ける
 - ⑤結果報告書は `{func-id}_{YYYYMMDD-HHMMSS}.md` で毎回1から自動生成（履歴はファイルとして蓄積）

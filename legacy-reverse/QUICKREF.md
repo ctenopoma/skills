@@ -2,8 +2,11 @@
 
 作業中に手元へ置く1枚。初見の人は [slides/index.html](slides/index.html)
 （スライド版チュートリアル）から。背景説明・スクリーンショット付きの解説は
-[MANUAL.md](MANUAL.md) / MANUAL.pdf を参照。
-`<LR>` = この skill のルート、`ledger` = `python <LR>/scripts/ledger.py`。
+[MANUAL.html](MANUAL.html) / MANUAL.pdf を参照。
+
+- **`<LR>`** = 配置済み skill のルート = `<project>/.claude/skills/legacy-reverse`
+- **`ledger`** = `python <LR>/scripts/ledger.py` の略記（そういう実行ファイルはありません）
+- コマンドは断りがなければ**プロジェクトルートで実行**します（だから `--root .`）
 
 ## いま何をすべきか（迷ったら・再開するときは、常にこの3つ）
 
@@ -96,16 +99,37 @@ python <LR>/scripts/extract_fortran.py --root . --package <pkg> --write
 
 ```bash
 ledger wbs && python <LR>/scripts/render_site.py --root .   # quarto render docs は直接叩かない
-python -m http.server 8765 --directory docs/_site           # cwd は _site の外で
+python <LR>/scripts/render_site.py --root . --full          # 節目に1回（検索索引も更新）
 ```
+
+## 画面を開く・ブラウザから操作する
+
+```bash
+python <LR>/scripts/serve_site.py --root .          # 配信＋ブラウザを開く（URLはプロジェクト固定）
+python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知して自動再レンダ
+```
+
+**`python -m http.server` で開かないこと。** 承認・実行・裁定のボタンは
+`serve_site.py` 経由でしか動きません（素の配信だと押しても無反応になります）。
+
+| 画面 | URL | できること |
+|------|-----|-----------|
+| WBS | `/` | 進捗・要対応。⑥⑦の実行ボタン（時期が来たら出る） |
+| 仕様書 | `/specs/F-xxxx.html` | ①〜⑤の実行ボタン／承認・修正依頼／⑤の裁定 |
+| 一斉レビュー | `/spec-review.html` | draft をまとめて承認・修正依頼（行内ボタン） |
+| **バッチ状況** | `/pipeline.html` | **連続実行の開始/停止・残タスクの⭐優先・人待ちの承認/裁定・失敗の再実行** |
+
+連続実行（①〜⑤を工程横断で自動）は `/pipeline.html` から。CLI の `pipeline.py` は**①専用**。
 
 ## MCP ツール対応（登録済み環境ではこちらが呼ばれる）
 
-extract_functions=機械抽出 / review_spec・review_testspec・review_all=機械レビュー /
+extract_functions・extract_c_functions=機械抽出 / review_spec・review_testspec・review_all=機械レビュー /
 progress_summary=status --summary / next_actions=next --all / run_tests=⑤一括 /
-generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全26。
+add_function・exclude_function・include_function=関数リストの後追い調整 /
+generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全30。
 
-## WBS の記号
+## 画面の記号
 
-✅ 完了 ／ ▲ 作業中（draft等） ／ ☐ 未着手 ／ ⛔ 裁定待ち（ISSUEに回答を） ／
-⚠ stale・改変（上流改訂 or freeze後変更 → 要再確認）
+✅ 完了 ／ ▲ 作業中（draft・generated 等、承認前） ／ ☐ 未着手 ／
+⛔ 裁定待ちで停止（ISSUEに回答を） ／ ❌ 機械レビューNG（このままでは承認不可） ／
+⚠ 要再確認（3種: ①改訂で②が stale ／ freeze後のテスト改変 ／ ②の期待値が未確定）

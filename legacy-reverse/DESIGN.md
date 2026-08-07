@@ -137,7 +137,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 
 | 拡張 | 方法 |
 |---|---|
-| 新レガシー言語（C# 等） | extract_fortran.py と同じ出力契約（functions.json スキーマ＋ extract-report）で抽出器を追加し、MCP ツールに登録 |
+| 新レガシー言語（C# 等） | extract_fortran.py / extract_c.py と同じ出力契約（functions.json スキーマ＋ extract-report）で抽出器を追加し、MCP ツールに登録。既存の抽出結果とマージされ、実行順は問わない |
 | 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格（対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ）にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント（①と legacy だけを読む）をドライバ段に挿入 |
 

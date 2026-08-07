@@ -1,6 +1,6 @@
 ---
 name: legacy-reverse
-description: レガシーコード（Fortran/C#等）をPython へ仕様ベースで移植するリバースエンジニアリング・パイプラインの全体管理。導入セットアップ、WBSによる進捗確認、次アクションの提案を行う。「レガシー移植の状況」「次どの関数をやる」「legacy-reverse をセットアップ」などで使う。各フェーズの実作業は legacy-0-analyze 〜 legacy-6-check の各skillで行う。
+description: レガシーコード（Fortran/C/C++等）をPython へ仕様ベースで移植するリバースエンジニアリング・パイプラインの全体管理。導入セットアップ、WBSによる進捗確認、次アクションの提案を行う。「レガシー移植の状況」「次どの関数をやる」「legacy-reverse をセットアップ」などで使う。各フェーズの実作業は legacy-0-analyze 〜 legacy-6-check の各skillで行う。
 user-invocable: true
 ---
 
