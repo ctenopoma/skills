@@ -429,8 +429,37 @@ def html_images_to_markdown(body: str) -> str:
     return HTML_IMG.sub(repl, body)
 
 
+# Mermaid の PNG 化はキャンバス幅・高さを過小に見積もることがあり、右端のノード枠や
+# 円筒の底の弧が切れる(CJK ラベルで顕著)。図の周囲に余白を足すと実測どおり収まる。
+# 24 では複雑な図(subgraph 多数 + CJK 3行ラベル)で足りなかった実績があり 48 にしている。
+MERMAID_INIT = '%%{init: {"flowchart": {"diagramPadding": 48}}}%%'
+_MERMAID_BLOCK = re.compile(r"(?ms)^```\{mermaid\}\n(.*?)^```$")
+
+
+def _pad_mermaid(text: str) -> str:
+    """各 ```{mermaid} ブロックに diagramPadding の init を注入する。
+
+    既に %%{init が書かれている図は尊重して触らない。Quarto のセルオプション
+    (%%| label / fig-cap)はブロック先頭に必要なので、その直後に挿す。
+    flowchart 以外の図種では該当キーが無視されるだけなので無条件に入れてよい。
+    """
+    def repl(m: re.Match) -> str:
+        body = m.group(1)
+        if "%%{init" in body:
+            return m.group(0)
+        lines = body.splitlines(keepends=True)
+        i = 0
+        while i < len(lines) and (lines[i].startswith("%%|") or not lines[i].strip()):
+            i += 1
+        lines.insert(i, MERMAID_INIT + "\n")
+        return "```{mermaid}\n" + "".join(lines) + "```"
+
+    return _MERMAID_BLOCK.sub(repl, text)
+
+
 def _transform_md(text: str, strip_numbers: bool = False) -> str:
     text = MERMAID_FENCE.sub(r"\1```{mermaid}", text)
+    text = _pad_mermaid(text)
     text = html_images_to_markdown(text)
     if strip_numbers:
         text = strip_manual_numbers(text)
