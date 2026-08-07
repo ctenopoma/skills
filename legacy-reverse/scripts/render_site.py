@@ -143,6 +143,12 @@ def transform_yml(text: str) -> str:
         if new == text:
             new = add_after(r"(?m)^(\s*)- href: index\.qmd\s*\n\s*text:[^\n]*$", text)
         text = new
+    if "manual.html" not in text:                   # 旧テンプレ救済: マニュアルリンクを navbar に追加
+        text = re.sub(
+            r"(?m)^(\s*)- href: pipeline\.html\s*\n\s*text:[^\n]*$",
+            lambda m: m.group(0) + f"\n{m.group(1)}- href: manual.html"
+                                   f"\n{m.group(1)}  text: マニュアル",
+            text, count=1)
     if re.search(r"(?m)^\s*output-dir:", text):
         return re.sub(r"(?m)^(\s*)output-dir:.*$", r"\1output-dir: ../_site", text)
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
@@ -315,6 +321,11 @@ def main() -> None:
     # ルートで優先されるが、素の http.server や EXE 同梱スナップショットでも 404 にしない
     (site / "pipeline.html").write_text(serve_site.PIPELINE_PAGE,
                                         encoding="utf-8", newline="\n")
+    # ナビバーの「マニュアル」の実体（skill 同梱の自己完結 HTML をコピー）。
+    # サイトに入れておくことで EXE 配布でもレビュアーがマニュアルを読める
+    manual = Path(__file__).resolve().parent.parent / "MANUAL.html"
+    if manual.exists():
+        shutil.copy2(manual, site / "manual.html")
     # ウィジェット（実行・⑥・承認）の共有 JS。各ページは <script src="/lr-widgets.js"> で参照
     (site / "lr-widgets.js").write_text(browser_run.WIDGETS_JS,
                                         encoding="utf-8", newline="\n")

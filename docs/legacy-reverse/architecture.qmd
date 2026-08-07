@@ -30,6 +30,7 @@ flowchart TB
   end
   MCP["MCP 層<br>legacy-reverse-mcp"] --> scripts
   HK["hooks 層<br>guard_tests.py(拒否)<br>guard_json.py(差し戻し)"]
+  MCP ~~~ HK
   skills -->|呼ぶ| scripts
   ui -->|呼ぶ| scripts
   scripts -->|読み書き| DATA[("functions.json / ledger.json<br>docs/ 成果物")]

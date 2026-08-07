@@ -75,7 +75,9 @@ python <LR>/scripts/serve_site.py --root .
 - `--render` で配信前に作り直し、`--watch` で docs/ 変更を検知して自動再レンダリング。
   ただし**バッチ実行状況ページは Quarto を通さない**ので `--watch` に関係なくリアルタイム
 - ナビバー: WBS / ドメイン知識 / 規約 / ⑥完了検証 / ⑦分析 / 新コード詳細(API) /
-  **バッチ状況**。一斉レビュー表は navbar になく、WBS の「要対応」からリンクする
+  **バッチ状況** / **マニュアル**(render_site が skill 同梱の MANUAL.html を
+  `_site/manual.html` にコピーする。EXE 配布にも入る)。
+  一斉レビュー表は navbar になく、WBS の「要対応」からリンクする
 
 画面ごとの構成・ボタンの出現条件・HTTP API の詳細は [画面設計](screens.qmd)。
 

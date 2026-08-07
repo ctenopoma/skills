@@ -118,6 +118,7 @@ python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知�
 | 仕様書 | `/specs/F-xxxx.html` | ①〜⑤の実行ボタン／承認・修正依頼／⑤の裁定 |
 | 一斉レビュー | `/spec-review.html` | draft をまとめて承認・修正依頼（行内ボタン） |
 | **バッチ状況** | `/pipeline.html` | **連続実行の開始/停止・残タスクの⭐優先・人待ちの承認/裁定・失敗の再実行** |
+| マニュアル | `/manual.html` | 操作マニュアル（本書の詳説版。EXE 配布にも同梱） |
 
 連続実行（①〜⑤を工程横断で自動）は `/pipeline.html` から。CLI の `pipeline.py` は**①専用**。
 

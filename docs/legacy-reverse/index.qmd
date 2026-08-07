@@ -77,7 +77,8 @@ flowchart TB
     UI["serve_site.py<br/>WBS / 仕様書 / 一斉レビュー / バッチ実行状況"]
   end
   L3["MCP 層<br/>legacy-reverse-mcp(30 ツール)"]
-  L4["hooks 層<br/>guard_tests.py(拒否) / guard_json.py(差し戻し)"]
+  L4["hooks 層<br/>guard_tests.py(拒否)<br/>guard_json.py(差し戻し)"]
+  L3 ~~~ L4
   L1 -->|呼ぶ| L2
   L3 -->|import / subprocess| L2
   L5 -->|呼ぶ| L2

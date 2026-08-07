@@ -29,6 +29,7 @@ date: 2026-08-07
 | ⑥ 完了検証 | `/completion-check.html` | 全関数の完了判定レポート | Quarto(`ledger.py check` が生成) |
 | ⑦ 分析 / 定量評価 | `/analysis.html`・`/quant.html` | 施策候補と実測データ | Quarto |
 | 新コード詳細(API) | `/api/index.html` | ④実装の docstring から生成した API リファレンス | Sphinx(別系統) |
+| マニュアル | `/manual.html` | 操作マニュアル(MANUAL.html)。EXE 配布にも同梱される | render_site が skill 同梱の自己完結 HTML をコピー |
 : 画面ごとの URL と役割、誰が生成するか {#tbl-scr-pages}
 
 ```{mermaid}

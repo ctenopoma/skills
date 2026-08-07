@@ -29,6 +29,8 @@ website:
         text: 新コード詳細(API)
       - href: pipeline.html
         text: バッチ状況
+      - href: manual.html
+        text: マニュアル
 
 format:
   html:
