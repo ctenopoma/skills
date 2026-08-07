@@ -18,7 +18,7 @@ date: 2026-08-07
 
 ## 登録(対象プロジェクトの .mcp.json)
 
-```json
+```{#lst-mcp-register .json lst-cap=".mcp.json への登録例"}
 {
   "mcpServers": {
     "legacy-reverse": {
@@ -35,6 +35,7 @@ date: 2026-08-07
 |------|------|
 | serve_site.py / browser_run.py / review_actions.py | 常駐プロセスであり、かつ**人の操作の入口**(実行・承認・裁定の API)。LLM に渡すツールではない |
 | hooks/guard_tests.py・guard_json.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
+: MCP 化から意図的に除外したスクリプトと理由 {#tbl-mcp-excluded}
 
 # ツールリファレンス(30)
 
@@ -48,6 +49,7 @@ date: 2026-08-07
 | `progress_summary` | root | dict | 各フェーズの完了数・blocked・stale・改変・fail の要約 JSON。2000 関数規模でも全関数リストを読まずに状況把握できる |
 | `verify` | root, func_id | dict | ハッシュ連鎖(①→②、③改変、blocked)の検証。`ok=false` なら `problems` に理由 |
 | `next_issue_id` | root | str | 次に使う ISSUE 番号(全体通し) |
+: 台帳を読み取る MCP ツール {#tbl-mcp-ledger-read}
 
 ## ⓪ 機械抽出 — extract_fortran.py / extract_c.py
 
@@ -55,6 +57,7 @@ date: 2026-08-07
 |--------|------|--------|------|
 | `extract_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | Fortran ソースを静的解析し functions.json を生成/マージ。**再実行は常にマージ(func_id 不変・手修正保持)**。返り値に完全性突合の差分・推定呼び出し・未解決名の件数。詳細は data/extract-report.json |
 | `extract_c_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | C/C++ を同じ functions.json にマージ。**Fortran↔C の呼び出しをアンダースコア規約込みで突合**するので、抽出の実行順は問わない(後から走った側が未解決名を解決する)。監査ログは data/extract-report-c.json |
+: レガシーソースを静的解析して台帳を作る MCP ツール {#tbl-mcp-extract}
 
 ## 機械レビュー — review_checks.py
 
@@ -64,6 +67,7 @@ date: 2026-08-07
 | `review_testspec` | root, func_id | dict | ②テスト仕様書の機械レビュー。approved 依頼前に必ず実行 |
 | `review_all` | root | dict | 全関数の①②一括レビュー(skeleton 除外)。⑥前の総点検 |
 | `spec_review_report` | root | dict | ① draft の一斉レビュー表(docs/spec-review.md)を生成。生成後に render_site で HTML 化して人に案内する |
+: 成果物を機械レビューする MCP ツール {#tbl-mcp-review}
 
 検査内容の詳細は [品質ゲート仕様](quality.qmd#review_checkspy-の検査仕様)。
 
@@ -83,6 +87,7 @@ date: 2026-08-07
 | `phase_end` | root | dict | フェーズ終了を記録(hook 解除) |
 | `completion_check` | root | dict | ⑥完了検証を実行し docs/completion-check.md を生成。ok=true が⑥ pass |
 | `sphinx_index` | root | dict | functions.json から docs-sphinx/index.rst(関数一覧+トレース対応表)を再生成 |
+: 台帳を更新し成果物を生成する MCP ツール {#tbl-mcp-ledger-write}
 
 ## 実行系
 
@@ -91,6 +96,7 @@ date: 2026-08-07
 | `run_tests` | root, func_id | dict | **⑤の一括実行**: 事前 verify → pytest(tc マーカー収集)→ 結果報告書の自動生成。`result`: `pass / fail / blocked(要裁定) / mismatch(③マーカー不整合) / verify_ng`。報告書パス・実装率(rate)・attempt・blocked_by も返す |
 | `check_stubs` | root, module | dict | ④のスタブ検出。ok=true でスタブなし |
 | `profile` | root, script? | dict | ⑦の性能計測(cProfile → docs/perf.md)。script 未指定はテスト負荷のスモーク計測。ホットスポット判断は代表ワークロードで |
+: テスト実行と検証を行う MCP ツール {#tbl-mcp-run}
 
 ## 出力系
 
@@ -99,6 +105,7 @@ date: 2026-08-07
 | `render_site` | root, with_sphinx=True, full=False | dict | docs/ を Quarto で HTML 化 → 続けて Sphinx API を docs/_site/api に生成(**正順を内包**)。quarto 直叩きせず render_site.py を通す(Mermaid 影コピーのため)。**既定は差分レンダ**(変わったページだけ。2000 関数でも数十秒)。`full=True` のときだけ全ページ再レンダし、**サイト内検索の索引も更新**する |
 | `build_pdf` | root, kind, title, output | dict | 種別ごとの合本 PDF。kind: `specs / test-specs / test-results` |
 | `build_viewer` | root, name?, port?, render=True, onedir=False | dict | WBS/仕様書サイト同梱の単体実行ファイル(EXE)を dist/ に生成。**1〜2 分かかるため呼び出し側のタイムアウトに注意**。PyInstaller 必要 |
+: サイト・PDF・EXE を生成する MCP ツール {#tbl-mcp-output}
 
 # 実装上の契約
 

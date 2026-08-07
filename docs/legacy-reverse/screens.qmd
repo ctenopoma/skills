@@ -29,8 +29,12 @@ date: 2026-08-07
 | ⑥ 完了検証 | `/completion-check.html` | 全関数の完了判定レポート | Quarto(`ledger.py check` が生成) |
 | ⑦ 分析 / 定量評価 | `/analysis.html`・`/quant.html` | 施策候補と実測データ | Quarto |
 | 新コード詳細(API) | `/api/index.html` | ④実装の docstring から生成した API リファレンス | Sphinx(別系統) |
+: 画面ごとの URL と役割、誰が生成するか {#tbl-scr-pages}
 
 ```{mermaid}
+%%| label: fig-scr-nav
+%%| fig-cap: "画面遷移と、どこから何へ行けるか"
+
 flowchart LR
   WBS["WBS トップ /"]
   SPEC["仕様書 /specs/F-xxxx.html"]
@@ -59,6 +63,9 @@ flowchart LR
 そこに動的な経路を 3 種類だけ足している。
 
 ```{mermaid}
+%%| label: fig-scr-serve
+%%| fig-cap: "静的配信に 3 つの動的経路を足した構成"
+
 flowchart TB
   B["ブラウザ"]
   subgraph SV["serve_site.py — ローカルのみ"]
@@ -99,6 +106,7 @@ Markdown を正とし Quarto でレンダリングするが、バッチ実行状
 | MIME の確定 | Windows のレジストリ由来 MIME は当てにならない(`.js` が `text/plain` になり Mermaid が動かない)ため上書き |
 | 書き込み経路の提供 | 承認・実行・裁定の POST(後述の安全設計つき) |
 | EXE 配布 | PyInstaller のエントリポイント。`_site` を同梱して単体実行ファイル化できる |
+: 素の http.server を使わない 6 つの理由 {#tbl-scr-why-server}
 
 # HTTP エンドポイント仕様
 
@@ -112,6 +120,7 @@ Markdown を正とし Quarto でレンダリングするが、バッチ実行状
 | `/agent-logs/<fid>.txt` | エージェント応答の全文 | ファイル名を `[\w.\-]+\.txt` で検証してから配る |
 | `/favicon.ico` | 無ければ 204 | 404 でログを汚さないため |
 | その他 | `docs/_site` 配下の静的ファイル | `SimpleHTTPRequestHandler` |
+: GET 経路が返すものと、その実装 {#tbl-scr-get}
 
 `_mark_stale_status` は、状態ファイルが `running` のまま残っている(実行プロセスが
 異常終了した)場合に、PID の死活を確認して **`stopped` + 理由に読み替えて配る**。
@@ -130,6 +139,7 @@ Markdown を正とし Quarto でレンダリングするが、バッチ実行状
 | `/batch-priority` | ⭐優先の ON/OFF | `browser_run.prioritize` |
 | `/run-check` | ⑥完了検証(LLM 不使用・同期) | `browser_run.run_check` |
 | `/run-analyze` | ⑦分析の開始 | `browser_run.analyze_start` |
+: POST 経路 8 種の用途と、その実装 {#tbl-scr-post}
 
 応答は常に `{"ok": bool, "message": str}`。`ok: false` は HTTP 422 で返し、
 **message はそのまま画面に出す前提の日本語**にする(「なぜできないか」が
@@ -140,6 +150,9 @@ Markdown を正とし Quarto でレンダリングするが、バッチ実行状
 書き込み経路は次の 4 段で守る。
 
 ```{mermaid}
+%%| label: fig-scr-guard
+%%| fig-cap: "書き込み POST を守る 4 段のガード"
+
 flowchart LR
   R["POST"] --> A{"WRITE_ROUTES<br/>のパスか"}
   A -->|no| E1["404"]
@@ -172,6 +185,7 @@ flowchart LR
 |------|------|------------|
 | **レンダ時に焼き込み** | 仕様書ページの 3 ウィジェット、WBS の⑥⑦ボタン、一斉レビュー表の行内ボタン | 状態が変わったら再レンダリングが必要。操作後に `refresh_site` が自動で走る |
 | **ページ内で動的生成** | バッチ実行状況ページの全要素 | JSON ポーリングで秒単位に更新 |
+: ウィジェット 2 方式と、更新のされ方の違い {#tbl-scr-widget-impl}
 
 焼き込み方式には「操作した瞬間には画面が変わらない」という制約があるため、
 **POST の成功後に `refresh_site`(WBS 再生成 + 一斉レビュー表再生成 + 差分レンダ)を
@@ -200,6 +214,7 @@ HTML は `<script src="/lr-widgets.js">` で参照する(ページごとに JS �
 | ④ 実装済み・⑤ 未 pass | 「⑤を実行する」 | `trigger_widget_html` |
 | ⑤ blocked(⛔) | **裁定ウィジェット**(ISSUE の質問を表示・回答して unblock) | `adjudicate_widget_html` |
 | 完了 | 何も出ない | — |
+: 関数の状態ごとに出るウィジェットは高々 1 つ {#tbl-scr-widget-cond}
 
 WBS トップには 2 つ出る。どちらも**時期が来るまで表示しない**(押せないボタンを
 置かない)。
@@ -208,6 +223,7 @@ WBS トップには 2 つ出る。どちらも**時期が来るまで表示し�
 |------|------------|
 | 全関数の⑤が完了 | 「⑥完了検証を実行する」(LLM 不使用・数十秒で同期完了) |
 | ⑥が pass | 「⑦分析を実行する」(定量計測 → 施策候補の提案まで。コードには触らない) |
+: WBS トップの⑥⑦ボタンが現れる条件 {#tbl-scr-widget-wbs}
 
 仕様書ページは 3 種のウィジェットの候補を持つが、**出すのは高々 1 つ**で、
 優先順は「承認 → 実行 → 裁定」。承認待ちの間に実行ボタンを並べると、
@@ -223,6 +239,7 @@ WBS トップには 2 つ出る。どちらも**時期が来るまで表示し�
 | 承認する | NG の間はグレーアウト。押してもサーバ側で再検証して弾く | NG 付き成果物を承認させない |
 | 修正依頼… | `review-feedback.md` に `pending` として追記 | 次に AI が①②を実行したとき自動で拾われる |
 | 再実行 | NG か修正依頼が残るときだけ表示 | 押しても空振りするボタンを置かない |
+: 承認ウィジェット 4 要素と、その設計意図 {#tbl-scr-approve-parts}
 
 理由の全文をその場に置くのが要点。「一斉レビュー表に ❌4 件と出ているが中身が
 分からない」ため別ページを探しに行く、という往復を無くしている。
@@ -238,6 +255,7 @@ WBS トップには 2 つ出る。どちらも**時期が来るまで表示し�
 |------|------------------|
 | 200 関数以下 | 進捗サマリ + コールグラフ + Open ISSUE + **全関数一覧** |
 | 200 関数超 | 進捗サマリ + 要対応 + あなたへの質問 + 次の一手 + **レガシーファイル別の進捗表**。全関数の明細は `docs/wbs/*.qmd` に分割 |
+: 200 関数を境に切り替わるトップの構成 {#tbl-scr-wbs-scale}
 
 分割の理由は、2000 行の表を 1 ページに置くと「いま何が問題か」が読めなくなるため。
 ダッシュボード側には**判断に必要な情報だけ**(⛔・⚠・❌ と次の一手)を残す。
@@ -254,6 +272,7 @@ WBS トップには 2 つ出る。どちらも**時期が来るまで表示し�
 | 1 | そのまま承認できる | 承認 / 修正依頼… |
 | 2 | 承認できるが ISSUE(人への質問)がある | 承認 / 修正依頼… + ISSUE リンク |
 | 3 | 機械レビュー NG(AI 修正待ち) | ボタンなし(「AI修正待ち」と表示) |
+: 一斉レビュー表は並び順そのものが優先度 {#tbl-scr-review-order}
 
 列は 6 つ — 関数 / 概要 / Confidence / 機械レビュー / 未確定(ISSUE) / 操作。
 Confidence は 🟢🟡🔴 を 3 列に分けず「2🟢 1🟡」の 1 列に統合した(列数を減らして
@@ -273,6 +292,9 @@ Confidence は 🟢🟡🔴 を 3 列に分けず「2🟢 1🟡」の 1 列に�
 無人実行の運転席。`serve_site.py` の `PIPELINE_PAGE` が実体で、Quarto を通さない。
 
 ```{mermaid}
+%%| label: fig-scr-pipeline-page
+%%| fig-cap: "バッチ実行状況ページの 4 ブロック構成"
+
 flowchart TB
   subgraph P["/pipeline.html"]
     OP["① 操作列 — 件数プルダウン・開始・停止"]
@@ -320,6 +342,7 @@ flowchart TB
 | 人待ち | `approve-spec` | ① が draft(かつ再実行対象でない) |
 | 人待ち | `approve-testspec` | ② が generated |
 | 人待ち | `adjudicate` | `ledger.blocked_by` あり |
+: 残タスクを自動実行待ちと人待ちに分ける判定 {#tbl-scr-queue-kind}
 
 自動実行待ちの並びは `_scan_targets` と同じ規則(⭐優先 → `functions.json` 順)で、
 **画面の並び = 実際の実行順**になるようにしている。
@@ -330,6 +353,7 @@ flowchart TB
 |--------|------|------|
 | `/pipeline-status.json` | 2.5 秒 | 小さい JSON。ライブ感が要る |
 | `/batch-queue` | 約 15 秒 + 検索時・操作後 | 全関数の frontmatter を読むので重い。ポーリングに載せない |
+: 2 種のポーリング間隔と、そう決めた理由 {#tbl-scr-polling}
 
 **結果パネルは内容が変わったときだけ再描画する。** 2.5 秒ごとに `innerHTML` を
 丸ごと差し替えると、人が読もうと開いた `<details>` が毎回閉じて「チカチカして
@@ -346,6 +370,7 @@ flowchart TB
 | 成果物・WBS・一斉レビュー表の閲覧 | ⭕ | ⭕ |
 | 残タスク一覧(`/batch-queue`) | ⭕ | ❌ |
 | 承認・修正依頼・裁定・実行(POST 全般) | ⭕ | ❌(403 と理由を返す) |
+: 配布 EXE で閲覧だけになる機能の内訳 {#tbl-scr-exe-diff}
 
 EXE の中身はビルド時点のスナップショットで、操作しても元プロジェクトには反映されない。
 **黙って失敗させず、理由を返して「できないこと」を明示する**方針にしている。
@@ -362,6 +387,7 @@ EXE の中身はビルド時点のスナップショットで、操作しても�
 | `agent-logs/F-xxxx.txt` | `save_agent_log`(追記) | `/agent-logs/*` | エージェント応答の全文 |
 | `pipeline-log.jsonl` | `log_line` | 人・分析 | 1 行 1 試行 |
 | `run.lock` | ロック取得時 | 二重起動の判定 | PID 入り |
+: 実行時状態ファイルの、書く人と読む人 {#tbl-scr-state-files}
 
 **`recent[]` には工程(`phase`)を記録する。** これが無いと結果パネルで
 「F-0019 が NG」までしか出せず、①なのか⑤なのかが分からない。
@@ -376,6 +402,9 @@ EXE の中身はビルド時点のスナップショットで、操作しても�
 **同時に走ってよい実行は 1 つだけ**。どの入口からでも同じロックを取り合う。
 
 ```{mermaid}
+%%| label: fig-scr-lock
+%%| fig-cap: "3 つの入口が 1 本の実行枠を取り合う排他"
+
 flowchart TB
   C["チャット skill"] --> R
   P["CLI pipeline.py"] --> R
@@ -403,6 +432,7 @@ POST は**スレッドを起動して即座に応答を返す**。実行完了�
 |------|--------------|------|---------|
 | 停止 | `/run-cancel` | **バッチ全体**を止める | もう今日は終わり |
 | この件をスキップ | `/run-skip` | **いまの 1 件だけ**中止し、次へ進む | 1 件が長引いている |
+: 停止とスキップ、止まる範囲の違い {#tbl-scr-stop-skip}
 
 実装は `_AnyEvent`(複数 Event の OR ビュー)で、`run_one` には
 「バッチ全体の中止」と「この 1 件のスキップ」を OR にしたものを渡す。
@@ -424,6 +454,9 @@ POST は**スレッドを起動して即座に応答を返す**。実行完了�
 成果物(`.md`)がブラウザに出るまでの流れ。
 
 ```{mermaid}
+%%| label: fig-scr-render
+%%| fig-cap: "成果物がブラウザに出るまでのレンダリング経路"
+
 flowchart LR
   MD["docs/**/*.md<br/>(成果物・正)"] -->|影コピー| SW["docs/_sitework/*.qmd"]
   SW -->|quarto render| SITE["docs/_site/*.html"]
@@ -452,6 +485,7 @@ flowchart LR
 | 残タスクは既定 9 件 + 検索 | 2000 関数で破綻しない | 全件表示 + クライアント検索(重い) |
 | 実行順番号をサーバで振る | 画面の並び = 実際の実行順を保証 | クライアント補正(ズレる) |
 | 人待ちを運転席に集約 | 実際のボトルネックだから | WBS へ戻らせる(往復) |
+: 画面設計で採った案と、捨てた案の対比 {#tbl-scr-decisions}
 
 関連: [運用設計](operations.qmd) — 導入・日常運用・配布 /
 [品質ゲート仕様](quality.qmd) — 承認前に機械が何を検証するか

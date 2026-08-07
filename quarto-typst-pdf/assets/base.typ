@@ -32,6 +32,14 @@
 #show figure.caption: set text(size: 9pt)
 #show figure.caption: set block(above: 0.7em, below: 0.7em)
 
+// --- 図表を版面の中央に置く ---
+// 図・表・リストはブロック要素として本文から独立させ、左右中央に配置する。
+// 表のセルまで中央寄せが継承されるのは下の table.cell で打ち消している。
+// caption 側も明示しないと、コードリスト(quarto-float-lst)のキャプションだけ
+// 左寄せのまま残る(Quarto がリストのキャプションを block で包むため)。
+#show figure: set align(center)
+#show figure.caption: set align(center)
+
 // --- 表: 外枠で囲う ---
 // セル側の罫線(designs/*.typ が定義)に加え、表全体を1本の枠線で囲む。
 #show table: it => block(stroke: 0.9pt + luma(90), breakable: true, it)

@@ -4,6 +4,18 @@ project:
 
 lang: ja
 
+# 図・表・リストの採番とキャプション見出し語。PDF 合本(make_pdf.py → qtpdf book)
+# 側にも同じ設定が入っており、HTML と PDF で「図 / 表 / リスト」の呼び方を揃える
+crossref:
+  fig-title: "図"
+  fig-prefix: "図"
+  tbl-title: "表"
+  tbl-prefix: "表"
+  lst-title: "リスト"
+  lst-prefix: "リスト"
+  sec-prefix: "節"
+  title-delim: ": "
+
 website:
   title: "legacy-reverse 設計・仕様書"
   search:

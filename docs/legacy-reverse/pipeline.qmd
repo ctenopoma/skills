@@ -20,6 +20,7 @@ date: 2026-08-07
 | ⑤ テスト | `/legacy-5-test F-xxxx` | 仕様書ページ / 連続実行 | 実行結果+①② | docs/test-results/ | result: pass(実装率 100%・失敗 0) |
 | ⑥ 完了検証 | `/legacy-6-check` | WBS トップ(全⑤完了後) | 全成果物 | completion-check.md | ledger check + review all が exit 0 |
 | ⑦ 分析・改善 | `/legacy-7-analyze` | WBS トップ(⑥pass 後) | src/・docs/・計測 | analysis.md・施策票 | テスト全 pass 維持(挙動保存) |
+: ⓪〜⑦の起動方法と入出力および完了判定 {#tbl-pipe-phases}
 
 **連続実行**は①〜⑤を工程横断で自動的に回す(1 件ごとに全関数を再走査し、
 次に着手できる工程を選ぶ)。承認待ち・裁定待ちはスキップするので、
@@ -39,6 +40,7 @@ date: 2026-08-07
 | ④ 実装 | ①(reviewed)、conventions.md | **legacy/**、**②**、**tests/** |
 | ⑤ テスト | 結果+①②(トリアージ判断用)、src/((a)修正時) | legacy/、tests/ の編集 |
 | ⑦ 分析 | src/・docs/・計測結果(全体を見る) | tests/ の編集(挙動保存が大原則) |
+: フェーズごとに読んでよい入力と禁止する入力 {#tbl-pipe-isolation}
 
 レガシー原文を読める役割は **⓪ と ①(改訂含む)だけ**。
 
@@ -107,6 +109,9 @@ date: 2026-08-07
 実行フロー(run_tests は⑤の一括 MCP ツール):
 
 ```{mermaid}
+%%| label: fig-pipe-test
+%%| fig-cap: "⑤テストの実行フローと exit code による分岐"
+
 flowchart LR
   V["ledger verify<br>(②stale・③改変・blocked 検査)"] --> T["pytest<br>(tc マーカー収集)"]
   T --> C["collect_results.py<br>(②と突合 → 報告書生成)"]
@@ -125,6 +130,7 @@ flowchart LR
 | (a) 実装バグ | 実装が①を満たしていない | AI が④修正 → ⑤再実行を自走(上限 3 回) |
 | (b) テストコードバグ | ③が②とズレている | ISSUE の証拠を人が承認 → ③再生成 → 再 freeze |
 | (c) 仕様が誤り | ②①自体が間違い | ISSUE で人が裁定 → ①改訂(下流 stale は自動検知) |
+: ⑤失敗時のトリアージ 3 分類と対応の分担 {#tbl-pipe-triage}
 
 - **④⑤ループ上限は 3 回**(attempt = 最後の裁定以降の⑤実行回数)。
   到達で triage ISSUE 自動起票 → ledger に blocked_by 記録 → WBS ⛔。

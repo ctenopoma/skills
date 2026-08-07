@@ -12,7 +12,7 @@
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
 | [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
-| [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、章別 PDF は同梱の `pdf/`。再生成は `make_pdf.py`） |
+| [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、合本 PDF は同梱の `pdf/`。再生成は `make_pdf.py`。章別に分けたいときは `--chapters`） |
 | [references/workflow.md](references/workflow.md) / [schema.md](references/schema.md) | フェーズskill・スクリプト（規則とデータの正） |
 
 ## 構成

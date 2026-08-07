@@ -849,6 +849,20 @@ format:
 fig-supplement: "図"
 tbl-supplement: "表"
 
+# 図・表・リストの自動採番とキャプション。chapters: true で「図 2.1」のように
+# 章番号付きになる。キャプション(タイトル)を書いた要素だけが採番対象で、
+# 書かなかった表・画像は numbering.lua が番号だけ振る。
+crossref:
+  chapters: true
+  fig-title: "図"
+  fig-prefix: "図"
+  tbl-title: "表"
+  tbl-prefix: "表"
+  lst-title: "リスト"
+  lst-prefix: "リスト"
+  sec-prefix: "節"
+  title-delim: ": "
+
 filters:
   - quarto
   - {assets}/filters/strip-numbers.lua

@@ -9,27 +9,27 @@ date: 2026-08-07
 本システムの最重要の設計判断は、**「判断」と「機械処理」を層で分けた**こと。
 
 ```{mermaid}
+%%| label: fig-arch-layers
+%%| fig-cap: "skills / scripts / MCP / hooks / 画面の責務分担"
+
 flowchart TB
-  subgraph skills["skills(判断・手順 = LLM が読む)"]
+  subgraph skills["skills 層"]
     P["legacy-reverse<br>全体管理・次の一手"]
-    S0["legacy-0-analyze"] --> S1["legacy-1-spec"] --> S2["legacy-2-testspec"]
-    S2 --> S3["legacy-3-testcode"] --> S4["legacy-4-impl"] --> S5["legacy-5-test"]
-    S5 --> S6["legacy-6-check"] --> S7["legacy-7-analyze"]
+    S["legacy-0-analyze 〜 legacy-7-analyze<br>(フェーズ別 8 skill)"]
   end
-  subgraph scripts["scripts(機械操作 = 決定的)"]
+  subgraph ui["画面 層"]
+    SS["serve_site.py<br>配信 + 実行・承認 API"]
+    BR["browser_run.py / review_actions.py<br>ブラウザ実行・承認・裁定"]
+  end
+  subgraph scripts["scripts 層"]
     EX["extract_fortran.py / extract_c.py"]
-    LG["ledger.py"]
-    RV["review_checks.py"]
+    LG["ledger.py"] --- RV["review_checks.py"]
     CS["check_stubs.py"] --- CR["collect_results.py"]
     RS["render_site.py"] --- PB["pdf_book.py"]
     PL["pipeline.py"] --- QA["quant_analyze.py"]
   end
-  subgraph ui["画面(人の操作面)"]
-    SS["serve_site.py<br>配信 + 実行・承認 API"]
-    BR["browser_run.py / review_actions.py<br>ブラウザ実行・承認・裁定"]
-  end
-  MCP["legacy-reverse-mcp<br>scripts を型付きツール化"] --> scripts
-  HK["hooks/guard_tests.py(拒否)<br>hooks/guard_json.py(差し戻し)"]
+  MCP["MCP 層<br>legacy-reverse-mcp"] --> scripts
+  HK["hooks 層<br>guard_tests.py(拒否)<br>guard_json.py(差し戻し)"]
   skills -->|呼ぶ| scripts
   ui -->|呼ぶ| scripts
   scripts -->|読み書き| DATA[("functions.json / ledger.json<br>docs/ 成果物")]
@@ -42,6 +42,7 @@ flowchart TB
 | MCP | scripts を import/subprocess するだけの型付きラッパ | **二重管理なし**。ロジックは常に scripts 側が正 |
 | hooks | PreToolUse は呼び出しを拒否、PostToolUse は結果を検証して差し戻す | 「プロンプトで禁止」は破られ得る。強制は仕組みで |
 | 画面 | 人の操作(トリガ・承認・裁定)の入口。判断もロジックも持たない | LLM に渡すツールではないので MCP 化しない。実行の実体は scripts 側と共有する |
+: 各層の中身と、そう分けた理由 {#tbl-arch-layers}
 
 skills から scripts への呼び出しは、MCP 登録済み環境では **MCP ツール優先**、
 未登録なら直接実行。どちらでも実体は同一([運用設計 — 導入](operations.qmd#導入手順)参照)。
@@ -68,12 +69,16 @@ skills から scripts への呼び出しは、MCP 登録済み環境では **MCP
 | legacy-5-test | ⑤ | 実行・結果収集・トリアージ・④⑤ループ管理 |
 | legacy-6-check | ⑥ | 完了検証と最終レンダリング |
 | legacy-7-analyze | ⑦ | 分析・改善(挙動保存。テスト全 pass 維持が絶対条件) |
+: フェーズ別スキルの担当範囲と入力の制限 {#tbl-arch-skills}
 
 # クリーンルーム分業の意図
 
 ②と④が互いを見ない・レガシーを見ないことが品質保証の核。
 
 ```{mermaid}
+%%| label: fig-arch-cleanroom
+%%| fig-cap: "①を共通の親とする 2 系統と⑤での突き合わせ"
+
 flowchart TB
   L["legacy 原文"] --> S1["① 仕様書(共通の親)"]
   S1 --> T["テスト系: ② → ③"]
@@ -111,6 +116,7 @@ flowchart TB
 | build_viewer.py | 配布用単体実行ファイル | サイト+配信サーバを PyInstaller で 1 ファイル化。受け手に Python / Quarto 不要。**閲覧専用**(書き込み API は 403) |
 | hooks/guard_tests.py | ④⑤中の tests/ 編集拒否(PreToolUse) | state.json(phase-start / end)を見て判定 |
 | hooks/guard_json.py | 編集直後の JSON 構文検証(PostToolUse) | 壊れていたら exit 2 で**エージェント自身に差し戻す**。正データの破損でバッチが止まるのを源流で断つ |
+: 主要スクリプトの責務と設計メモ {#tbl-arch-scripts}
 
 # スケール設計(2000 関数級)
 
@@ -134,5 +140,6 @@ flowchart TB
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント(①と legacy だけを読む)をドライバ段に挿入 |
 | ⑦の改善適用ループ | 現状は「計測 → 提案」まで。施策票の承認 → 適用 → 再計測 → 達成判定のイタレーションは形が大きく異なるため別設計 |
 | 新言語ターゲット | 現状 Python+pytest。将来 JS / Rust 拡張を想定 |
+: 拡張ポイントと、追加するときの手順 {#tbl-arch-extension}
 
 関連: [画面設計](screens.qmd) — 実行・承認の入口としての画面層の詳細

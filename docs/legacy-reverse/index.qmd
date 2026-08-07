@@ -24,6 +24,9 @@ Claude Code スキル群+決定的スクリプト群+MCP サーバ。
 遷移が自動になる — ただし承認・裁定は必ず人を待つ。
 
 ```{mermaid}
+%%| label: fig-index-phases
+%%| fig-cap: "8 フェーズの依存関係と④⑤の反復ループ"
+
 flowchart LR
   P0["⓪ リポジトリ解析"] --> P1["① 関数仕様書"]
   P1 --> P2["② テスト仕様書"]
@@ -49,32 +52,36 @@ flowchart LR
 | 機械が正、AI は意味づけ | 列挙・検証・台帳操作は決定的スクリプト。AI は読解と執筆だけ | ハルシネーション・省略・数え漏れ |
 | 人の承認ゲート | 仕様確定・テスト承認・裁定は人。AI は「仮説+Yes/No」で聞く | AI による勝手な仕様確定 |
 | 強制は仕組みで | テスト保護は hook、スタブ検知・引用検証はスクリプト | 「プロンプトで禁止」の不確実さ |
+: 設計原則と、それぞれが防ぐもの {#tbl-index-principles}
 
 詳細: [アーキテクチャと設計判断](architecture.qmd)
 
 # システムの 3+1 層
 
 ```{mermaid}
+%%| label: fig-index-layers
+%%| fig-cap: "skills / scripts / MCP / hooks / 画面の呼び出し関係"
+
 flowchart TB
-  subgraph L1["skills 層 — 判断・手順(LLM が読む)"]
+  subgraph L1["skills 層"]
     P["legacy-reverse(全体管理)"]
     S["legacy-0 〜 legacy-7(フェーズ別)"]
   end
-  subgraph L2["scripts 層 — 決定的な機械処理"]
+  subgraph L2["scripts 層"]
     EX["extract_fortran.py(⓪機械抽出)"]
     LG["ledger.py(台帳・WBS・検証)"]
     RV["review_checks.py(機械レビュー)"]
-    OT["collect_results / check_stubs / render_site / pdf_book / pipeline ほか"]
+    OT["collect_results / check_stubs<br/>render_site / pdf_book / pipeline ほか"]
   end
-  subgraph L5["画面層 — serve_site.py(ローカル配信 + 実行・承認 API)"]
-    UI["WBS / 仕様書 / 一斉レビュー / バッチ実行状況"]
+  subgraph L5["画面層"]
+    UI["serve_site.py<br/>WBS / 仕様書 / 一斉レビュー / バッチ実行状況"]
   end
-  L3["MCP 層 — legacy-reverse-mcp(scripts を型付きツール化・30 ツール)"]
-  L4["hooks 層 — guard_tests.py(tests/ 編集を拒否) / guard_json.py(壊れた JSON を差し戻し)"]
+  L3["MCP 層<br/>legacy-reverse-mcp(30 ツール)"]
+  L4["hooks 層<br/>guard_tests.py(拒否) / guard_json.py(差し戻し)"]
   L1 -->|呼ぶ| L2
   L3 -->|import / subprocess| L2
   L5 -->|呼ぶ| L2
-  L2 -->|読み書き| D[("functions.json / ledger.json / docs/ 成果物")]
+  L2 -->|読み書き| D[("functions.json / ledger.json<br/>docs/ 成果物")]
 ```
 
 | 層 | 役割 | 章 |
@@ -84,6 +91,7 @@ flowchart TB
 | MCP | scripts の型付きラッパ(判断は持たない・二重管理なし)。許可プロンプトとシェル事故を減らす | [MCP サーバ仕様](mcp-server.qmd) |
 | hooks | LLM の自制に頼らない強制層。PreToolUse は**拒否**、PostToolUse は**差し戻し** | [品質ゲート仕様](quality.qmd) |
 | 画面 | 人の 4 つの仕事(トリガ・回答・承認・裁定)をブラウザで完結させる操作面 | [画面設計](screens.qmd) |
+: 各層の役割と、詳細を書いた章 {#tbl-index-layers}
 
 # 整合性の背骨: ハッシュ連鎖
 
@@ -91,6 +99,9 @@ flowchart TB
 WBS に stale⚠ / ⚠改変が自動表示される。「①を直したのに②を直し忘れた」は構造的に起きない。
 
 ```{mermaid}
+%%| label: fig-index-hash
+%%| fig-cap: "①→②→③ と台帳に伝搬するハッシュ連鎖"
+
 flowchart LR
   L["legacy 原文"] -->|hash| S1["① spec(legacy.hash)"]
   S1 -->|hash| S2["② test-spec(spec-hash)"]
@@ -113,6 +124,7 @@ LLM 成果物は人に届く前に、決定的スクリプトの検証を必ず�
 | スタブ実装(④) | check_stubs.py |
 | 上流改訂の見落とし(⑤前) | ledger verify |
 | 意味レベルのすり替え | **機械では取れない** → 人の①レビュー+⑤の突き合わせが受け持つ |
+: 誤りの種類と、それを検知する仕組み {#tbl-index-quality}
 
 詳細: [品質ゲート仕様](quality.qmd)
 
@@ -130,6 +142,7 @@ LLM 成果物は人に届く前に、決定的スクリプトの検証を必ず�
 | ブラウザ単発 | 仕様書ページのボタン | 1 関数 × 1 工程 | 数件 |
 | **ブラウザ連続実行** | バッチ実行状況ページ | **①〜⑤を工程横断で自動** | 数十〜数百件 |
 | **無人バッチ(CLI)** | `pipeline.py spec` | ①のみ・全件 | 数百〜2000 件 |
+: 5 つの運転モードと、それぞれが向く規模 {#tbl-index-modes}
 
 - ブラウザ連続実行と無人バッチはどちらも 1 関数 = 1 headless プロセスなので、
   会話のトークン上限に依存しない。両者は同じ実行枠(ロック)を共有し二重起動しない
@@ -151,6 +164,7 @@ LLM 成果物は人に届く前に、決定的スクリプトの検証を必ず�
 | どの画面に何が出るか・HTTP API・承認 UI の設計 | [画面設計](screens.qmd) |
 | MCP ツール 30 個の入出力仕様 | [MCP サーバ仕様](mcp-server.qmd) |
 | 導入・日常運用・無人バッチ・配布・トラブル対処 | [運用設計](operations.qmd) |
+: 知りたいことから読む章を引く対応表 {#tbl-index-guide}
 
 ## 既存ドキュメントとの関係
 
@@ -161,3 +175,4 @@ LLM 成果物は人に届く前に、決定的スクリプトの検証を必ず�
 | MANUAL.md / MANUAL.html / MANUAL.pdf | 操作者 | 背景と操作の意味・トラブル対処。HTML は画像込みの単一ファイルで配れる |
 | **本サイト** | **設計者・保守者・運用管理者** | **構造・仕様・運用設計の正を集約(DESIGN.md を包含・拡張)** |
 | references/workflow.md / schema.md | フェーズ skill・スクリプト | 実行時規則とデータの**正**(機械が従う原本) |
+: 既存ドキュメントと本サイトの守備範囲 {#tbl-index-docs}

@@ -33,10 +33,11 @@ date: 2026-08-07
 | 1. 発生の直後 | `hooks/guard_json.py`(PostToolUse)が編集直後に構文検証 | 壊れた位置(行・列)を添えて**エージェント自身に差し戻す**。人を待たずにその場で直る |
 | 2. 読み込み時 | `ledger.load_json` が行番号つきの明示エラーで停止 | 生の traceback ではなく「どこが・どう壊れ・どう直すか」を出す |
 | 3. 実行系 | バッチ・単発・サーバがこれを「データ異常のため停止」として扱う | 画面に理由が残る(無言で止まらない) |
+: functions.json の破損を受け止める 3 段の防御 {#tbl-data-guard}
 
 # 対象プロジェクトのディレクトリ構成
 
-```
+```{#lst-data-tree lst-cap="対象プロジェクトの成果物と実行時データの配置"}
 <project>/
   legacy/               # レガシー原文(読み取り専用。読めるのは ⓪ と ①改訂のみ)
   src/<package>/        # ④ 新実装
@@ -84,7 +85,7 @@ date: 2026-08-07
 ⓪の機械抽出(extract_fortran.py / extract_c.py)が生成・マージする正データ。
 言語混在プロジェクトでは複数の抽出器が同じファイルにマージする。
 
-```json
+```{#lst-data-functions .json lst-cap="正データ functions.json のスキーマ"}
 {
   "project": {
     "name": "string",
@@ -129,6 +130,7 @@ date: 2026-08-07
 |--------|------|---------|
 | `manual: true` | 人の指示で後追い追加したエントリ | 抽出の再実行で「ソースに無い」警告を出さない。実ソースで確認されたら自動で外れる |
 | `excluded: true` + `excluded_reason` | 移植対象外 | ①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に**理由つきで残る** |
+: 人が後追いで付ける調整フラグと設計判断 {#tbl-data-flags}
 
 **エントリの物理削除は禁止**。抽出を再実行するとソースから別の func_id として復活し、
 既存の成果物との紐付けが切れるため。対象から外すのは必ずフラグで行う。
@@ -143,12 +145,13 @@ date: 2026-08-07
 | inferred_calls | 静的解析で推定した呼び出し関係 |
 | unresolved_calls | 解決できなかった呼び出し名(外部ライブラリ等の可能性) |
 | マージ差分 | 再実行時の追加・変更・保持の内訳 |
+: 抽出の監査ログでレビューすべき項目 {#tbl-data-extract-report}
 
 # data/ledger.json
 
 スクリプト(ledger.py / collect_results.py)だけが読み書きする。手編集禁止。
 
-```json
+```{#lst-data-ledger .json lst-cap="スクリプト専用台帳 ledger.json のスキーマ"}
 {
   "F-0123": {
     "test_code_hash": "e5f6a7b8",
@@ -163,10 +166,11 @@ date: 2026-08-07
 | test_code_hash | ③ freeze 時のテストファイル sha256 先頭 8 桁。現物と不一致 = ⚠改変 |
 | blocked_by | ④⑤ループ上限到達時の ISSUE-ID。人の裁定後 `unblock` で null に戻る |
 | attempt_reset_at | この時刻以降の結果ファイル数 = attempt(⑤実行回数)。unblock でリセット |
+: 台帳の各キーが保持する状態 {#tbl-data-ledger-keys}
 
 # .legacy-reverse/state.json
 
-```json
+```{#lst-data-state .json lst-cap="hook が参照するフェーズ状態のスキーマ"}
 { "phase": "5", "func_id": "F-0123" }
 ```
 
@@ -178,7 +182,7 @@ date: 2026-08-07
 実行中の状態。**表示専用の使い捨て**で、進捗の正ではない(正は成果物側)。
 書き込みはアトミック(tmp → replace)なので、読み手が壊れた JSON を掴むことはない。
 
-```json
+```{#lst-data-status .json lst-cap="ライブ進捗 pipeline-status.json のスキーマ"}
 {
   "state": "running",
   "mode": "連続実行(ブラウザ)",
@@ -205,12 +209,13 @@ date: 2026-08-07
 | recent[].phase | どの工程だったか(`spec` / `testspec` / …)。連続実行は工程横断なので、これが無いと結果行が何の失敗か分からない |
 | recent[].problems | 機械レビューの指摘の全文。画面で箇条書きにする(件数だけ出して探しに行かせない) |
 | metrics.median_sec | 成功した実行の所要時間の中央値。画面の進捗バーの基準になる |
+: 画面表示が依存する主要キーとその役割 {#tbl-data-status-keys}
 
 # .legacy-reverse/batch-priority.json
 
 画面の「⭐優先」が書く割り込み指示。スクリプト専用。
 
-```json
+```{#lst-data-priority .json lst-cap="⭐優先の割り込み指示 batch-priority.json のスキーマ"}
 { "order": ["F-0033", "F-0021"], "retry": ["F-0021"] }
 ```
 
@@ -218,6 +223,7 @@ date: 2026-08-07
 |------|------|------|
 | order | 実行順の割り込み。この順で走査結果の先頭に並べ替える | 残り続ける(⭐解除まで) |
 | retry | 失敗スキップ集合からの解除対象 | **次の走査で消費されるワンショット** |
+: 割り込み指示のキーと消費の規則 {#tbl-data-priority-keys}
 
 `retry` をワンショットにするのは、毎回解除すると失敗し続ける関数が無限に再試行されて
 バッチが進まなくなるため。
@@ -236,10 +242,14 @@ WBS の ✅ 判定・`ledger next` の着手可否判定は、すべてこの表
 | ⑤ test | (最新結果ファイル) | result: pass(= 実装率 100% かつ失敗 0) |
 | ISSUE | open → answered → applied | — (open は WBS 最上部に露出) |
 | ⑦ 施策票 | proposed → approved → applied → verified | achieved |
+: 成果物ごとの status 遷移と WBS の完了条件 {#tbl-data-status-flow}
 
 ## ハッシュ連鎖の実装
 
 ```{mermaid}
+%%| label: fig-data-hash-chain
+%%| fig-cap: "レガシー原文から台帳まで伝搬するハッシュ連鎖"
+
 flowchart LR
   L["legacy 原文"] -->|"legacy.hash"| S1["① spec フロントマター"]
   S1 -->|"spec-hash"| S2["② test-spec フロントマター"]
@@ -260,3 +270,4 @@ flowchart LR
 | ☐ | 未着手 |
 | ⛔ | 裁定待ち(blocked。ISSUE に回答を) |
 | ⚠ | stale(上流改訂)または改変(freeze 後変更)→ 要再確認 |
+: 関数一覧に出る記号と対応する状態 {#tbl-data-wbs-marks}
