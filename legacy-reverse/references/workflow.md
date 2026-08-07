@@ -160,7 +160,8 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   残タスクは `GET /batch-queue`（実行順・検索・件数集計。`_scan_targets` と同じ判定）、
   ⭐優先は `POST /batch-priority` → `.legacy-reverse/batch-priority.json`
   （order=割り込み順・retry=失敗スキップの解除。次の走査で反映）
-- CLI の pipeline.py は①専用の従来バッチとして残る（数百件を最初に流す用途）。
+- CLI の pipeline.py は `spec`（①専用・従来バッチ）と `run`（①〜⑤工程横断。
+  browser_run の `_scan_targets`/`KINDS` を共有し⭐優先も反映）の2サブコマンド。
   連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する
 - 現状は①〜⑥（⑥は下記別枠）。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
 

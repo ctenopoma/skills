@@ -249,8 +249,9 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
         （共有マシンでは使わない）</li>
     </ul>
     夜に起動して寝る → 翌朝 <strong>一斉レビュー表</strong>を見て承認するだけ。</div>
-  <p class="note">この CLI は<strong>①専用</strong>。②以降も続けて自動で進めたいときは、次ページの
-  「連続実行」を使う。／ <code>claude</code> が見つからないと言われたら
+  <p class="note"><code>spec</code> は①専用。<strong>②以降も含めて回すなら
+  <code>pipeline.py run</code></strong>（ブラウザの「連続実行」と同じ走査・⭐優先も反映）か、
+  次ページの「連続実行」を使う。／ <code>claude</code> が見つからないと言われたら
   <code>(Get-Command claude).Source</code> で実体パスを調べて
   <code>--claude-cmd "&lt;パス&gt;"</code> で明示する。</p>
 </section>

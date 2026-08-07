@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""pipeline.py — ①仕様書の無人バッチ実行ドライバ（2000関数規模・トークン制約なし）。
+"""pipeline.py — 無人バッチ実行ドライバ（2000関数規模・トークン制約なし）。
+
+サブコマンドは2つ:
+  spec  ①仕様書だけを全件 draft まで回す（→ 人が一斉レビュー表でまとめて承認）
+  run   ①〜⑤を工程横断で回す（ブラウザ「連続実行」の CLI 版。承認済みの関数から
+        ②③④⑤と自動で進み、承認・裁定待ちはスキップ。⭐優先も反映される）
 
 エージェントの会話内ループと違い、**1関数 = 1つの新しい headless Claude プロセス**
 （`claude -p "/legacy-1-spec F-xxxx"`）で回すため、コンテキストが積み上がらない。
@@ -26,8 +31,9 @@
 書きかけ draft は機械レビュー NG として検出し先に修復される）。
 
 使い方（対象プロジェクトのルートで）:
-  python <LR>/scripts/pipeline.py spec --root . --max-funcs 200
-  python <LR>/scripts/pipeline.py spec --root . --dry-run          # 対象と手順の確認のみ
+  python <LR>/scripts/pipeline.py spec --root . --max-funcs 200   # ①だけ全件
+  python <LR>/scripts/pipeline.py run  --root . --max-funcs 100   # ①〜⑤を工程横断で
+  python <LR>/scripts/pipeline.py run  --root . --dry-run         # 対象と実行順の確認のみ
 
 前提:
   - 対象プロジェクトに legacy-reverse の skill 一式が配置済み（.claude/skills/）
@@ -750,6 +756,124 @@ def cmd_spec(args) -> None:
           f"OK分を reviewed 化してください")
 
 
+def cmd_run(args) -> None:
+    """①〜⑤を工程横断で無人実行する（ブラウザ「連続実行」の CLI 版）。
+
+    対象選定（次に着手できる工程）・工程別の設定（プロンプト・検証関数・リトライ数）・
+    ⭐優先の反映は browser_run の `_scan_targets` / `KINDS` をそのまま使う（二重管理しない）。
+    1件終わるごとに全関数を再走査するので、実行中に人がブラウザで承認・裁定した分も
+    次の走査で自動的に拾われる。
+    """
+    root = Path(args.root).resolve()
+    import browser_run     # 遅延 import（browser_run → pipeline の向きで先に張られるため）
+    import review_actions
+
+    def label(kind: str) -> str:
+        cfg = browser_run.KINDS[kind]
+        return cfg["label"] + cfg["noun"]
+
+    targets = browser_run._scan_targets(root, set())
+    if not targets:
+        print("実行できる工程がない（残りは承認・裁定待ちか完了）。"
+              "WBS か /pipeline.html の「人待ち」を確認してください")
+        return
+    print(f"対象 {len(targets)} 工程から開始"
+          + (f"（このセッションは最大 {args.max_funcs} 件）" if args.max_funcs else ""))
+    if args.dry_run:
+        for fid, kind in targets[:args.max_funcs or None]:
+            cfg = browser_run.KINDS[kind]
+            print(f"  {label(kind):<10} claude -p \"{cfg['prompt_template'].format(fid=fid)}\"")
+        print("※ 実際は1件ごとに再走査するため、実行中の承認・⭐優先で対象と順番は変わる")
+        return
+
+    claude_cmd = find_claude(args.claude_cmd)
+    preflight_claude(claude_cmd)
+    extra = []
+    if args.model:
+        extra += ["--model", args.model]
+    if args.skip_permissions:
+        extra += ["--dangerously-skip-permissions"]
+    extra += args.claude_args
+
+    status = RunStatus(root, "連続実行（CLI）", len(targets), args)
+    import serve_site                        # ポート規則は serve_site.default_port が正
+    pname = Project(root).functions.get("project", {}).get("name") or root.name
+    print(f"ライブ進捗: http://127.0.0.1:{serve_site.default_port(pname)}/pipeline.html"
+          f"（serve_site.py を起動していれば。2〜3秒ごとに自動更新）")
+
+    skip: set = set()
+    done = failed = consecutive_fail = 0
+    cost_total, rate_waited = 0.0, 0
+    stop_reason = ""
+    try:
+        while targets:
+            if args.max_funcs and done + failed >= args.max_funcs:
+                stop_reason = f"セッション上限 {args.max_funcs} 件に到達"
+                print(f"{stop_reason}。同じコマンドで再開できる")
+                break
+            if args.budget_usd and cost_total >= args.budget_usd:
+                stop_reason = f"予算 ${args.budget_usd} に到達（累計 ${cost_total:.2f}）"
+                print(f"{stop_reason}。停止")
+                break
+            fid, kind = targets[0]
+            cfg = browser_run.KINDS[kind]
+            try:
+                ok, why, r, cost_total, rate_waited = run_one(
+                    fid, claude_cmd, extra, root, cfg["prompt_template"], args.max_turns,
+                    args.timeout, cfg.get("retries", args.retries), args.backoff_base,
+                    args.backoff_max, args.rate_wait_total, status, cost_total, rate_waited,
+                    verify_fn=cfg["verify_fn"], phase=kind)
+            except KeyboardInterrupt:
+                print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。"
+                      f"停止する（再開は同じコマンド）")
+                raise
+
+            if ok:
+                done += 1
+                consecutive_fail = 0
+                status.counts(done, failed)
+                print(f"[{done}] {fid} {label(kind)} OK（累計 ${cost_total:.2f}）")
+                if kind == "impl":
+                    browser_run._build_sphinx_if_needed(root)
+            else:
+                failed += 1
+                consecutive_fail += 1
+                skip.add((fid, kind))        # 同じ (関数, 工程) はこのセッション中は再試行しない
+                status.counts(done, failed)
+                print(f"  {fid} {label(kind)}: 失敗として記録しスキップ（{why}）")
+                if consecutive_fail >= args.max_consecutive_fail:
+                    stop_reason = f"連続 {consecutive_fail} 件失敗（環境異常の疑い）"
+                    print(f"連続 {consecutive_fail} 件失敗 → 環境異常の疑い（許可設定・"
+                          f"skill配置・claude CLI を確認）。停止する")
+                    break
+
+            if args.pause:
+                time.sleep(args.pause)       # 予防的ペーシング（レートリミット回避）
+            if (done + failed) % args.chunk == 0:
+                # 承認待ちが溜まるので定期的にサイトを更新し、人がブラウザで
+                # 承認・裁定を並行できるようにする（ブラウザ連続実行と同じ間隔感）
+                review_actions.refresh_site(str(root), "spec")
+                print(f"  -- WBS・一斉レビュー表を更新（済 {done} / 失敗 {failed}）")
+            targets = browser_run._scan_targets(root, skip)   # 承認・⭐で増減した対象を拾う
+            status.counts(done, failed, total=done + failed + len(targets))
+    except KeyboardInterrupt:
+        stop_reason = "中断（Ctrl-C）"
+        print("\n中断した。進捗はファイルに保存済み。同じコマンドで続きから再開できる")
+    status.finish("stopped" if stop_reason else "finished",
+                  stop_reason or f"実行できる工程が無くなった（済 {done}・失敗 {failed}。"
+                                 "残りは承認・裁定待ちか完了）")
+
+    if not args.no_render:
+        review_actions.refresh_site(str(root), "spec")   # 一斉レビュー表・WBS・サイトを最終更新
+    print(f"\n完了: 成功 {done} 件 / 失敗 {failed} 件 / 累計コスト ${cost_total:.2f}")
+    if failed:
+        print(f"失敗した (関数, 工程): {sorted(skip)}")
+        print("  原因調査: .legacy-reverse/agent-logs/<fid>.txt にエージェント応答の全文、"
+              ".legacy-reverse/pipeline-log.jsonl に検証結果と応答末尾がある")
+        print("  再試行: /pipeline.html の結果パネルから「再実行」または⭐優先。"
+              "同じコマンドの再実行でも対象に戻る")
+
+
 def main() -> None:
     # claude の応答やサブプロセスの stderr（絵文字・置換文字を含み得る）を print するため、
     # cp932 コンソールでも UnicodeEncodeError で落ちないようにしておく
@@ -758,57 +882,67 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    def add_driver_args(s, chunk_default: int) -> None:
+        """spec / run で共通のドライバ引数。"""
+        s.add_argument("--root", default=".")
+        s.add_argument("--chunk", type=int, default=chunk_default,
+                       help=f"WBS/レビュー表を更新する間隔（既定{chunk_default}件）")
+        s.add_argument("--max-funcs", type=int, default=0, help="このセッションで処理する上限（0=無制限）")
+        s.add_argument("--budget-usd", type=float, default=0, help="累計コスト上限 USD（0=無制限）")
+        s.add_argument("--retries", type=int, default=RUN_ARG_DEFAULTS["retries"],
+                       help="検証NG時のリトライ回数（既定1）")
+        s.add_argument("--max-consecutive-fail", type=int, default=3,
+                       help="連続失敗でドライバを停止する閾値（既定3）")
+        s.add_argument("--max-turns", type=int, default=RUN_ARG_DEFAULTS["max_turns"],
+                       help="1関数あたりのターン上限")
+        s.add_argument("--timeout", type=int, default=RUN_ARG_DEFAULTS["timeout"],
+                       help="1関数あたりの秒数上限（既定30分）")
+        s.add_argument("--backoff-base", type=int, default=RUN_ARG_DEFAULTS["backoff_base"],
+                       help="レートリミット検知時の初期待機秒（以後2倍ずつ。既定60）")
+        s.add_argument("--backoff-max", type=int, default=RUN_ARG_DEFAULTS["backoff_max"],
+                       help="1回の待機の上限秒（既定900=15分）")
+        s.add_argument("--rate-wait-total", type=int, default=RUN_ARG_DEFAULTS["rate_wait_total"],
+                       help="レート待機の累計上限秒。超えたら停止（既定21600=6時間）")
+        s.add_argument("--pause", type=float, default=0,
+                       help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
+        s.add_argument("--model", default=None, help="claude に渡すモデル指定")
+        s.add_argument("--skip-permissions", action="store_true",
+                       help="--dangerously-skip-permissions を claude に渡す（信頼できる環境のみ）")
+        s.add_argument("--claude-cmd", default=None, help="claude 実行ファイルのパス（既定: PATH から検索）")
+        s.add_argument("--claude-args", nargs="*", default=[], help="claude へ追加で渡す引数")
+        s.add_argument("--dry-run", action="store_true", help="実行せず対象とコマンドを表示")
+        s.add_argument("--no-render", action="store_true", help="終了時の HTML 再生成を省略")
+
     s = sub.add_parser("spec", help="①仕様書を全件 draft まで無人実行（→ 人が一斉レビュー）")
-    s.add_argument("--root", default=".")
-    s.add_argument("--chunk", type=int, default=10, help="WBS/レビュー表を更新する間隔（既定10件）")
-    s.add_argument("--max-funcs", type=int, default=0, help="このセッションで処理する上限（0=無制限）")
-    s.add_argument("--budget-usd", type=float, default=0, help="累計コスト上限 USD（0=無制限）")
-    s.add_argument("--retries", type=int, default=RUN_ARG_DEFAULTS["retries"],
-                   help="検証NG時のリトライ回数（既定1）")
-    s.add_argument("--max-consecutive-fail", type=int, default=3,
-                   help="連続失敗でドライバを停止する閾値（既定3）")
-    s.add_argument("--max-turns", type=int, default=RUN_ARG_DEFAULTS["max_turns"],
-                   help="1関数あたりのターン上限")
-    s.add_argument("--timeout", type=int, default=RUN_ARG_DEFAULTS["timeout"],
-                   help="1関数あたりの秒数上限（既定30分）")
-    s.add_argument("--backoff-base", type=int, default=RUN_ARG_DEFAULTS["backoff_base"],
-                   help="レートリミット検知時の初期待機秒（以後2倍ずつ。既定60）")
-    s.add_argument("--backoff-max", type=int, default=RUN_ARG_DEFAULTS["backoff_max"],
-                   help="1回の待機の上限秒（既定900=15分）")
-    s.add_argument("--rate-wait-total", type=int, default=RUN_ARG_DEFAULTS["rate_wait_total"],
-                   help="レート待機の累計上限秒。超えたら停止（既定21600=6時間）")
-    s.add_argument("--pause", type=float, default=0,
-                   help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
-    s.add_argument("--model", default=None, help="claude に渡すモデル指定")
-    s.add_argument("--skip-permissions", action="store_true",
-                   help="--dangerously-skip-permissions を claude に渡す（信頼できる環境のみ）")
-    s.add_argument("--claude-cmd", default=None, help="claude 実行ファイルのパス（既定: PATH から検索）")
-    s.add_argument("--claude-args", nargs="*", default=[], help="claude へ追加で渡す引数")
+    add_driver_args(s, chunk_default=10)
     s.add_argument("--prompt-template", default="/legacy-1-spec {fid}",
                    help="1関数あたりのプロンプト（{fid} が関数IDに置換される）")
-    s.add_argument("--dry-run", action="store_true", help="実行せず対象とコマンドを表示")
-    s.add_argument("--no-render", action="store_true", help="終了時の HTML 再生成を省略")
+
+    r = sub.add_parser("run", help="①〜⑤を工程横断で無人実行（ブラウザ「連続実行」のCLI版。⭐優先も反映）")
+    add_driver_args(r, chunk_default=5)
+
     args = ap.parse_args()
-    if args.cmd == "spec":
-        root = Path(args.root).resolve()
-        if args.dry_run:
-            cmd_spec(args)
-            return
-        # バッチとブラウザ単発（browser_run.py）は同じ実行スロットを取り合う。
-        # 逆方向（バッチがブラウザ実行を尊重する）もここで成立させる
-        running = current_run_state(root)
-        if running:
-            cur = (running.get("current") or {}).get("func_id")
-            sys.exit(f"error: 別の実行が進行中（{running.get('mode')}"
-                     + (f"・{cur}" if cur else "")
-                     + "）。/pipeline.html で確認するか、完了を待ってから実行する")
-        if not acquire_run_lock(root, "spec"):
-            sys.exit("error: 別の実行がロックを保持中（.legacy-reverse/run.lock）。"
-                     "実行中のバッチ/ブラウザ単発が本当に無いか確認する")
-        try:
-            cmd_spec(args)
-        finally:
-            release_run_lock(root)
+    fn = {"spec": cmd_spec, "run": cmd_run}[args.cmd]
+    root = Path(args.root).resolve()
+    if args.dry_run:
+        fn(args)
+        return
+    # バッチとブラウザ実行（browser_run.py）は同じ実行スロットを取り合う。
+    # 逆方向（バッチがブラウザ実行を尊重する）もここで成立させる
+    running = current_run_state(root)
+    if running:
+        cur = (running.get("current") or {}).get("func_id")
+        sys.exit(f"error: 別の実行が進行中（{running.get('mode')}"
+                 + (f"・{cur}" if cur else "")
+                 + "）。/pipeline.html で確認するか、完了を待ってから実行する")
+    if not acquire_run_lock(root, f"cli-{args.cmd}"):
+        sys.exit("error: 別の実行がロックを保持中（.legacy-reverse/run.lock）。"
+                 "実行中のバッチ/ブラウザ実行が本当に無いか確認する")
+    try:
+        fn(args)
+    finally:
+        release_run_lock(root)
 
 
 if __name__ == "__main__":

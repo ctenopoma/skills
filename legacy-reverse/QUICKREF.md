@@ -73,9 +73,10 @@ python <LR>/scripts/review_checks.py all --root . [--json]     # 総点検（⑥
 エージェントのトークン上限に依存しない）:
 
 ```bash
-python <LR>/scripts/pipeline.py spec --root .                  # ①を全件 draft まで無人実行
-python <LR>/scripts/pipeline.py spec --root . --max-funcs 200  # 今日は200件だけ
-python <LR>/scripts/pipeline.py spec --root . --dry-run        # 対象の確認のみ
+python <LR>/scripts/pipeline.py run  --root .                  # ①〜⑤を工程横断で無人実行（⭐優先反映）
+python <LR>/scripts/pipeline.py run  --root . --max-funcs 100  # 今日は100件だけ
+python <LR>/scripts/pipeline.py spec --root .                  # ①だけ全件 draft まで
+python <LR>/scripts/pipeline.py run  --root . --dry-run        # 対象と実行順の確認のみ
 ```
 
 どちらの方式でも draft は `spec-review.md`（一斉レビュー表）に溜まり、
@@ -120,7 +121,7 @@ python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知�
 | **バッチ状況** | `/pipeline.html` | **連続実行の開始/停止・残タスクの⭐優先・人待ちの承認/裁定・失敗の再実行** |
 | マニュアル | `/manual.html` | 操作マニュアル（本書の詳説版。EXE 配布にも同梱） |
 
-連続実行（①〜⑤を工程横断で自動）は `/pipeline.html` から。CLI の `pipeline.py` は**①専用**。
+連続実行（①〜⑤を工程横断で自動）は `/pipeline.html` から。CLI なら `pipeline.py run`（同じ走査・⭐優先も反映）。`pipeline.py spec` は①専用。
 
 ## MCP ツール対応（登録済み環境ではこちらが呼ばれる）
 
