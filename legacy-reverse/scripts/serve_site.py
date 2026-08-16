@@ -634,7 +634,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    WRITE_ROUTES = ("/review-action", "/run-phase", "/run-check", "/run-cancel",
+    WRITE_ROUTES = ("/review-action", "/dict-action", "/run-phase", "/run-check", "/run-cancel",
                     "/run-batch", "/run-analyze", "/run-skip", "/batch-priority")
     LOCAL_NAMES = ("127.0.0.1", "localhost", "::1")
 
@@ -695,6 +695,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             if self.path == "/review-action":
                 res = self._handle_review_action(payload)
+            elif self.path == "/dict-action":
+                res = self._handle_dict_action(payload)
             elif self.path == "/run-check":
                 res = self._handle_run_check(payload)
             elif self.path == "/run-cancel":
@@ -731,6 +733,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 str(self.state_root), payload.get("func_id", ""), payload.get("issue_id", ""),
                 payload.get("approver") or "unknown", payload.get("comment") or "")
         return {"ok": False, "message": f"不明な action: {action}"}
+
+    def _handle_dict_action(self, payload: dict) -> dict:
+        # 変数辞書ページ（docs/variables.qmd）の承認ウィジェット。
+        # 承認可否（rank D・desc 未確定の拒否）はサーバ側で再判定する
+        # ——クライアントの表示を信用しない点は /review-action と同じ原則
+        import review_actions
+        return review_actions.dict_action(
+            str(self.state_root), payload.get("action", ""),
+            payload.get("approver") or "unknown",
+            var_ids=payload.get("var_ids"),
+            var_id=payload.get("var_id") or "",
+            desc=payload.get("desc") or "",
+            unit=payload.get("unit"))
 
     def _handle_run_phase(self, payload: dict) -> dict:
         # 試作: ①〜⑤（spec/testspec/testcode/impl/test）対応。増やす場合は

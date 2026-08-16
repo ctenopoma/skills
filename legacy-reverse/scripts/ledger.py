@@ -11,8 +11,12 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   hash <path>                sha256 先頭8桁を表示
   verify <func-id>           ハッシュ連鎖（①→②、③）を検証
   status [<func-id>]         フェーズ状況を表示（機械可読 JSON も可: --json）
-  next                       次に着手すべき関数を提案（トポロジカル順）
+  next [--flow <name|id>] [--no-dict-gate]
+                             次に着手すべき関数を提案（トポロジカル順。--flow でフロー到達集合に限定。
+                             既定では変数辞書に未承認の語義が残る関数の①を除外＝dict-gate）
   next-issue                 次の ISSUE 番号を表示
+  flow add <name> --entry F-xxxx[,F-yyyy...] [--desc ...]
+                             フロー（作業スコープ）を追加。flow rm <name|id> / flow list
   add <name> [--file ...]    関数を後追い追加（人の指示。manual フラグ付きで採番）
   exclude <func-id> [--reason ...] / include <func-id>
                              移植対象から外す／復帰させる（物理削除はしない）
@@ -29,6 +33,8 @@ import re
 import shutil
 import sys
 from pathlib import Path
+
+import graph  # noqa: E402 — scripts/graph.py（同ディレクトリ）。フロー到達集合の計算に使う
 
 # ---------- 基盤 ----------
 
@@ -95,6 +101,8 @@ class Project:
         self.functions = load_json(self.data / "functions.json", {})
         self.ledger_path = self.data / "ledger.json"
         self.ledger = load_json(self.ledger_path, {})
+        self._vars_cache = None      # (辞書あり?, variables 配列) の遅延ロード
+        self._vars_by_func = None    # func_id -> [variable, ...]（重複除去済み）
 
     def funcs(self) -> list:
         """移植対象の関数のみ（excluded を除く）。①〜⑥・WBS・next は常にこれを見る。"""
@@ -117,6 +125,73 @@ class Project:
         files = sorted((self.docs / "test-results").glob(f"{func_id}_*.md"))
         return files[-1] if files else None
 
+    # ---------- 変数辞書との連動（設計 references/graph-dict-design.md P2） ----------
+    #
+    # 辞書エンジンそのもの（クラスタリング・検証・伝搬）は variables.py の所有物。
+    # ここは台帳側が必要とする2つの読み取り機能だけを持つ:
+    #   dict-gate  … 未承認の語義が残る関数の①着手を止める（既定 ON）
+    #   dict-hash  … ①生成時の語義集合のハッシュを骨子に刻み、後の改訂を検知する
+    # **data/variables.json が無いプロジェクトでは両方とも完全に無効**（後方互換）。
+
+    def _load_variables(self) -> tuple:
+        if self._vars_cache is None:
+            path = self.data / "variables.json"
+            store = load_json(path, None) if path.exists() else None
+            self._vars_cache = (store is not None, (store or {}).get("variables") or [])
+        return self._vars_cache
+
+    def has_dict(self) -> bool:
+        """変数辞書（data/variables.json）を持つプロジェクトか。"""
+        return self._load_variables()[0]
+
+    def vars_of(self, func_id: str) -> list:
+        """その関数に出現する変数（variables.json のエントリ）。出現順・重複なし。"""
+        if self._vars_by_func is None:
+            idx: dict = {}
+            for v in self._load_variables()[1]:
+                for o in v.get("occurrences") or []:
+                    seen = idx.setdefault(o.get("func_id"), {})
+                    seen.setdefault(v.get("var_id"), v)
+            self._vars_by_func = {fid: list(m.values()) for fid, m in idx.items()}
+        return self._vars_by_func.get(func_id, [])
+
+    def dict_gate_blockers(self, func_id: str, spec_status: str = None) -> list:
+        """dict-gate: その関数の①着手を止めている「未承認の変数」の var_id 一覧。
+
+        空リスト＝ゲートに掛からない。設計 P2「伝搬とゲート」の判定はここが唯一の実装で、
+        `ledger next` と browser_run._decide_kind（ブラウザの実行ボタン）が共有する。
+
+        免除:
+          - 変数辞書が無いプロジェクト（従来どおりの挙動）
+          - spec が既に draft / reviewed の関数（仕様化済みを今更止めても意味がない）
+        spec_status を渡すと frontmatter の再読み込みを省略できる（status_of の結果を流用）。
+        """
+        if not self.has_dict():
+            return []
+        if spec_status is None:
+            spec_p = self.docs / "specs" / f"{func_id}.md"
+            spec_status = (self.fm(f"docs/specs/{func_id}.md").get("status")
+                           if spec_p.exists() else "-")
+        if spec_status in ("draft", "reviewed"):
+            return []
+        return [v["var_id"] for v in self.vars_of(func_id) if v.get("status") != "approved"]
+
+    def dict_hash(self, func_id: str):
+        """その関数の approved 変数の (var_id, desc) 集合の正規化 sha256 先頭8桁。
+
+        辞書が無いプロジェクトでは None（骨子にも記録しない＝従来どおりの出力）。
+        approved が0件なら ""（「辞書は見たが確定語義は無かった」と
+        「そもそも辞書連鎖が無い（旧骨子）」を区別するため、空文字で記録する）。
+        """
+        if not self.has_dict():
+            return None
+        pairs = sorted([v["var_id"], v.get("desc") or ""]
+                       for v in self.vars_of(func_id) if v.get("status") == "approved")
+        if not pairs:
+            return ""
+        payload = json.dumps(pairs, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
     # ---------- 状態判定（schema.md の表が正） ----------
     def status_of(self, f: dict) -> dict:
         fid = f["func_id"]
@@ -127,6 +202,19 @@ class Project:
         spec_fm = self.fm(f"docs/specs/{fid}.md")
         s["spec"] = spec_fm.get("status", "-") if spec_p.exists() else "-"
         s["spec_ok"] = s["spec"] == "reviewed"
+        # dict-hash 連鎖: ①生成時に刻んだ語義集合のハッシュと現在値のずれ＝辞書の改訂。
+        # フロントマターに dict-hash が無い旧骨子・辞書なしプロジェクトは常に False
+        # （後方互換。WBS の出力もバイト単位で従来と一致する）
+        # 判定対象は「①が実際に書かれた仕様書」（draft / reviewed）だけ。骨子のままの
+        # ものは次の `ledger skeletons` が dict-hash を現在値へ同期するので警告しない
+        s["dict_stale"] = False
+        if spec_p.exists() and s["spec"] in ("draft", "reviewed") and "dict-hash" in spec_fm:
+            cur = self.dict_hash(fid)
+            if cur is not None:
+                rec = spec_fm.get("dict-hash")
+                # parse_frontmatter は空値 `dict-hash: ""` を「ネストの親」として {} で返す
+                rec = "" if isinstance(rec, dict) or rec is None else str(rec)
+                s["dict_stale"] = rec != cur
 
         ts_p = self.docs / "test-specs" / f"{fid}.md"
         ts_fm = self.fm(f"docs/test-specs/{fid}.md")
@@ -182,6 +270,26 @@ class Project:
         for n in ids:
             visit(n, [])
         return order, cycles
+
+
+def resolve_flow_fids(p: Project, key: str) -> set:
+    """--flow 引数（フロー名 or flow_id）からフロー到達集合を計算する。
+
+    ledger.py（next / wbs / skeletons）と pipeline.py が共用する（P3節: 「人が
+    このフローだけ作業と指定できる」対象選定の共通実装）。到達集合は毎回
+    graph.py がその場で計算する導出値のため、再抽出後の functions.json にも自動追随する。
+    """
+    g = graph.graph_from_data(p.functions)
+    fl = graph.get_flow(p.functions, key)
+    entries = fl.get("entries", [])
+    if not entries:
+        sys.exit(f"error: フロー '{key}' に entries が無い")
+    fmap = {f["func_id"]: f for f in p.all_funcs()}
+    missing = [fid for fid in entries if fid not in fmap]
+    if missing:
+        sys.exit(f"error: フロー '{key}' の entries に functions.json 未定義の func_id: "
+                 + ", ".join(missing))
+    return graph.reachable(g, entries)
 
 
 # ---------- サブコマンド ----------
@@ -263,7 +371,8 @@ def _func_row(i: int, f: dict, s: dict, pre: str = "") -> str:
     ts_href = (f"{pre}test-specs/{fid}.md"
               + ("#review-" + fid if s["test_spec"] == "generated" else ""))
     c1 = _mark(s["spec_ok"], spec_href,
-               "" if s["spec_ok"] or s["spec"] == "-" else s["spec"])
+               "辞書⚠" if s["dict_stale"]
+               else ("" if s["spec_ok"] or s["spec"] == "-" else s["spec"]))
     c2 = _mark(s["test_spec_ok"], ts_href,
                "stale⚠" if s["test_spec_stale"]
                else ("" if s["test_spec_ok"] or s["test_spec"] == "-" else s["test_spec"]))
@@ -353,6 +462,31 @@ def cmd_wbs(p: Project, args) -> None:
         f" | {count('impl_ok')}/{n} | {count('test_ok')}/{n} |",
         "",
     ]
+
+    # ---- フロー別進捗（flows 未定義なら何も出さない＝従来出力と完全一致） ----
+    flows = p.functions.get("flows") or []
+    if flows:
+        fg = graph.graph_from_data(p.functions)
+        lines += ["# フロー別進捗", "",
+                  "| フロー | エントリ | 到達関数数 | ①spec | ②test-spec | ③test-code | ④impl | ⑤test |",
+                  "|------|------|:---:|:---:|:---:|:---:|:---:|:---:|"]
+        for fl in flows:
+            entries = fl.get("entries", [])
+            reached = graph.reachable(fg, entries) if entries else set()
+            in_scope = [fid for fid in reached if fid in stats]   # excluded・対象外は数えない
+            m = len(in_scope)
+
+            def fcount(key):
+                return sum(1 for fid in in_scope if stats[fid][key])
+
+            entries_str = ", ".join(entries) or "(未設定)"
+            lines.append(
+                f"| {fl.get('name', '')} | {entries_str} | {m} "
+                f"| {fcount('spec_ok')}/{m} | {fcount('test_spec_ok')}/{m} "
+                f"| {fcount('test_code_ok')}/{m} | {fcount('impl_ok')}/{m} "
+                f"| {fcount('test_ok')}/{m} |")
+        lines.append("")
+
     if cycles:
         lines += ["::: {.callout-warning}", "コールグラフに循環があります: "
                   + " / ".join("→".join(c) for c in cycles), ":::", ""]
@@ -360,11 +494,12 @@ def cmd_wbs(p: Project, args) -> None:
     # ---- 要対応（人が最初に見るべきもの。大規模でもここだけ見れば良い） ----
     blocked = [(fid, stats[fid]["blocked_by"]) for fid in order if stats[fid]["blocked_by"]]
     stale = [fid for fid in order if stats[fid]["test_spec_stale"]]
+    dict_stale = [fid for fid in order if stats[fid]["dict_stale"]]
     tampered = [fid for fid in order if stats[fid]["test_code_tampered"]]
     failing = [fid for fid in order
                if stats[fid]["test"] == "fail" and not stats[fid]["blocked_by"]]
     drafts = [fid for fid in order if stats[fid]["spec"] == "draft"]
-    if blocked or stale or tampered or failing or drafts:
+    if blocked or stale or dict_stale or tampered or failing or drafts:
         lines += ["# 要対応", "", "| 種別 | 関数 | 詳細 |", "|------|------|------|"]
         if drafts:
             ref = ("[一斉レビュー表](spec-review.md)"
@@ -374,6 +509,9 @@ def cmd_wbs(p: Project, args) -> None:
             lines.append(f"| ⛔ 裁定待ち | {_spec_ref(fid, stats[fid])} | [{iss}](issues/{iss}.md) |")
         for fid in stale:
             lines.append(f"| ⚠ ②stale | {_spec_ref(fid, stats[fid])} | ①改訂済み → ②要再確認 |")
+        for fid in dict_stale:
+            lines.append(f"| ⚠ 辞書stale | {_spec_ref(fid, stats[fid])} "
+                         f"| 辞書の語義が①生成後に改訂 → ①要再確認 |")
         for fid in tampered:
             lines.append(f"| ⚠ ③改変 | {_spec_ref(fid, stats[fid])} | freeze後にテストが変更されている |")
         for fid in failing:
@@ -447,7 +585,7 @@ def cmd_wbs(p: Project, args) -> None:
                 return sum(1 for s in g if s[key])
 
             warn = sum(1 for s in g if s["blocked_by"] or s["test_spec_stale"]
-                       or s["test_code_tampered"] or s["test"] == "fail")
+                       or s["dict_stale"] or s["test_code_tampered"] or s["test"] == "fail")
             lines.append(
                 f"| [{lf}](wbs/{slug}.qmd) | {m} | {gcount('spec_ok')}/{m} "
                 f"| {gcount('test_spec_ok')}/{m} | {gcount('test_code_ok')}/{m} "
@@ -494,14 +632,61 @@ def cmd_wbs(p: Project, args) -> None:
     print(f"wrote {out}")
 
 
+def _sync_dict_hash(p: Project, path: Path, fid: str) -> int:
+    """既存の骨子（status: skeleton のまま＝①未着手）の dict-hash を現在値に合わせる。
+
+    辞書の承認は⓪の骨子生成より後に進む（承認 → propagate → skeletons の順で
+    review_actions が呼ぶ）。骨子を上書きしない既定のままだと、①が読む骨子の
+    dict-hash が「承認ゼロ時点の値」で固定され、①直後にいきなり stale になってしまう。
+    **①未着手の骨子だけ**を対象に、その場で dict-hash 行を差し替える
+    （draft / reviewed＝AI・人が書いた成果物には一切触れない）。戻り値は更新件数。
+    """
+    text = path.read_text(encoding="utf-8-sig")
+    if parse_frontmatter(text).get("status") != "skeleton":
+        return 0
+    line = f'dict-hash: "{p.dict_hash(fid)}"'
+    lines = text.splitlines()
+    fences = [i for i, l in enumerate(lines) if l.strip() == "---"][:2]
+    if len(fences) < 2:
+        return 0
+    start, end = fences
+    for i in range(start + 1, end):
+        if lines[i].startswith("dict-hash:"):
+            if lines[i] == line:
+                return 0
+            lines[i] = line
+            break
+    else:
+        anchor = next((i for i in range(start + 1, end) if lines[i].startswith("status:")), start)
+        lines.insert(anchor + 1, line)
+    path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""),
+                    encoding="utf-8")
+    return 1
+
+
 def cmd_skeletons(p: Project, args) -> None:
     tdir = p.docs / "specs"
     tdir.mkdir(parents=True, exist_ok=True)
-    made = 0
+    made = synced = 0
+
+    # フロー所属（func_id -> [フロー名, ...]）。骨子の新規生成時のみフロントマターに載せる
+    # （文脈付与のみ・機械判定には使わない。既存 spec ファイルは触らない）
+    flows = p.functions.get("flows") or []
+    flow_membership: dict = {}
+    if flows:
+        fg = graph.graph_from_data(p.functions)
+        for fl in flows:
+            entries = fl.get("entries", [])
+            reached = graph.reachable(fg, entries) if entries else set()
+            for fid in reached:
+                flow_membership.setdefault(fid, []).append(fl.get("name", ""))
+
     for f in p.funcs():
         fid = f["func_id"]
         out = tdir / f"{fid}.md"
         if out.exists() and not args.force:
+            if p.has_dict():
+                synced += _sync_dict_hash(p, out, fid)
             continue
         legacy_p = p.root / f["legacy"]["file"]
         lhash = sha8(legacy_p) if legacy_p.is_file() else ""   # 手動追加は file 未設定があり得る
@@ -517,6 +702,12 @@ def cmd_skeletons(p: Project, args) -> None:
             f'title: "関数仕様書: {f["new"].get("name", fid)}"',
             f'func-id: "{fid}"',
             "status: skeleton",
+        ]
+        # dict-hash（設計 P2「dict-hash 連鎖」）。辞書が無いプロジェクトでは行ごと出さない
+        dhash = p.dict_hash(fid)
+        if dhash is not None:
+            body.append(f'dict-hash: "{dhash}"')
+        body += [
             "reviewed-by: null",
             "reviewed-date: null",
             "legacy:",
@@ -527,6 +718,12 @@ def cmd_skeletons(p: Project, args) -> None:
             "new:",
             f'  module: "{f["new"]["module"]}"',
             f'  signature: "{f["new"].get("signature", "")}"',
+        ]
+        fl_names = flow_membership.get(fid)
+        if fl_names:
+            # json.dumps で YAML フローシーケンスとしても妥当な形（引用符・エスケープ込み）にする
+            body.append("flows: " + json.dumps(fl_names, ensure_ascii=False))
+        body += [
             "---",
             "", "# 概要", "", "<!-- ①で充填 -->", "",
             "# 処理フロー", "",
@@ -557,10 +754,19 @@ def cmd_skeletons(p: Project, args) -> None:
         body += ["", "# 機能詳細", "",
                  f"<!-- ①で充填。見出しIDは SPEC-{num}-01 形式、各項目に Confidence と根拠(file:lines)必須 -->",
                  "", "# 副作用・例外", "", "<!-- ①で充填。なければ「なし」と明記 -->", "",
+                 "## 例外・数値特異点", "",
+                 "<!-- ①で充填。data/functions.json の hazards 全件を1行ずつ書く（hazard が無ければ「該当なし」）。"
+                 "適用EP は docs/exception-policy.md に実在する EP-ID のみ。未決定のまま書くと機械レビューNG -->", "",
+                 "| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
+                 "|--------|------|------|--------|----------|"]
+        body += [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:{h.get('line', '')} | | |"
+                 for h in f.get("hazards", [])] or ["| 該当なし | | | | |"]
+        body += ["",
                  "# 未確定事項", "", "| ISSUE | 内容 | 状態 |", "|-------|------|------|", ""]
         out.write_text("\n".join(body), encoding="utf-8")
         made += 1
-    print(f"skeletons: {made} 件生成（既存はスキップ、--force で上書き）")
+    print(f"skeletons: {made} 件生成（既存はスキップ、--force で上書き）"
+          + (f" / dict-hash 更新 {synced} 件（①未着手の骨子のみ）" if synced else ""))
 
 
 def cmd_hash(p: Project, args) -> None:
@@ -574,6 +780,13 @@ def cmd_verify(p: Project, args) -> None:
     if s["test_spec_stale"]:
         ok = False
         print(f"NG: ②の spec-hash が①の現物と不一致（①が改訂済み）→ ②要再確認")
+    if s["dict_stale"]:
+        ok = False
+        approved = [v["var_id"] for v in p.vars_of(args.func_id)
+                    if v.get("status") == "approved"]
+        print("NG: 辞書の語義が①生成後に改訂された → ①要再確認"
+              f"（この関数の承認済み変数 {len(approved)}件。"
+              "docs/variables.qmd と docs/dict-conflicts.md を確認）")
     if s["test_code_tampered"]:
         ok = False
         print(f"NG: テストコードが freeze 後に改変されている → 実行前に停止せよ")
@@ -617,18 +830,27 @@ PHASE_LABEL = {"1": "①spec", "2": "②test-spec", "3": "③test-code",
                "4": "④impl", "5": "⑤test"}
 
 
-def actionable(p: Project, phase: str = None, skip_wait: bool = False) -> list:
+def actionable(p: Project, phase: str = None, skip_wait: bool = False, flow_fids=None,
+               dict_gate: bool = True, gated: list = None) -> list:
     """着手可能な (func_id, 次フェーズ) をトポロジカル順で返す。
 
     skip_wait=True は人のレビュー/承認待ち（①draft・②generated）を除外し
     「AIの作業が残っているもの」だけにする——バッチ全件モードの再開時、
     draft を二重に書き直さないための機械的な区別。pipeline.py も共用する。
+    flow_fids（set|None）を渡すと、その集合に無い func_id を対象から除く
+    （`ledger next --flow` / `pipeline.py --flow` のフロー絞り込み。resolve_flow_fids が計算する）。
+    dict_gate=True（既定）は「変数の語義が未承認の関数は①に進ませない」ゲート
+    （設計 P2。判定は Project.dict_gate_blockers）。除外したものは gated に
+    (func_id, [var_id...]) で積む——理由を人間可読出力にだけ出すため。
+    変数辞書が無いプロジェクトでは何も起きない（後方互換）。
     """
     order, _ = p.topo_order()
     fmap = {f["func_id"]: f for f in p.funcs()}
     want = PHASE_LABEL.get(phase or "", phase)
     todo = []
     for fid in order:
+        if flow_fids is not None and fid not in flow_fids:
+            continue
         s = p.status_of(fmap[fid])
         if s["blocked_by"]:
             continue
@@ -641,16 +863,43 @@ def actionable(p: Project, phase: str = None, skip_wait: bool = False) -> list:
             continue
         if want and ph != want:
             continue
+        if dict_gate and ph == "①spec":
+            blockers = p.dict_gate_blockers(fid, spec_status=s["spec"])
+            if blockers:
+                if gated is not None:
+                    gated.append((fid, blockers))
+                continue
         todo.append((fid, ph))
     return todo
 
 
 def cmd_next(p: Project, args) -> None:
-    todo = actionable(p, getattr(args, "phase", None), getattr(args, "skip_draft", False))
+    flow_fids = None
+    if getattr(args, "flow", None):
+        flow_fids = resolve_flow_fids(p, args.flow)
+        # --all の出力（fid<TAB>phase）は他スクリプトが機械的に読む可能性があるため、
+        # 案内メッセージは stderr に出す（stdout を汚さない）
+        print(f"フロー {args.flow}: 到達 {len(flow_fids)} 関数に限定", file=sys.stderr)
+    gated: list = []
+    todo = actionable(p, getattr(args, "phase", None), getattr(args, "skip_draft", False),
+                      flow_fids, dict_gate=getattr(args, "dict_gate", True), gated=gated)
+    # dict-gate の除外理由は人間向け。--all の機械可読出力（fid<TAB>phase）を汚さないよう
+    # stderr に出す（絞り込み結果そのものは stdout のまま）
+    if gated:
+        sink = sys.stderr if getattr(args, "all", False) else sys.stdout
+        for fid, blockers in gated[:10]:
+            ids = ", ".join(blockers[:5]) + ("…" if len(blockers) > 5 else "")
+            print(f"dict-gate: {fid} は未承認の変数 {len(blockers)} 件（{ids}）", file=sink)
+        if len(gated) > 10:
+            print(f"dict-gate: ほか {len(gated) - 10} 関数も同様に除外", file=sink)
+        print("  → docs/variables.qmd で承認するか、--no-dict-gate で解除する", file=sink)
     if not getattr(args, "all", False):
         todo = todo[:1]
     if not todo:
-        if getattr(args, "phase", None) or getattr(args, "skip_draft", False):
+        if gated:
+            print(f"対象なし（dict-gate で {len(gated)} 関数を除外。"
+                  "変数の承認を先に進めるか --no-dict-gate）")
+        elif getattr(args, "phase", None) or getattr(args, "skip_draft", False) or flow_fids is not None:
             print("対象なし（フィルタ該当ゼロ。レビュー/承認待ちは status --summary や WBS を参照）")
         else:
             print("全関数完了。⑥ check を実行せよ")
@@ -708,6 +957,68 @@ def cmd_add(p: Project, args) -> None:
     print(f"added: {fid} {name}（manual・module={module}）")
     print("next: functions.json の inputs/outputs/desc/signature を充填 → "
           "ledger skeletons → ledger wbs（以後は他の関数と同じく①〜⑤を回す）")
+
+
+def cmd_flow_add(p: Project, args) -> None:
+    """フロー（作業スコープ）を追加する（人の指示。references/graph-dict-design.md P3節）。
+
+    functions.json トップレベルの "flows" 配列に保存する。エントリの実在は検証するが、
+    到達集合そのものは保存しない（graph.py がその場で計算する導出値。再抽出に自動追随）。
+    """
+    if not p.functions:
+        sys.exit("error: data/functions.json がない（先に⓪の抽出を実行する）")
+    flows = p.functions.setdefault("flows", [])
+    name = args.name
+    for fl in flows:
+        if fl.get("name") == name:
+            sys.exit(f"error: 同名のフローが既にある: {fl.get('flow_id')}({name})"
+                     "（先に `ledger flow rm` するか別名にする）")
+    entries = [e for e in (args.entry or "").split(",") if e]
+    if not entries:
+        sys.exit("error: --entry で func-id を1件以上指定する（カンマ区切りで複数可）")
+    fmap = {f["func_id"]: f for f in p.all_funcs()}
+    missing = [e for e in entries if e not in fmap]
+    if missing:
+        sys.exit(f"error: --entry に functions.json 未定義の func-id: {', '.join(missing)}")
+    excluded_entries = [e for e in entries if fmap[e].get("excluded")]
+    nums = [int(m.group(1)) for fl in flows if (m := re.match(r"FL-(\d+)", fl.get("flow_id", "")))]
+    flow_id = f"FL-{(max(nums) + 1 if nums else 1):02d}"
+    flows.append({"flow_id": flow_id, "name": name, "entries": entries, "desc": args.desc or ""})
+    save_json(p.data / "functions.json", p.functions)
+    print(f"added: {flow_id} {name}（entries: {', '.join(entries)}）")
+    if excluded_entries:
+        print(f"warn: entry に対象外(excluded)の関数が含まれる: {', '.join(excluded_entries)}"
+              "（到達集合の計算には使えるが、①〜⑤の対象からは外れたまま）")
+    print("next: ledger wbs / ledger skeletons / ledger next --flow で反映")
+
+
+def cmd_flow_rm(p: Project, args) -> None:
+    """フローを削除する（name or flow_id を指定）。"""
+    flows = p.functions.get("flows") or []
+    for i, fl in enumerate(flows):
+        if fl.get("flow_id") == args.key or fl.get("name") == args.key:
+            removed = flows.pop(i)
+            if not flows:
+                p.functions.pop("flows", None)
+            save_json(p.data / "functions.json", p.functions)
+            print(f"removed: {removed.get('flow_id')} {removed.get('name')}")
+            return
+    available = ", ".join(f"{fl.get('flow_id')}({fl.get('name')})" for fl in flows)
+    sys.exit(f"error: フロー '{args.key}' が見つからない。定義済み: {available or '(flows は未定義)'}")
+
+
+def cmd_flow_list(p: Project, args) -> None:
+    """フロー一覧（flow_id・名前・entries・到達関数数・説明）。"""
+    flows = p.functions.get("flows") or []
+    if not flows:
+        print("flows は未定義（`ledger flow add <name> --entry F-xxxx` で追加）")
+        return
+    g = graph.graph_from_data(p.functions)
+    for fl in flows:
+        entries = fl.get("entries", [])
+        reached = graph.reachable(g, entries) if entries else set()
+        print(f"{fl.get('flow_id')}\t{fl.get('name')}\tentries={', '.join(entries)}"
+              f"\t到達{len(reached)}件\t{fl.get('desc', '')}")
 
 
 def cmd_exclude(p: Project, args) -> None:
@@ -883,8 +1194,18 @@ def main() -> None:
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
-    s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）")
+    s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）"); s.add_argument("--flow", default=None, help="フロー名 or flow_id で対象をそのフロー到達集合に限定"); s.add_argument("--no-dict-gate", dest="dict_gate", action="store_false", default=True, help="変数辞書のゲートを解除（既定は ON: 未承認の語義が残る関数の①を除外）")
     sub.add_parser("next-issue")
+    s = sub.add_parser("flow", help="フロー（作業スコープ）の管理")
+    flow_sub = s.add_subparsers(dest="flow_cmd", required=True)
+    fa = flow_sub.add_parser("add", help="フローを追加（functions.json の flows に保存）")
+    fa.add_argument("name", help="フロー名（一意）")
+    fa.add_argument("--entry", required=True,
+                    help="エントリの func-id（カンマ区切りで複数可。例: F-0000,F-0006）")
+    fa.add_argument("--desc", default="", help="説明")
+    fr = flow_sub.add_parser("rm", help="フローを削除")
+    fr.add_argument("key", help="フロー名 or flow_id")
+    flow_sub.add_parser("list", help="フロー一覧（entries・到達関数数つき）")
     s = sub.add_parser("add", help="関数を後追い追加（人の指示。manual フラグ付きで採番）")
     s.add_argument("name", help="レガシー側の関数名")
     s.add_argument("--file", default="", help="レガシーファイル（例: legacy/tax.f。無いなら省略可）")
@@ -906,6 +1227,9 @@ def main() -> None:
     sub.add_parser("sphinx-index")
     args = ap.parse_args()
     p = Project(Path(args.root).resolve())
+    if args.cmd == "flow":
+        {"add": cmd_flow_add, "rm": cmd_flow_rm, "list": cmd_flow_list}[args.flow_cmd](p, args)
+        return
     {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,

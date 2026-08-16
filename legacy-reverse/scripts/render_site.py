@@ -93,6 +93,16 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
     functions.json に該当が無い（骨子生成前・手動追加直後の一時ファイル等）場合は
     そのまま body を返す——render 全体をここで落とさないよう例外は握りつぶす。
     """
+    if rel == Path("variables.qmd"):
+        # 変数辞書（P2）。未承認の変数があるときだけ、一括承認バーと1件ずつの
+        # 操作パネルを本文の先頭に出す（表の各行 {#dict-V-xxxx} と相互リンクする）
+        try:
+            widget = review_actions.dict_widget_html(str(project_root))
+        except Exception as e:                       # noqa: BLE001 — render を止めない
+            print(f"note: {rel} の辞書承認ウィジェット生成に失敗（{e}）。ウィジェットなしで続行")
+            return body
+        return inject_review_widget(body, widget) if widget else body
+
     if rel == Path("index.qmd"):
         widgets = []
         for label, fn in (("⑥", browser_run.check_widget_html),
@@ -125,8 +135,17 @@ def maybe_inject_review_widget(project_root: Path, rel: Path, body: str) -> str:
     return inject_review_widget(body, widget) if widget else body
 
 
-def transform_yml(text: str) -> str:
+def transform_yml(text: str, has_variables: bool = False) -> str:
     text = re.sub(r"\.md\b", ".qmd", text)          # render グロブと navbar href
+    if has_variables and "variables.qmd" not in text:
+        # 変数辞書（P2）は docs/variables.qmd が生成されたときだけナビバーに出す。
+        # ledger.py は並行編集の対象なので触らず、影コピー側で救済する
+        # （テンプレ側にエントリが入った世代では二重に足さない）
+        text = re.sub(
+            r"(?m)^(\s*)- href: index\.qmd\s*\n\s*text:[^\n]*$",
+            lambda m: m.group(0) + f"\n{m.group(1)}- href: variables.qmd"
+                                   f"\n{m.group(1)}  text: 変数辞書",
+            text, count=1)
     if "wbs/*.qmd" not in text:                     # 旧テンプレ救済: WBS分割ページを render 対象に
         text = re.sub(r"(?m)^(\s*)- \"\*\.qmd\"\s*$",
                       "\\1- \"*.qmd\"\n\\1- \"wbs/*.qmd\"", text, count=1)
@@ -184,7 +203,8 @@ def build_shadow(docs: Path, work: Path) -> int:
     yml = docs / "_quarto.yml"
     if not yml.exists():
         sys.exit(f"error: {yml} がない（assets/templates/_quarto.yml を docs/ に配置する）")
-    yml_text = transform_yml(yml.read_text(encoding="utf-8-sig"))
+    yml_text = transform_yml(yml.read_text(encoding="utf-8-sig"),
+                             has_variables=(docs / "variables.qmd").exists())
     (work / "_quarto.yml").write_text(yml_text, encoding="utf-8", newline="\n")
     n += make_placeholders(work, yml_text)
     return n

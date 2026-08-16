@@ -44,6 +44,13 @@ RUN_DEFAULTS = types.SimpleNamespace(
 # kind ごとの設定。ボタンはすべて①仕様書ページに出す（関数の「ホーム」として
 # 常に存在し続けるページのため。②③④の成果物ページは工程途中では無かったり
 # docs/ 配下にすら無かったりするので、置き場所を統一している）
+#
+# 任意キー:
+#   retries … その工程だけリトライ回数を変える
+#   model  … その工程だけ別モデルで回す（`claude -p --model <値>`。設計「モデル階層」）。
+#            **省略時は --model を付けない＝従来どおりの既定モデル**。①〜⑤は指定なし
+#            （辞書解釈バッチだけが pipeline.py 側で sonnet を既定にしている）。
+#            CLI の `pipeline.py --model` は全 kind を一括上書きする
 KINDS = {
     "spec": {"label": "①", "noun": "仕様書", "prompt_template": "/legacy-1-spec {fid}",
             "verify_fn": pipeline.verify_spec},
@@ -119,7 +126,8 @@ def _file_sig(p: Path):
 def _project(root: Path) -> Project:
     key = str(root)
     sig = (_file_sig(root / "data" / "functions.json"),
-           _file_sig(root / "data" / "ledger.json"))
+           _file_sig(root / "data" / "ledger.json"),
+           _file_sig(root / "data" / "variables.json"))   # dict-gate の判定材料
     hit = _PROJECT_CACHE.get(key)
     if hit and hit[0] == sig:
         return hit[1]
@@ -154,6 +162,11 @@ def _decide_kind(root: Path, fid: str, include_rerun: bool = False) -> str | Non
     sfm = parse_frontmatter(sp.read_text(encoding="utf-8-sig"))
     status = sfm.get("status")
     if status == "skeleton":
+        # dict-gate（設計 P2）: 変数の語義が未承認のまま①を書かせない。
+        # 判定は ledger.Project.dict_gate_blockers が唯一の実装（CLI の
+        # `ledger next` と共有）。辞書が無いプロジェクトでは常に空＝従来どおり
+        if _project(root).dict_gate_blockers(fid, spec_status=status):
+            return None
         return "spec"
     if status == "draft":
         if include_rerun and _rerun_wanted(root, fid, "spec"):
@@ -323,6 +336,48 @@ WIDGETS_JS = """\
     }
   };
 
+  // ---- 変数辞書（P2）の承認・修正して承認 ----
+  // 送り先だけ /dict-action で、承認者名の取り方・完了後のリロードは①②と同じ。
+  // 承認 → propagate → 骨子 → 辞書ページ再生成 → サイト差分レンダまでサーバ側で
+  // 済ませてから返ってくるので、リロードすれば結果がそのまま見える。
+  function dictPost(body, msgEl){
+    msgEl.textContent = "処理中…（転記・ページ再生成まで行うので数秒〜数十秒かかります）";
+    msgEl.style.color = "";
+    jsonPost("/dict-action", body)
+      .then(d => {
+        msgEl.textContent = d.message || (d.ok ? "完了" : "失敗");
+        msgEl.style.color = d.ok ? "#166534" : "#991b1b";
+        if(d.ok) setTimeout(() => location.reload(), 900);
+      })
+      .catch(e => { msgEl.textContent = "通信エラー: " + e
+                    + "（serve_site.py で配信していますか？）"; msgEl.style.color = "#991b1b"; });
+  }
+  window.lrDict = {
+    approve(vid){
+      dictPost({action:"approve", var_ids:[vid], approver: approver()},
+               document.getElementById("dict-msg-" + vid));
+    },
+    approveAllAB(){
+      const msg = document.getElementById("dict-msg-all");
+      if(!confirm("rank A/B（明示的な根拠あり）で未承認のものをまとめて承認します。よろしいですか？"))
+        return;
+      dictPost({action:"approve_all_ab", approver: approver()}, msg);
+    },
+    toggleRevise(vid){
+      const box = document.getElementById("dict-rev-" + vid);
+      box.style.display = box.style.display === "none" ? "block" : "none";
+    },
+    revise(vid){
+      const msg = document.getElementById("dict-msg-" + vid);
+      const desc = document.getElementById("dict-desc-" + vid).value.trim();
+      const unit = document.getElementById("dict-unit-" + vid).value.trim();
+      if(!desc){ msg.textContent = "意味（desc）を入力してください";
+                 msg.style.color = "#991b1b"; return; }
+      dictPost({action:"revise", var_id: vid, desc: desc, unit: unit,
+                approver: approver()}, msg);
+    }
+  };
+
   // ---- ⑤裁定（ISSUE回答 → unblock） ----
   window.lrAdj = {
     submit(fid, issueId){
@@ -427,7 +482,8 @@ def _run_background_inner(root: Path, fid: str, kind: str, claude_cmd: list,
             fid, claude_cmd, _extra_args(), root, cfg["prompt_template"], RUN_DEFAULTS.max_turns,
             RUN_DEFAULTS.timeout, cfg.get("retries", RUN_DEFAULTS.retries), RUN_DEFAULTS.backoff_base,
             RUN_DEFAULTS.backoff_max, RUN_DEFAULTS.rate_wait_total, status, 0.0, 0,
-            verify_fn=cfg["verify_fn"], cancel_event=cancel_event, phase=kind)
+            verify_fn=cfg["verify_fn"], cancel_event=cancel_event, phase=kind,
+            model=cfg.get("model"))
         status.counts(1 if ok else 0, 0 if ok else 1)
     except KeyboardInterrupt:
         status.finish("stopped", "レート待機の累計上限に到達")
@@ -568,7 +624,13 @@ def prioritize(root: str, fid: str, on: bool = True) -> dict:
     return {"ok": True, "message": msg}
 
 
-def _scan_targets(root: Path, skip: set) -> list:
+def _scan_targets(root: Path, skip: set, flow_fids=None) -> list:
+    """次に着手できる (func_id, kind) の一覧（承認待ち等を除いた自動実行対象）。
+
+    flow_fids（set|None）を渡すと、その集合に無い func_id を除く——ブラウザUI自体には
+    フロー指定を出さないので既定 None（従来どおり全関数）。pipeline.py の
+    `run --flow` がこの引数だけを使って対象を絞る（共有ロジックの二重管理を避ける）。
+    """
     # ⭐優先の retry 分は失敗スキップを解除してから走査する（skip を直接削る。
     # ワンショット消費なので保存し直す）
     prio = _load_priority(root)
@@ -581,6 +643,8 @@ def _scan_targets(root: Path, skip: set) -> list:
     out = []
     for f in p.funcs():
         fid = f["func_id"]
+        if flow_fids is not None and fid not in flow_fids:
+            continue
         kind = _decide_kind(root, fid, include_rerun=True)
         if kind and (fid, kind) not in skip:
             out.append((fid, kind))
@@ -750,7 +814,7 @@ def _batch_background_inner(root: Path, claude_cmd: list, cancel_event: threadin
                 fid, claude_cmd, _extra_args(), root, cfg["prompt_template"], ns.max_turns,
                 ns.timeout, cfg.get("retries", ns.retries), ns.backoff_base,
                 ns.backoff_max, ns.rate_wait_total, status, cost_total, rate_waited,
-                verify_fn=cfg["verify_fn"], phase=kind,
+                verify_fn=cfg["verify_fn"], phase=kind, model=cfg.get("model"),
                 cancel_event=_AnyEvent(cancel_event, item_cancel))
             if cancel_event.is_set():
                 stop_reason = "中止された"

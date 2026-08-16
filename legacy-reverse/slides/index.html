@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>legacy-reverse 操作ガイド — ⓪から⑦まで進めながら覚える</title>
+<title>legacy-reverse はじめてガイド — 初回セットアップから⑦まで</title>
 <link rel="stylesheet" href="assets/style.css">
 <style>
   .shot { max-width: 100%; max-height: 46vh; display: block; margin: 12px auto 4px;
@@ -12,12 +12,17 @@
   .you { border-left: 4px solid var(--accent); background: #fffbeb; padding: 12px 16px;
          border-radius: 0 8px 8px 0; margin: 14px 0; }
   .you b:first-child { color: var(--accent); }
+  ol.steps { margin: 8px 0; padding-left: 1.5em; }
+  ol.steps > li { margin: 6px 0; }
+  .done { border-left: 4px solid #16a34a; background: #f0fdf4; padding: 10px 16px;
+          border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .done b:first-child { color: #16a34a; }
 </style>
 </head>
 <body>
 <header class="topbar">
   <a href="../MANUAL.html">MANUAL</a>
-  <span class="deck-title">legacy-reverse 操作ガイド（スライド版）</span>
+  <span class="deck-title">legacy-reverse はじめてガイド</span>
   <button id="modeToggle">一覧表示</button>
 </header>
 <div class="progress"><div id="bar"></div></div>
@@ -26,22 +31,28 @@
 
 <!-- 1 -->
 <section class="slide title-slide">
-  <span class="chip" style="align-self:center">操作ガイド</span>
-  <h1>legacy-reverse<br>⓪から⑦まで進めながら覚える</h1>
-  <p class="lead">レガシーコード（Fortran / C 等）を Python へ仕様ベースで移植するパイプライン。<br>
-  このスライドは<strong>実際に1関数を進める順番どおり</strong>に、あなたの操作だけを説明する。</p>
+  <span class="chip" style="align-self:center">はじめてガイド</span>
+  <h1>legacy-reverse<br>初めて使う人のための操作ガイド</h1>
+  <p class="lead">レガシーコード（Fortran / C 等）を Python へ移植するツールです。<br>
+  このスライドを<strong>上から順に読んで、書いてあるとおりに操作すれば</strong>、
+  セットアップから移植完了まで進められます。</p>
   <p class="hint"><kbd>→</kbd> キーで次へ / <kbd>←</kbd> で戻る / 右上「一覧表示」で通し読み</p>
 </section>
 
 <!-- 2 -->
 <section class="slide">
-  <h2>全体像 — あなたの仕事は4つだけ</h2>
+  <h2>これは何をするツール？ — 流れを1枚で</h2>
+  <p>レガシーを「読んで直接書き写す」のではなく、間に<strong>仕様書</strong>を挟みます。
+  仕様書から<strong>テストと実装を別々に</strong>作り、最後に突き合わせる——
+  一致すれば、仕様書どおりに移植できた証拠になります。</p>
   <div class="flow">
     <div class="box">⓪ 解析<small>関数リスト</small></div>
     <div class="arrow">→</div>
+    <div class="box">⓪.5 辞書<small>変数の意味</small></div>
+    <div class="arrow">→</div>
     <div class="box">① 仕様書<small>人がOK</small></div>
     <div class="arrow">→</div>
-    <div class="box">② テスト仕様<small>人が承認</small></div>
+    <div class="box">② テスト仕様<small>人がOK</small></div>
     <div class="arrow">→</div>
     <div class="box">③ テストコード</div>
     <div class="arrow">→</div>
@@ -49,32 +60,59 @@
     <div class="arrow">→</div>
     <div class="box alt">⑤ テスト<small>突き合わせ</small></div>
   </div>
-  <p style="text-align:center; margin:6px 0">…全関数が終わったら → ⑥ 完了検証 → ⑦ 分析・改善</p>
-  <table>
-    <tr><th>あなたの仕事</th><th>具体的には</th></tr>
-    <tr><td>トリガを引く</td><td>フェーズを起動する（チャットのコマンド、または画面のボタン）</td></tr>
-    <tr><td>質問に答える</td><td>ISSUE（仮説＋Yes/No形式）に回答する</td></tr>
-    <tr><td>承認する</td><td>①の仕様書・②のテスト仕様に OK を出す</td></tr>
-    <tr><td>裁定する</td><td>⑤でテストが落ちたとき原因の種類を決める</td></tr>
-  </table>
-  <p class="note">役割分担: <strong>AIが書く、機械（スクリプト）が検証する、人が決める。</strong>
-  コードや文書をあなたが直接書く必要は基本ない。
-  <strong>4つとも、チャットでもブラウザでもできる。</strong></p>
+  <p style="text-align:center; margin:6px 0">この ⓪→⑤ を関数ごとに繰り返し、
+  全関数が終わったら ⑥ 完了検証 → ⑦ 分析・改善</p>
   <div class="warn"><strong>前提: レガシーを動かせる環境は無くてよい。</strong>
-  「レガシーを実行して出力を突き合わせる」方式ではありません。正しさは
-  <strong>(1) 人が仕様書をレビューして確定する</strong>ことと、
-  <strong>(2) その仕様書だけから独立に作ったテストと実装が⑤で一致する</strong>ことで担保します。
-  つまり<strong>最終品質の上限は①のレビュー品質</strong>です。</div>
+  「レガシーを実行して出力を比べる」方式ではありません。正しさは
+  (1) 人が仕様書をレビューして確定すること、
+  (2) その仕様書だけから独立に作ったテストと実装が⑤で一致すること、で担保します。</div>
 </section>
 
 <!-- 3 -->
 <section class="slide">
+  <h2>あなたの仕事は4つだけ</h2>
+  <p>コードも文書も、あなたが直接書く必要は基本ありません。
+  <strong>AIが書く、機械（スクリプト）が検証する、あなたが決める</strong>——という分担です。</p>
+  <table>
+    <tr><th>あなたの仕事</th><th>具体的には</th><th>登場する場面</th></tr>
+    <tr><td>1. トリガを引く</td><td>フェーズを起動する（コマンドを打つ、またはボタンを押す）</td><td>各フェーズの最初</td></tr>
+    <tr><td>2. 質問に答える</td><td>AIからの質問（ISSUE。仮説＋Yes/No形式）に回答する</td><td>随時</td></tr>
+    <tr><td>3. 承認する</td><td>⓪.5の変数辞書・①の仕様書・②のテスト仕様に OK を出す</td><td>⓪.5・①・②</td></tr>
+    <tr><td>4. 裁定する</td><td>⑤でテストが落ちたとき、原因の種類を決める</td><td>⑤で fail のとき</td></tr>
+  </table>
+  <div class="point">あなたのOKなしに仕様は確定しません。逆に、機械の検証を通っていないものが
+  あなたのところへ届くこともありません（NG付きの成果物は承認ボタン自体が押せない作りです）。</div>
+  <p class="note"><strong>基本の運転モデル:</strong> フェーズごとに <strong>Python の無人バッチで
+  全件を流し、溜まったものをまとめて承認する</strong>、の繰り返しです（①を全件→まとめて承認→
+  ②を全件→…）。1件ずつ進めるのは、最初に流れを掴むお試しのときだけ。</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>操作の入口は2つ — ターミナルとブラウザ</h2>
+  <p>操作はどちらからでもできます。<strong>同じ操作にターミナルとブラウザの両方の入口</strong>があり、
+  中で実行されるものは同じです。好きな方だけ使っても、混ぜても構いません。</p>
+  <table>
+    <tr><th>やること</th><th>ターミナル</th><th>ブラウザ（進捗サイト）</th></tr>
+    <tr><td>フェーズを起動</td><td><code>/legacy-1-spec F-0001</code> 等のコマンド</td><td>仕様書ページの「①を実行する」ボタン</td></tr>
+    <tr><td>まとめて無人実行</td><td><code>pipeline.py run / spec / dict</code></td><td>バッチ状況ページの「連続実行」</td></tr>
+    <tr><td>実行順の割り込み</td><td><code>pipeline.py priority F-xxxx</code></td><td>残タスクの「⭐優先」ボタン</td></tr>
+    <tr><td>承認</td><td>チャットで「OK」／<code>variables.py approve</code></td><td>承認ウィジェット・一斉レビュー表</td></tr>
+    <tr><td>質問への回答・裁定</td><td>チャットで答える／ISSUEファイルに記入</td><td>裁定ウィジェット</td></tr>
+  </table>
+  <p class="note">このガイドでは基本を<strong>「Python の無人バッチで流して、ブラウザで
+  まとめて確認・承認する」</strong>という流れで説明します。ブラウザ画面（進捗サイト）の開き方は
+  ⓪が終わったところで出てきます。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
   <h2>セットアップ① — 用意するものと skill の配置</h2>
   <table>
-    <tr><th>必要なもの</th><th>確認</th></tr>
+    <tr><th>必要なもの</th><th>確認コマンド</th></tr>
     <tr><td><strong>Claude Code の CLI が PATH に</strong></td><td><code>claude --version</code>（ボタン実行も無人バッチも裏でこれを呼ぶ）</td></tr>
     <tr><td>Python 3.10 以上</td><td><code>python --version</code></td></tr>
-    <tr><td>移植先が git 管理下</td><td><code>git status</code></td></tr>
+    <tr><td>移植先プロジェクトが git 管理下</td><td><code>git status</code></td></tr>
   </table>
   <p><strong>skill のコピー（cwd は skills リポジトリの中）:</strong></p>
   <pre><code>cd &lt;skills&gt;                                    # このリポジトリを clone した場所
@@ -88,7 +126,7 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
   コマンドは断りがなければ <code>&lt;project&gt;</code> の中で実行します。</div>
 </section>
 
-<!-- 3b -->
+<!-- 6 -->
 <section class="slide">
   <h2>セットアップ② — hook・MCP・ツール類</h2>
   <p><strong>1. hook を登録（必須）</strong> —
@@ -119,154 +157,314 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
   <code>python &lt;skills&gt;/quarto-typst-pdf/scripts/qtpdf.py install</code> でポータブル導入も可。
   合本PDFまで出すなら、あとで <code>quarto-typst-pdf/</code> も
   <code>.claude/skills/</code> にコピーします（HTMLだけなら不要）。</p>
-  <div class="point">準備ができたら Claude Code を開き直して <code>/legacy-reverse</code> と打つ。
-  セットアップ状態を確認して、次にやることを案内してくれる。</div>
-</section>
-
-<!-- 4 -->
-<section class="slide">
-  <h2>⓪ 解析 — 関数リストを作る</h2>
-  <pre><code>/legacy-0-analyze</code></pre>
-  <div class="you"><b>あなたがやること:</b> ヒアリングに答える。
-    <ul style="margin:6px 0 0">
-      <li>レガシーコードの場所と言語 / 新しいパッケージ名</li>
-      <li>型対応表（例: <code>REAL*8</code>→<code>float</code>）と命名規則 →
-        規約（conventions.md）として提示されるので <strong>OK を出す</strong></li>
-    </ul>
-  </div>
-  <p>関数の列挙そのものは <strong>静的解析プログラムが機械抽出</strong>する（Fortran / C）。
-  引数・COMMON・呼び出し関係・外部ファイルまで自動で、AIは説明の充填だけを行う。</p>
-  <ul>
-    <li><strong>完了のサイン</strong>: 関数一覧（functions.json）と WBS サイトができ、
-      関数数・循環の有無・推奨着手順が報告される</li>
-    <li>数え漏れは2系統カウントの突合で機械検知。不明点は ISSUE としてあなたに来る</li>
-    <li><strong>途中でやり直しても安全</strong>: 再実行はマージ動作（関数IDは変わらない）</li>
-    <li>Fortran と C が混在していても、両方の抽出器が同じリストにマージする
-      （呼び出し関係も言語をまたいで自動でつながる）</li>
+  <p><strong>4. 無人バッチの実行許可（重要）</strong> — このガイドの基本線である無人バッチは
+  許可ダイアログに答えられないため、先に許可を通しておきます。方法は2つ:</p>
+  <ul style="margin:4px 0 10px">
+    <li><code>&lt;project&gt;/.claude/settings.json</code> の <code>permissions.allow</code> に
+      <code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Bash</code> を許可しておく</li>
+    <li>信頼できる閉じた環境なら、バッチ起動時に <code>--skip-permissions</code> を付ける
+      （共有マシンでは使わない）</li>
   </ul>
-</section>
-
-<!-- 5 -->
-<section class="slide">
-  <h2>WBS — 進捗のホーム画面</h2>
-  <p>⓪が終わると HTML の進捗サイトができる。以後、全フェーズの最後に自動更新される。
-  <strong>プロジェクトルートで</strong>次を実行するとブラウザが開く:</p>
-  <pre><code>python &lt;LR&gt;/scripts/serve_site.py --root .
-# &lt;LR&gt; = &lt;project&gt;/.claude/skills/legacy-reverse</code></pre>
-  <img class="shot" src="../assets/manual/wbs.png" alt="WBS">
-  <p class="shot-cap">トップ = 進捗サマリ・あなたへの質問（Open ISSUES）・関数一覧・コールグラフ</p>
-  <table>
-    <tr><th>記号</th><th>意味</th><th>あなたの対応</th></tr>
-    <tr><td>✅ / ▲ / ☐</td><td>完了 / 作業中（承認前） / 未着手</td><td>▲ は承認する</td></tr>
-    <tr><td>⛔</td><td>裁定待ちで<strong>止まっている</strong></td><td><strong>ISSUE に回答する（最優先）</strong></td></tr>
-    <tr><td>⚠</td><td>要再確認。3種類ある（①改訂で②が古い／freeze後にテストが変わった／②の期待値が未確定）</td><td>該当欄に理由が出るので、それに従う</td></tr>
-    <tr><td>❌</td><td>機械レビューNG</td><td>AIの自己修正を待つ（❌のままでは承認できない）</td></tr>
-  </table>
-  <p class="note">URL（<code>http://127.0.0.1:8xxx/</code>）は<strong>プロジェクトごとに固定</strong>なので
-  ブックマークできる。自分のPCの中だけで配信され、社内LANにも出ない。
-  ナビバーから ドメイン知識 / 規約 / ⑥完了検証 / ⑦分析 / 新コード詳細(API) /
-  <strong>バッチ状況</strong> / <strong>マニュアル</strong>（この操作ガイドの詳説版）へ。</p>
-</section>
-
-<!-- 6 -->
-<section class="slide">
-  <h2>チャットに戻らなくていい — 画面だけで完結する</h2>
-  <p>このサイトは<strong>進捗を眺めるだけの画面ではない</strong>。
-  関数の仕様書ページが「その関数のホーム」になっていて、
-  <strong>そのときに可能な操作が1つだけ</strong>ボタンとして出る。</p>
-  <table>
-    <tr><th>関数の状態</th><th>仕様書ページに出るもの</th></tr>
-    <tr><td>①がまだ無い</td><td>「①を実行する」ボタン</td></tr>
-    <tr><td>①が draft（承認待ち）</td><td><strong>承認ウィジェット</strong>（承認する / 修正依頼…）</td></tr>
-    <tr><td>①が OK・②がまだ</td><td>「②を実行する」ボタン（以降 ③④⑤ と自動で切り替わる）</td></tr>
-    <tr><td>⑤が ⛔（裁定待ち）</td><td><strong>裁定ウィジェット</strong>（ISSUEの質問＋回答欄）</td></tr>
-  </table>
-  <div class="point"><strong>「承認する」は機械レビューがNGの間は押せない。</strong>
-  しかも押せたとしても、サーバ側でもう一度検証してから確定する
-  ——「NG付きの成果物は承認できない」を見た目ではなく仕組みで守っている。</div>
-  <p class="note">チャットのコマンド（<code>/legacy-1-spec F-0001</code>）は今までどおり使える。
-  ボタンは<strong>置き換えではなく追加の入口</strong>で、実行される中身は同じ。</p>
+  <div class="point">準備ができたら Claude Code を開き直して <code>/legacy-reverse</code> と打つ。
+  セットアップ状態を確認して、次にやることを案内してくれる。
+  <strong>以後も、迷ったら・再開するときは、いつでも <code>/legacy-reverse</code>。</strong></div>
 </section>
 
 <!-- 7 -->
 <section class="slide">
-  <h2>① 関数仕様書 — 最初の承認ゲート</h2>
-  <pre><code>/legacy-1-spec F-0001</code></pre>
-  <p>AIがレガシー原文を読み、仕様書を書く。各項目には
-  <strong>Confidence</strong>（🟢確認済 / 🟡推測 / 🔴仮定）と根拠の行番号が付く。</p>
-  <img class="shot" src="../assets/manual/spec.png" alt="関数仕様書">
-  <div class="you"><b>あなたがやること:</b> レビューして「OK」と返す（→ reviewed になる）。
-    🟡🔴の質問には Yes/No で答える。答えられなければ「保留」でよい（ISSUEとして残る）。</div>
-  <div class="point">提示される仕様書は<strong>機械レビュー通過済み</strong>:
-    引用行の実在・記入漏れ・根拠なし🟢は機械が先に落としている。
-    あなたは「<strong>意味が正しいか</strong>」だけを見ればよい。</div>
-  <p class="note">1件ずつが面倒なら「<code>仕様書をまとめて10件進めて</code>」——
-  AIが連続で draft 化し、次のページの<strong>一斉レビュー表</strong>にまとめて並べてくれる。
-  draft の書き直しは何度でも頼める。</p>
+  <h2>⓪ 解析 — 関数リストを作る</h2>
+  <ol class="steps">
+    <li><strong>打つ:</strong> <code>/legacy-0-analyze</code></li>
+    <li><strong>起きること:</strong> 静的解析プログラムがレガシーの全関数を機械抽出する
+      （Fortran / C。引数・COMMON・呼び出し関係・外部ファイルまで自動。AIは説明の充填だけ）</li>
+    <li><strong>あなたがやること:</strong> ヒアリングに答える
+      <ul style="margin:4px 0 0">
+        <li>レガシーコードの場所と言語、新しいパッケージ名</li>
+        <li>型対応表（例: <code>REAL*8</code>→<code>float</code>）、丸め・単位・日付などの
+          全体ルール → <strong>規約（conventions.md）として提示されるので OK を出す</strong></li>
+      </ul></li>
+    <li><strong>途中で聞かれること:</strong> 「0割をどう扱うか」（例外ポリシー。次ページ）と
+      「この略語は読めますか」（変数辞書の準備。次々ページ）</li>
+  </ol>
+  <div class="done"><b>完了のサイン:</b> 関数一覧（functions.json）と進捗サイトができ、
+  関数数・循環の有無・推奨着手順が報告される。最後に「次は <code>/legacy-0-dict</code>」と案内される。</div>
+  <p class="note">数え漏れは2系統カウントの突合で機械検知。不明点は ISSUE（質問）としてあなたに来る。
+  <strong>途中でやり直しても安全</strong>（再実行はマージ動作。関数IDは変わらない）。</p>
 </section>
 
 <!-- 8 -->
 <section class="slide">
+  <h2>⓪の途中で聞かれること — 例外ポリシー（0割の扱い）</h2>
+  <p>Fortran は0で割っても Inf（無限大）を作って走り続けますが、<strong>Python はそこで
+  止まります</strong>。平方根の負値・対数の0にも同じことが起きます。そのまま移植すると
+  動きが変わるので、<strong>①より先に扱いを決めます</strong>。</p>
+  <p><strong>検知は機械、決定はあなた。</strong>該当箇所は⓪が機械で洗い出し、
+  「0割が N 箇所あります。既定をどうしますか」と<strong>種類ごとにまとめて</strong>聞いてきます。
+  1箇所ずつではなく、<strong>種類ごとに1回答えれば全箇所に効きます</strong>。</p>
+  <table>
+    <tr><th>答え</th><th>意味</th><th>使いどころ</th></tr>
+    <tr><td><code>guard_raise</code></td><td>チェックして例外を出す</td>
+        <td><strong>迷ったらこれ</strong>。異常を握り潰さない</td></tr>
+    <tr><td><code>guard_value</code></td><td>代わりの値を返して続行</td>
+        <td>業務上「0のときは0扱い」等が決まっている場合（値も伝える）</td></tr>
+    <tr><td><code>legacy_preserve</code></td><td>Inf/NaN のまま流す（レガシー再現）</td>
+        <td>下流が Inf を前提にしている場合</td></tr>
+    <tr><td><code>detect_only</code></td><td>仕様書に書くだけ</td>
+        <td>実際には起こり得ないが記録は残したい場合</td></tr>
+    <tr><td><code>caller_guarantees</code></td><td>呼び出し元が保証している</td>
+        <td>なぜ保証されるのかも伝える（根拠が要る）</td></tr>
+  </table>
+  <div class="you"><b>あなたがやること:</b>「既定は <code>guard_raise</code>、
+    ただし F-0012 のここだけは呼び出し元が保証」のように答える
+    （<strong>個別の指定が全体の既定に勝つ</strong>）。答えは登録簿に記録され、二度と聞かれない。</div>
+</section>
+
+<!-- 8b -->
+<section class="slide">
+  <h2>作業範囲を決める — 「この Main に関わる範囲だけ」を指定できる</h2>
+  <p>①以降のバッチは、既定では<strong>全関数</strong>が対象です。メインルーチンが複数ある、
+  または main に大きな分岐があって<strong>系統ごとに別々に進めたい</strong>場合は、
+  <strong>フロー</strong>を定義すると「その Main から呼ばれて到達できる関数だけ」に絞れます。</p>
+  <div class="you"><b>あなたがやること:</b>
+    <ol class="steps" style="margin:6px 0 0">
+      <li>⓪の途中で「作業スコープを分けますか」と聞かれたら、<strong>Main（エントリ）の
+        関数IDと呼び名</strong>を答える（例:「F-0000 を『月次バッチ』、F-0031 を『日次』で」）。
+        聞かれなくても、後からいつでも次のコマンドで定義できる:
+        <pre style="margin:6px 0"><code>ledger flow add 月次バッチ --entry F-0000
+ledger flow list                        # 定義の確認</code></pre>
+        エントリは main そのものでなく「分岐先の代表サブルーチン」でもよい</li>
+      <li>以後のバッチに <strong><code>--flow 月次バッチ</code> を付けるだけ</strong>:
+        <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ</code></pre>
+        <code>spec</code> / <code>run</code> / <code>dict</code> すべてで使え、
+        「次の一手」も <code>ledger next --flow 月次バッチ</code> で絞れる</li>
+    </ol>
+  </div>
+  <ul>
+    <li>範囲（到達集合）は<strong>コールグラフから自動計算</strong>される。あなたが関数を
+      列挙する必要はないし、レガシーを再解析しても自動で追随する</li>
+    <li>定義すると WBS に<strong>「フロー別進捗」表</strong>が出る（系統ごとの進み具合が見える）</li>
+    <li>全関数を一気にやるなら<strong>定義しなくてよい</strong>（このスライド以降の
+      <code>--flow</code> は省略すれば全関数が対象）</li>
+  </ul>
+</section>
+
+<!-- 8c -->
+<section class="slide">
+  <h2>進捗サイトを開く — ここからはブラウザも使う</h2>
+  <p>⓪が終わると HTML の進捗サイトができています（以後、全フェーズの最後に自動更新）。
+  以降の<strong>承認・裁定はこの画面でまとめて行う</strong>ので、ここで開いておきます。
+  <strong>プロジェクトルートで</strong>次を実行するとブラウザが開きます:</p>
+  <pre><code>python &lt;LR&gt;/scripts/serve_site.py --root .</code></pre>
+  <img class="shot" src="../assets/manual/wbs.png" alt="WBS" style="max-height:38vh">
+  <p class="shot-cap">トップ（WBS）= 進捗サマリ・あなたへの質問（Open ISSUES）・関数一覧・コールグラフ</p>
+  <table>
+    <tr><th>記号</th><th>意味</th><th>あなたの対応</th></tr>
+    <tr><td>✅ / ▲ / ☐</td><td>完了 / 承認待ち / 未着手</td><td>▲ は承認する</td></tr>
+    <tr><td>⛔</td><td>あなたの裁定待ちで<strong>止まっている</strong></td><td><strong>ISSUE に回答する（最優先）</strong></td></tr>
+    <tr><td>⚠</td><td>要再確認（上流が変わった等）</td><td>該当欄に理由が出るので、それに従う</td></tr>
+    <tr><td>❌</td><td>機械レビューNG</td><td>AIの自己修正を待つ（❌のままでは承認できない）</td></tr>
+  </table>
+  <p class="note">URL はプロジェクトごとに固定なのでブックマークできる。自分のPCの中だけで配信され、
+  外には出ない。各関数の仕様書ページには<strong>そのとき可能な操作のボタンが1つだけ</strong>出る
+  （「①を実行する」→ 承認ウィジェット → 「②を実行する」…と状態に応じて切り替わる）。</p>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2>⓪.5 変数辞書 (1/2) — なぜ仕様書より先にやるのか</h2>
+  <p>レガシーの変数名（<code>R8TBL</code>・<code>WKA</code>・<code>IFLG</code>）はそれだけでは
+  意味が分かりません。しかも同じ変数が COMMON 経由で10も20もの関数に顔を出します。
+  意味を決めないまま仕様書を書くと、<strong>同じ変数に関数ごとに違う説明が付き</strong>、
+  後で直すにはレビュー済みの仕様書を全部開き直すことになります。</p>
+  <p>だから①より先に、ここで<strong>「1変数＝1つの意味」をあなたが確定</strong>させます。
+  機械が「同じ実体」をまとめてくれているので、
+  <strong>1回承認すれば、その変数が出てくる全関数に効きます</strong>。</p>
+  <table>
+    <tr><th>誰が</th><th>何をするか</th></tr>
+    <tr><td>機械</td><td>同じ実体の変数をまとめる（COMMONの位置・引数の対応など機械的な根拠だけで）。
+      コメント・FORMAT文・初期値などの「意味の手がかり」も収集する</td></tr>
+    <tr><td>AI</td><td>その手がかり<strong>だけ</strong>を根拠に意味（例:「年間税率」）を書く。
+      根拠が無いものは「不明」のまま残す（推測で埋めない）</td></tr>
+    <tr><td><strong>あなた</strong></td><td><strong>承認する（ここだけが人の仕事）</strong></td></tr>
+  </table>
+  <p class="note">承認した意味は仕様書の入出力表に自動で転記されます
+  （<code>年間税率(比率) [V-0001]</code> の形）。既定では、未承認の変数が残る関数は
+  ①に進めません（急ぐ場合は「辞書のゲートを解除して」と言えば先へ進めます）。</p>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>⓪.5 変数辞書 (2/2) — 実際の手順</h2>
+  <ol class="steps">
+    <li><strong>打つ（無人バッチ）:</strong>
+      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py dict --root .</code></pre>
+      <ul style="margin:4px 0 0"><li>放置でよい（実行中でも次の承認を並行できる）。
+        様子を見ながら数十件だけ試したいときはチャットで <code>/legacy-0-dict</code></li></ul></li>
+    <li><strong>起きること（あなたの操作なし）:</strong> AIが根拠から変数の意味を書き、
+      機械が検証して辞書ページ（進捗サイトの「変数辞書」）を更新する</li>
+    <li><strong>承認する:</strong> ブラウザでナビバーの<strong>「変数辞書」</strong>を開く。
+      変数が「多くの関数で使われるもの・確認が要るもの」順に並んでいるので、上から:
+      <table style="margin:6px 0">
+        <tr><th>行の表示</th><th>操作</th></tr>
+        <tr><td>rank A / B（コメント等の根拠あり）</td><td>意味を確認して<strong>チェック→一括承認</strong></td></tr>
+        <tr><td>rank C / D（根拠が弱い・無い）</td><td>意味欄を直して<strong>「修正して承認」</strong>（1件ずつ）</td></tr>
+      </table>
+      チャット派は「V-0001とV-0002を承認して」「V-0003は年間税率に直して承認して」でも同じ。</li>
+    <li><strong>知らない変数はどうする？:</strong> 分からなければ<strong>放置でよい</strong>。
+      承認しない限り確定しない。まず上位（多くの関数に効くもの）だけ片付けて①へ進み、
+      残りは後から戻ってきてもよい</li>
+  </ol>
+  <div class="done"><b>完了のサイン:</b> 「変数辞書」ページの未承認が0件
+  （または AI が「dict-gate で止まる関数は無くなった」と報告）→ <code>/legacy-1-spec</code> へ。</div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2>① 関数仕様書 — まず1件お試し、あとは全件バッチ</h2>
+  <ol class="steps">
+    <li><strong>まず1関数だけお試し:</strong> <code>/legacy-1-spec F-0001</code>
+      （関数IDはWBSの推奨着手順の先頭から）。出てきた仕様書を読んで、規約や変数辞書の
+      効き方に問題がないか<strong>品質を確かめる</strong>。直したい傾向があればここで
+      規約・辞書を直してから全件へ</li>
+    <li><strong>残りは全件バッチ:</strong>
+      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py spec --root .            # 全関数
+python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # フローの範囲だけ</code></pre>
+      夜に起動して寝てよい。機械レビュー通過済みの draft が溜まっていく</li>
+    <li><strong>あなたがやること:</strong> <strong>一斉レビュー表</strong>（次ページ）で
+      まとめて承認する。各項目の <strong>Confidence</strong>（🟢確認済 / 🟡推測 / 🔴仮定）が
+      目印。🟡🔴の質問には Yes/No で答える（答えられなければ「保留」でよい）</li>
+  </ol>
+  <div class="point">提示される仕様書は<strong>機械レビュー通過済み</strong>:
+    引用行の実在・記入漏れ・根拠なし🟢は機械が先に落としている。
+    あなたは「<strong>意味が正しいか</strong>」だけを見ればよい。
+    <strong>最終品質の上限はこのレビューの品質</strong>です——いちばん丁寧にやる価値がある場所。</div>
+  <p class="note"><strong>②へは、①のレビューが終わってから進むのが基本形</strong>
+  （②は「①が承認済みの関数」しか対象にならないので、順序は仕組みでも守られる）。
+  書き直しは draft のうちは何度でも頼める。</p>
+</section>
+
+<!-- 13 -->
+<section class="slide">
   <h2>一斉レビュー表 — まとめて承認する</h2>
-  <p>draft になった仕様書が1枚の表に並ぶ（WBS の「要対応」からリンク）。</p>
+  <p>draft になった仕様書が1枚の表に並びます（WBS の「要対応」からリンク）。</p>
   <img class="shot" src="../assets/manual/spec-review.png" alt="一斉レビュー表" style="max-height:40vh">
   <ul>
     <li><strong>並び順が優先度</strong>: 上から「そのまま承認できる」→「ISSUE がある」→
       「AI修正待ち」。判断が要らないものから片付けられる</li>
-    <li><strong>チップと検索</strong>で絞り込める。「承認できる 9」の数字がそのまま残作業量</li>
     <li><strong>各行の「承認」「修正依頼…」でその場で完結</strong>。
       関数名リンクから全文を読んでから決めてもよい</li>
     <li>❌の行は「AI修正待ち」と出るだけでボタンが出ない
       （＝<strong>機械NGのものは人が承認できない</strong>）</li>
   </ul>
   <p class="note">チャットで「<code>全部OK</code>」「<code>F-0003 は修正: 端数処理が書かれていない</code>」
-  と返す従来のやり方も、そのまま使える。</p>
+  と返すやり方も、そのまま使える。</p>
 </section>
 
-<!-- 9 -->
+<!-- 14 -->
 <section class="slide">
-  <h2>全件を回す — 無人バッチ実行（機械がエージェントを回す）</h2>
-  <p>数百〜2000件はチャットで回さない。<strong>無人ドライバ</strong>が
-  1関数ごとに新しい headless Claude（<code>claude -p "/legacy-1-spec F-xxxx"</code>）を
-  起動して回す——トークン上限に依存せず、夜間に放置できる。</p>
-  <pre><code>python &lt;LR&gt;/scripts/pipeline.py spec --root . --dry-run   # まず対象と実行内容を確認
-python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 全件 draft まで無人実行
-python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も同じコマンドで再開</code></pre>
-  <ul>
-    <li>各関数の完了は AI の申告でなく<strong>ファイル状態で契約検証</strong>
-      （draft 化＋機械レビュー NG ゼロ）。NG はリトライ→スキップ記録</li>
-    <li>レートリミット・利用枠上限は失敗に数えず<strong>待って自動再開</strong>
-      （夜間の利用枠リセットを人手なしで跨ぐ）。連続3件失敗は環境異常として停止</li>
-    <li>Ctrl-C・電源断はどこでも安全。10件ごとに WBS と一斉レビュー表が自動更新</li>
-  </ul>
-  <div class="you"><b>あなたがやること:</b> 事前に<strong>ツールの実行許可を通しておく</strong>
-    （headless = 画面なしの <code>claude</code> は許可ダイアログに答えられないので、
-    そこで止まると朝まで無駄になる）。方法は2つ:
-    <ul style="margin:6px 0 0">
-      <li><code>&lt;project&gt;/.claude/settings.json</code> の <code>permissions.allow</code> に
-        <code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Bash</code> を許可しておく</li>
-      <li>信頼できる閉じた環境なら <code>--skip-permissions</code> を付けて起動する
-        （共有マシンでは使わない）</li>
-    </ul>
-    夜に起動して寝る → 翌朝 <strong>一斉レビュー表</strong>を見て承認するだけ。</div>
-  <p class="note"><code>spec</code> は①専用。<strong>②以降も含めて回すなら
-  <code>pipeline.py run</code></strong>（ブラウザの「連続実行」と同じ走査・⭐優先も反映）か、
-  次ページの「連続実行」を使う。／ <code>claude</code> が見つからないと言われたら
-  <code>(Get-Command claude).Source</code> で実体パスを調べて
-  <code>--claude-cmd "&lt;パス&gt;"</code> で明示する。</p>
+  <h2>② テスト仕様書 — ①が全部承認できたら、②を全件</h2>
+  <ol class="steps">
+    <li><strong>打つ（全件バッチ・②だけ）:</strong>
+      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py run --root . --only testspec [--flow 月次バッチ]</code></pre>
+      対象になるのは<strong>①が承認済み（reviewed）の関数だけ</strong>。未承認の関数が
+      勝手に進むことはない。1件ずつなら <code>/legacy-2-testspec F-0001</code></li>
+    <li><strong>起きること:</strong> AIが「①の仕様書<strong>だけ</strong>」からテストケースを
+      設計する（レガシー原文は見ない。①に書いていないことはテストにできない——
+      仕様書の穴がここで露見する）</li>
+    <li><strong>あなたがやること:</strong>
+      <ul style="margin:4px 0 0">
+        <li>ケース一覧（正常系・境界値・異常系…）を見る</li>
+        <li>期待値が決められないケース（⚠未確定）の質問に答える</li>
+        <li>問題なければ承認 → approved（<strong>⚠未確定が残ったままの承認は機械が拒否</strong>）</li>
+      </ul></li>
+  </ol>
+  <p class="note">「全🟢仕様項目にテストがあるか」「①に無い仕様IDをでっち上げていないか」は
+  機械検証済み。あなたは<strong>期待値が業務的に正しいか</strong>だけを見る。</p>
+  <div class="done"><b>ここまでで人の承認は一通り終わり。</b>③④⑤は承認ゲートが無いので、
+  次はまとめて流すだけです。</div>
 </section>
 
-<!-- 10 -->
+<!-- 15 -->
+<section class="slide">
+  <h2>③④⑤ — 承認が終わったら、まとめて流すだけ</h2>
+  <p>②の承認が済んだ関数は、③テストコード→④実装→⑤テストまで<strong>人の承認なしで
+  自動で進みます</strong>。全件流すには:</p>
+  <pre><code>python &lt;LR&gt;/scripts/pipeline.py run --root . [--flow 月次バッチ]</code></pre>
+  <p class="note">run は「次に進められる工程」を関数ごとに自動判定するので、③④⑤を
+  分けて指定する必要はない（分けたければ <code>--only testcode</code> 等）。
+  1件ずつなら <code>/legacy-3-testcode F-0001</code> / <code>/legacy-4-impl F-0001</code>。</p>
+  <p>③と④は<strong>見守るだけ</strong>。それぞれ独立に作られます:</p>
+  <div class="flow">
+    <div class="box">③ テストコード<small>入力は「②＋規約」だけ</small></div>
+    <div class="arrow">⇄<small>互いを見ない</small></div>
+    <div class="box">④ 実装<small>入力は「①＋規約」だけ</small></div>
+  </div>
+  <ul>
+    <li>③完了時にテストは <strong>freeze</strong>（ハッシュ記録）。以後AIがテストを書き換えようと
+      しても hook が拒否する（「テストを緩めて通す」事故を仕組みで防ぐ）</li>
+    <li>④の<strong>スタブ（空実装・TODO）は機械検知</strong>されるので「実装したふり」はできない</li>
+    <li>④が「①だけでは決められない」と気づくと ISSUE を起票して止まる →
+      あなたは質問に答えるだけ（①の改訂・伝搬は自動で面倒を見る）</li>
+  </ul>
+</section>
+
+<!-- 16 -->
+<section class="slide">
+  <h2>⑤ の結果 — fail のときだけ、あなたの出番（裁定）</h2>
+  <p>⑤はバッチ（run）が自動実行します（1件ずつなら <code>/legacy-5-test F-0001</code>）。
+  <strong>pass</strong> なら完了（WBS が ✅ になる）。<strong>fail</strong> のときだけ、あなたの出番:</p>
+  <table>
+    <tr><th>分類</th><th>原因</th><th>あなたの操作</th></tr>
+    <tr><td>(a) 実装バグ</td><td>実装が①を満たしていない</td><td><strong>何もしない</strong>（AIが修正→再実行を自走）</td></tr>
+    <tr><td>(b) テストのバグ</td><td>③が②とズレている</td><td>ISSUE の証拠を見て承認 → ③再生成</td></tr>
+    <tr><td>(c) 仕様が誤り</td><td>②①自体が間違い</td><td>ISSUE で裁定 → ①改訂を指示</td></tr>
+  </table>
+  <p>(a) の自動修正は<strong>3回で自動停止</strong>し、WBS に ⛔ が出ます。AIの失敗分析
+  （何を試し、なぜ駄目で、(a)/(b)/(c)のどれと考えるか）が ISSUE に書かれているので:</p>
+  <ol class="steps">
+    <li>仕様書ページ（またはバッチ画面の「人待ち」）に出ている質問に<strong>回答を書いて送る</strong>
+      （記録・再開準備まで自動）</li>
+    <li>そのあと出る「⑤を実行する」ボタンで再テスト
+      （チャットなら回答 →「アンブロックして」→ <code>/legacy-5-test F-0001</code>）</li>
+  </ol>
+  <div class="warn">⛔ はあなたの回答待ちで完全に止まっている状態。見かけたら最優先で裁定する。
+  (b)(c) をAIが勝手にやることはない（テスト改変は hook が物理的に拒否）。</div>
+</section>
+
+<!-- 17 -->
+<section class="slide">
+  <h2>無人バッチの共通ルール — 中断・再開・順番の割り込み</h2>
+  <p>ここまでに出てきた <code>pipeline.py dict / spec / run</code> は、すべて同じ性質を持ちます:</p>
+  <ul>
+    <li><strong>いつ止めても安全、再開は同じコマンド。</strong> Ctrl-C・電源断でも進捗は
+      すべてファイル側にあり、もう一度同じコマンドを打てば続きから走る</li>
+    <li><strong>レートリミット・利用枠上限は待って自動再開。</strong> 失敗扱いにせず
+      指数バックオフで待つので、夜間の利用枠リセットを人手なしで跨げる</li>
+    <li><strong>承認待ち・裁定待ちは自動でスキップ</strong>して先へ進む＝
+      <strong>あなたが承認する速度が全体の速度</strong>。回しながら一斉レビュー表・
+      「人待ち」タブで承認していく</li>
+    <li>1関数=1つの新しいAIプロセスなので、何千件でもトークン上限に当たらない</li>
+  </ul>
+  <p><strong>よく使う操作:</strong></p>
+  <pre><code>python &lt;LR&gt;/scripts/pipeline.py run --root . --dry-run    # 実行せず対象と順番だけ確認
+python &lt;LR&gt;/scripts/pipeline.py run --root . --max-funcs 20  # 今日は20件だけ
+python &lt;LR&gt;/scripts/pipeline.py priority F-0012           # この関数を次に割り込ませる（実行中でも効く）
+python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込みの一覧（--off / --clear で解除）</code></pre>
+  <p class="note"><strong>ブラウザ派の同等品</strong>: ナビバー「バッチ状況」→「連続実行」。
+  ⭐優先・スキップ・承認・裁定まで同じ画面で完結する（中身は CLI と同一）。次ページ参照。</p>
+</section>
+
+<!-- 18 -->
 <section class="slide">
   <h2>バッチ実行状況ページ — 連続実行の運転席</h2>
-  <p>ナビバーの「バッチ状況」（<code>/pipeline.html</code>）。
-  <strong>眺める画面ではなく運転する画面</strong>で、2.5秒ごとに自動更新される。</p>
+  <p>ナビバーの「バッチ状況」（<code>/pipeline.html</code>）。CLI で回していても
+  ブラウザから回していても、<strong>同じ画面に出ます</strong>（2.5秒ごとに自動更新）。</p>
   <img class="shot" src="../assets/manual/batch.png" alt="バッチ実行状況ページ" style="max-height:44vh">
   <table>
     <tr><th>場所</th><th>できること</th></tr>
-    <tr><td>上段「連続実行」</td><td>件数を選んで<strong>開始</strong>。①〜⑤を工程横断で自動で回す（承認待ちはスキップ）</td></tr>
-    <tr><td>実行中カード</td><td>いま何をしているか。バーが黄・赤になったら<strong>長引いている</strong>合図。<strong>この件だけスキップ</strong>もできる</td></tr>
-    <tr><td>残タスク（左）</td><td><strong>実行順</strong>に並ぶ。検索して<strong>⭐優先</strong>を押すと次に割り込む</td></tr>
+    <tr><td>上段「連続実行」</td><td>件数を選んで<strong>開始</strong>（ブラウザから回す場合）</td></tr>
+    <tr><td>実行中カード</td><td>いま何をしているか。バーが黄・赤なら<strong>長引いている</strong>合図。<strong>この件だけスキップ</strong>もできる</td></tr>
+    <tr><td>残タスク（左）</td><td><strong>実行順</strong>に並ぶ。検索して<strong>⭐優先</strong>で次に割り込む（CLI: <code>pipeline.py priority</code>）</td></tr>
     <tr><td>「人待ち」タブ</td><td>承認待ち・裁定待ちが集まる。<strong>ここから直接 承認・修正依頼・裁定</strong>できる</td></tr>
     <tr><td>結果（右）</td><td>失敗の理由が開いた状態で読める。応答ログ・再実行もこの行から</td></tr>
   </table>
@@ -274,10 +472,11 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
   回しながらこの画面で承認していけば、止まらずに進む。</div>
 </section>
 
-<!-- 11 -->
+<!-- 19 -->
 <section class="slide">
   <h2>ISSUE の答え方 — 白紙の質問は来ない</h2>
-  <p>AIが判断に迷うと ISSUE を起票する。必ず<strong>「仮説＋Yes/Noで答えられる問い」</strong>の形。</p>
+  <p>AIが判断に迷うと ISSUE（質問票）を起票します。必ず
+  <strong>「仮説＋Yes/Noで答えられる問い」</strong>の形で来ます。</p>
   <img class="shot" src="../assets/manual/issue.png" alt="ISSUE">
   <ul>
     <li><strong>答え方は3通り、どれでも同じ</strong>:
@@ -289,143 +488,47 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root .             # 中断後も�
   </ul>
 </section>
 
-<!-- 12 -->
+<!-- 20 -->
 <section class="slide">
-  <h2>② テスト仕様書 — 2つ目の承認ゲート</h2>
-  <pre><code>/legacy-2-testspec F-0001</code></pre>
-  <p>AIが「①の仕様書<strong>だけ</strong>」からテストケースを設計する
-  （レガシー原文は見ない = クリーンルーム）。</p>
-  <div class="you"><b>あなたがやること:</b>
-    <ul style="margin:6px 0 0">
-      <li>ケース一覧（正常系・境界値・異常系…）と質問一覧を見る</li>
-      <li>期待値が決められないケース（⚠未確定）の質問に答える</li>
-      <li>問題なければ「OK」→ approved になる（<strong>⚠未確定が残ったままの承認は機械が拒否</strong>）</li>
-    </ul>
-  </div>
-  <p class="note">「全🟢仕様項目にテストがあるか」「①に無い仕様IDをでっち上げていないか」は
-  トレーサビリティ突合で機械検証済み。あなたは期待値の妥当性だけを見る。</p>
-</section>
-
-<!-- 13 -->
-<section class="slide">
-  <h2>③ テストコード / ④ 実装 — 見守りフェーズ</h2>
-  <pre><code>/legacy-3-testcode F-0001
-/legacy-4-impl     F-0001</code></pre>
-  <p>この2つは基本的に<strong>見守るだけ</strong>。それぞれ独立に作られる:</p>
-  <div class="flow">
-    <div class="box">③ テストコード<small>入力は「②＋規約」だけ</small></div>
-    <div class="arrow">⇄<small>互いを見ない</small></div>
-    <div class="box">④ 実装<small>入力は「①＋規約」だけ</small></div>
-  </div>
+  <h2>⑥ 完了検証 / ⑦ 分析・改善 — 全関数が終わったら</h2>
+  <p><strong>⑥</strong> <code>/legacy-6-check</code> — 全関数の①〜⑤・未回答ISSUEゼロ・実装率100%を
+  機械で総点検します（LLM不使用・数十秒。WBSトップのボタンからも実行可）。</p>
   <ul>
-    <li>③完了時にテストは <strong>freeze</strong>（ハッシュ記録）。以後の改変は hook が拒否し、
-      変更されれば WBS に ⚠ が出る</li>
-    <li>④の<strong>スタブ（空実装・TODO）は機械検知</strong>されるので「実装したふり」はできない</li>
-    <li>④が「①だけでは実装を決められない」と気づくと <strong>spec-gap ISSUE</strong> を起票して停止する
-      → あなたは ISSUE に答えて①の改訂を指示するだけ（伝搬は自動検知）</li>
-  </ul>
-</section>
-
-<!-- 14 -->
-<section class="slide">
-  <h2>⑤ テスト — 独立に作った両者を突き合わせる</h2>
-  <pre><code>/legacy-5-test F-0001</code></pre>
-  <img class="shot" src="../assets/manual/test-result.png" alt="テスト結果報告書">
-  <p><strong>pass</strong> なら完了（WBS が ✅ になる）。<strong>fail</strong> のときだけ、あなたの出番:</p>
-  <table>
-    <tr><th>分類</th><th>原因</th><th>あなたの操作</th></tr>
-    <tr><td>(a) 実装バグ</td><td>実装が①を満たしていない</td><td><strong>何もしない</strong>（AIが修正→再実行を自走）</td></tr>
-    <tr><td>(b) テストのバグ</td><td>③が②とズレている</td><td>ISSUE の証拠を見て承認 → ③再生成</td></tr>
-    <tr><td>(c) 仕様が誤り</td><td>②①自体が間違い</td><td>ISSUE で裁定 → ①改訂を指示</td></tr>
-  </table>
-  <p class="note">(b)(c) をAIが勝手にやることはない（テスト改変は hook が物理的に拒否）。</p>
-</section>
-
-<!-- 15 -->
-<section class="slide">
-  <h2>⑤ で ⛔ が出たら — 裁定して再開する</h2>
-  <p>(a) の自動修正ループは<strong>3回で自動停止</strong>し、WBS に ⛔ と triage ISSUE が出る。
-  AIの失敗分析（何を試し、なぜ駄目で、(a)/(b)/(c) のどれと考えるか）が書かれている。</p>
-  <table>
-    <tr><th>やり方</th><th>手順</th></tr>
-    <tr><td><strong>ブラウザ</strong>（おすすめ）</td>
-        <td>仕様書ページ（またはバッチ画面の「人待ち」）に ISSUE の質問がそのまま出る。
-            <strong>回答を書いて送るだけ</strong>で、記録・アンブロックまで自動。
-            そのあと出る「⑤を実行する」ボタンで再テスト</td></tr>
-    <tr><td>チャット</td>
-        <td>① 回答する → ②「<code>F-0001 をアンブロックして</code>」→
-            ③ <code>/legacy-5-test F-0001</code> を再トリガ</td></tr>
-  </table>
-  <div class="warn">⛔ はあなたの回答待ちで完全に止まっている状態。
-  WBS の「要対応」とバッチ画面の「人待ち」に出続けるので、見かけたら最優先で裁定する。</div>
-</section>
-
-<!-- 16 -->
-<section class="slide">
-  <h2>関数のループを回す — 次はどの関数？</h2>
-  <p>1関数が ✅ になったら、次の関数で ①→⑤ を繰り返す。順番は迷わなくてよい:</p>
-  <ul>
-    <li>WBS の「次の一手」（依存の葉から並ぶ推奨着手順）に従う</li>
-    <li>バッチ画面の「残タスク」がそのまま実行順（⭐で割り込める）</li>
-    <li>チャットなら <code>/legacy-reverse</code> と打てば次の一手を提案してくる</li>
-  </ul>
-  <img class="shot" src="../assets/manual/wbs-large.png" alt="大規模WBSダッシュボード">
-  <p class="shot-cap">数百〜2000関数の大規模でも、トップは「要対応・次の一手・ファイル別進捗」のダッシュボード（300関数の例）</p>
-  <div class="point"><strong>中断・再開も同じ操作。</strong>セッションが切れても日をまたいでも、
-  <code>/legacy-reverse</code> と打つだけ。進捗はすべてファイル側にあり、1からやり直しにはならない。</div>
-</section>
-
-<!-- 17 -->
-<section class="slide">
-  <h2>⑥ 完了検証 — 全関数が終わったら1回</h2>
-  <pre><code>/legacy-6-check</code></pre>
-  <ul>
-    <li>全関数の ①〜⑤・ハッシュ連鎖・open ISSUE ゼロ・実装率100% を機械検証し、
-      ①②の根拠引用とトレーサビリティも総点検する</li>
     <li><strong>fail</strong>: 「どの関数の何が足りないか」の作業リストが出る →
-      該当フェーズのコマンドで埋める（⑥の中で直すことはしない）</li>
-    <li><strong>pass</strong>: 最終成果物が出る — WBS/仕様書のHTMLサイト、
+      該当フェーズのコマンドで埋めて再実行</li>
+    <li><strong>pass</strong>: 最終成果物が出る — 仕様書一式のHTMLサイト、
       関数仕様書・テスト仕様書・テスト結果報告書の3冊のPDF、API詳細（Sphinx）</li>
   </ul>
-  <div class="point">WBS トップのボタンからも実行できる（LLMを使わないので数十秒）。
-  ただし<strong>全関数の⑤が終わるまでボタンは出ない</strong>——
-  時期が来ていない操作は最初から見せない作りになっている。</div>
+  <p><strong>⑦</strong> <code>/legacy-7-analyze</code> — 移植完了後の高速化・リファクタリング。
+  まず機械が計測し（プロファイラ等）、AIは<strong>実測値だけ</strong>を見て施策を提案、
+  あなたが施策票を承認すると適用されます。適用は「テスト全pass維持」が絶対条件なので、
+  ①〜⑤で作ったテスト資産がそのまま安全網になります。</p>
+  <div class="you"><b>⑦であなたがやること:</b> 実データ規模の代表処理を流す <code>bench.py</code> を
+  プロジェクトルートに用意する（<code>python bench.py</code> で一通り走るように）。
+  これで計測の質が決まる。あとは施策票の承認だけ。</div>
 </section>
 
-<!-- 18 -->
+<!-- 21 -->
 <section class="slide">
-  <h2>⑦ 分析・改善 — テスト資産を安全網に</h2>
-  <pre><code>/legacy-7-analyze</code></pre>
-  <p>移植完了後の高速化・リファクタリング。1施策 = 1票 = 1イタレーション。</p>
-  <div class="you"><b>あなたがやること:</b>
-    <ul style="margin:6px 0 0">
-      <li><strong>代表ワークロード（実データ規模の入力）を用意する</strong> — 計測の質が決まる。
-        プロジェクトルートに <code>bench.py</code> を置き、<strong>引数なしで
-        <code>python bench.py</code> を実行すると代表的な処理が一通り走る</strong>ように書く
-        （数十秒〜数分で終わる規模が扱いやすい）。無ければテスト負荷でのスモーク計測になる</li>
-      <li>施策票（目的・成功基準 baseline→目標）を<strong>承認する</strong></li>
-    </ul>
-  </div>
-  <ul>
-    <li>まず機械が計測する（cProfile / radon / ruff / bandit / pip-audit）。
-      <strong>AIはその実測値だけを見て提案する</strong>——計測なしの提案は出ない</li>
-    <li>適用は「テスト全pass維持」が絶対条件（挙動保存）。達成状況は WBS の
-      ⑦表で ✅/❌/— がトレースできる</li>
-  </ul>
-  <img class="shot" src="../assets/manual/improvement.png" alt="施策票" style="max-height:32vh">
-</section>
-
-<!-- 19 -->
-<section class="slide">
-  <h2>まとめ — 覚えるのはこれだけ</h2>
+  <h2>まとめ — 全体の流れをコマンドで（バッチ運転の基本形）</h2>
   <table>
-    <tr><th>場面</th><th>操作</th></tr>
+    <tr><th>順</th><th>打つもの</th><th>そのあと、あなたがやること</th></tr>
+    <tr><td>⓪</td><td><code>/legacy-0-analyze</code></td><td>ヒアリングに答え、規約に OK</td></tr>
+    <tr><td>範囲</td><td><code>ledger flow add 月次バッチ --entry F-xxxx</code>（分けるときだけ）</td>
+        <td>以後のバッチに <code>--flow 月次バッチ</code> を付ける</td></tr>
+    <tr><td>⓪.5</td><td><code>pipeline.py dict --root .</code></td><td>「変数辞書」画面で A/B 一括承認・C/D は直して承認</td></tr>
+    <tr><td>①</td><td>1件お試し後 <code>pipeline.py spec --root . [--flow …]</code></td><td>一斉レビュー表でまとめて承認</td></tr>
+    <tr><td>②</td><td><code>pipeline.py run --root . --only testspec [--flow …]</code></td><td>⚠未確定に答えて承認</td></tr>
+    <tr><td>③④⑤</td><td><code>pipeline.py run --root . [--flow …]</code></td><td>⛔ が出たら裁定（それ以外は見守り）</td></tr>
+    <tr><td>⑥</td><td><code>/legacy-6-check</code></td><td>fail なら作業リストを該当フェーズで埋める</td></tr>
+    <tr><td>⑦</td><td><code>/legacy-7-analyze</code></td><td><code>bench.py</code> を用意し、施策票を承認</td></tr>
+  </table>
+  <table style="margin-top:10px">
+    <tr><th>いつでも</th><th>操作</th></tr>
     <tr><td>迷ったら・再開するとき</td><td><code>/legacy-reverse</code>（状況と次の一手を教えてくれる）</td></tr>
-    <tr><td>フェーズを進める</td><td><code>/legacy-0-analyze</code> 〜 <code>/legacy-7-analyze</code> ＋ 関数ID<br>
-        （または画面のボタン・バッチ画面の「連続実行」）</td></tr>
+    <tr><td>1件ずつ試したいとき</td><td><code>/legacy-1-spec F-0001</code> 等のフェーズコマンド＋関数ID（またはブラウザのボタン）</td></tr>
+    <tr><td>順番に割り込む</td><td><code>pipeline.py priority F-xxxx</code>（または画面の⭐）</td></tr>
     <tr><td>質問（ISSUE）が来たら</td><td>Yes/No で答える（チャット / 回答欄 / 画面のウィジェット）</td></tr>
-    <tr><td>まとめて承認する</td><td>一斉レビュー表の各行で「承認」</td></tr>
-    <tr><td>⛔ を見つけたら</td><td>裁定ウィジェットに回答 → 出てくる「⑤を実行する」を押す</td></tr>
     <tr><td>画面を開く</td><td><code>python &lt;LR&gt;/scripts/serve_site.py --root .</code></td></tr>
   </table>
   <p class="note"><code>&lt;LR&gt;</code> = <code>&lt;project&gt;/.claude/skills/legacy-reverse</code>。

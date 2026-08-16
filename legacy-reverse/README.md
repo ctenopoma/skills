@@ -2,13 +2,13 @@
 
 レガシーコード（Fortran / C・C++ 等）を Python へ仕様ベースで移植するリバースエンジニアリング・パイプライン。
 
-パイプライン: ⓪リポジトリ解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析・改善（挙動保存）
+パイプライン: ⓪リポジトリ解析 → ⓪変数辞書 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト（fail→④、裁定は人）→ ⑥完了検証 → ⑦分析・改善（挙動保存）
 
 ## ドキュメント
 
 | 文書 | 対象読者 |
 |------|---------|
-| [slides/index.html](slides/index.html) | 初見の操作者（⓪→⑦を進めながら覚えるチュートリアル） |
+| [slides/index.html](slides/index.html) | 初めて使う人（セットアップ→⑦を手順どおりに進めるチュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
 | [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
@@ -21,7 +21,8 @@
 legacy-reverse/
   SKILL.md                 # 全体管理（状況表示・次アクション提案・セットアップ）
   skills/
-    legacy-0-analyze/      # ⓪ 解析 → functions.json・骨子・WBS・規約
+    legacy-0-analyze/      # ⓪ 解析 → functions.json・骨子・WBS・規約・例外ポリシー
+    legacy-0-dict/         # ⓪ 変数辞書（1変数=1語義を人が承認 → ①へ伝搬。①より先）
     legacy-1-spec/         # ① 仕様書（レガシーを読める唯一の役割。spec-gap改訂も担当）
     legacy-2-testspec/     # ② テスト仕様（①のみ入力。人の承認ゲート）
     legacy-3-testcode/     # ③ テストコード（②のみ入力。freeze でハッシュ固定）
@@ -32,8 +33,11 @@ legacy-reverse/
   scripts/
     extract_fortran.py     # ⓪ Fortran機械抽出 → functions.json 生成/マージ（再実行=マージで再開安全）
     extract_c.py           # ⓪ C/C++機械抽出（同じ functions.json にマージ。Fortran↔C の呼出も突合）
-    pipeline.py            # 無人バッチドライバ + 実行ループ本体（1関数=1 headlessプロセス）
-    ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証
+    graph.py               # ⓪ コールグラフの導出層（reachable/callers/between/dead/cycles/summary。依存ゼロ）
+    variables.py           # ⓪ 変数辞書エンジン（クラスタリング/根拠収集/検証/承認/伝搬）
+    hazards.py             # ⓪ 例外ポリシー（0割等の検知結果 × EP登録簿の突合・質問キュー）
+    pipeline.py            # 無人バッチドライバ + 実行ループ本体（1関数=1 headlessプロセス。dict は変数チャンク単位）
+    ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証/フロー/dict-gate
     review_checks.py       # ①②の機械レビュー・一斉レビュー表（ハルシネーション検知）
     serve_site.py          # ローカル配信 + 実行・承認 API（バッチ実行状況ページを内蔵）
     browser_run.py         # ブラウザからの単発/連続実行・残タスク走査・⭐優先
@@ -48,8 +52,9 @@ legacy-reverse/
     guard_json.py          # PostToolUse: 壊れた JSON をエージェントに差し戻す（正データ保護）
     settings-example.json  # 対象プロジェクトへの hook 登録例（上記2本）
   references/
-    schema.md              # プロジェクト構成・functions.json/ledger.json スキーマ・status遷移
-    workflow.md            # 共通規則（情報遮断・ハッシュ連鎖・ISSUE・承認・ループ）
+    schema.md              # プロジェクト構成・functions.json/ledger.json/variables.json スキーマ・status遷移
+    workflow.md            # 共通規則（情報遮断・ハッシュ連鎖・ISSUE・承認・辞書/フロー/例外・ループ）
+    graph-dict-design.md   # グラフ層・変数辞書・フロー・例外ポリシーの設計の正
   assets/templates/        # 各成果物のテンプレート（フロントマターが台帳の正データ)
   examples/                # 架空の COBOL 関数 CALC-TAX (F-0123) の記入例一式
 ```
@@ -81,7 +86,11 @@ legacy-reverse/
 ## 原則
 
 - 機械可読メタデータは YAML フロントマターに集約。WBS・⑥はフロントマター走査で自動生成（手編集禁止）
-- ハッシュ連鎖 ①→②→③ で改訂の伝搬を機械検知（不一致＝要再生成）
+- ハッシュ連鎖 ①→②→③ で改訂の伝搬を機械検知（不一致＝要再生成）。
+  変数辞書がある場合は dict-hash（辞書→①）が同じ役割をもう1段担う
+- **語義と例外の扱いは①より先に人が確定させる**。変数辞書（1変数=1語義。既定では
+  未承認の語義が残る関数の①を dict-gate が止める）と例外ポリシー（0割等の扱いを
+  EP-xxx として登録。未決定のまま仕様化すると機械レビューがNG）
 - ③は「②＋規約」のみ、④は「①＋規約」のみを入力（クリーンルーム。レガシー原文は読まない）
 - ④のスタブ量産は禁止（check_stubs.py が検出し未完了扱い）。詰まったら spec-gap ISSUE →
   レガシーを読めるのは①改訂エージェントのみ→仕様更新→ハッシュ伝搬→④再開

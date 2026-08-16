@@ -1,16 +1,18 @@
 ---
 name: legacy-reverse
-description: レガシーコード（Fortran/C/C++等）をPython へ仕様ベースで移植するリバースエンジニアリング・パイプラインの全体管理。導入セットアップ、WBSによる進捗確認、次アクションの提案を行う。「レガシー移植の状況」「次どの関数をやる」「legacy-reverse をセットアップ」などで使う。各フェーズの実作業は legacy-0-analyze 〜 legacy-6-check の各skillで行う。
+description: レガシーコード（Fortran/C/C++等）をPython へ仕様ベースで移植するリバースエンジニアリング・パイプラインの全体管理。導入セットアップ、WBSによる進捗確認、次アクションの提案を行う。「レガシー移植の状況」「次どの関数をやる」「legacy-reverse をセットアップ」などで使う。各フェーズの実作業は legacy-0-analyze / legacy-0-dict 〜 legacy-6-check の各skillで行う。
 user-invocable: true
 ---
 
 # legacy-reverse — レガシー移植パイプラインの全体管理
 
-パイプライン: ⓪解析 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト → ⑥完了検証。
+パイプライン: ⓪解析 → ⓪変数辞書 → ①仕様書 → ②テスト仕様 → ③テストコード → ④実装 → ⑤テスト → ⑥完了検証。
 フェーズのトリガはすべて人。このskillは「状況を見せて、次を提案する」係。
 
 必読: [references/workflow.md](references/workflow.md)（情報遮断・ハッシュ連鎖・ISSUE・承認・ループ規則）、
 [references/schema.md](references/schema.md)（プロジェクト構成とデータスキーマ）。
+グラフ層・変数辞書・フロー・例外ポリシーの設計は
+[references/graph-dict-design.md](references/graph-dict-design.md)。
 
 以下 `LR` = このskillのルート、`ledger` = `python <LR>/scripts/ledger.py`。
 
@@ -23,7 +25,9 @@ user-invocable: true
    - **ある** → `ledger status --summary` と `ledger next --all --limit 10` を実行し、
      進捗サマリ・open ISSUE・⛔ blocked をまとめて見せ、次の一手を提案する。
      **大規模（数百〜2000関数）でも全関数リストは読まない**（summary で足りる。
-     workflow.md「再開（レジューム）」参照）
+     workflow.md「再開（レジューム）」参照）。
+     `next` が dict-gate で関数を除外していたら `/legacy-0-dict`（辞書の承認）へ、
+     `hazards.py status` に未決定が残っていたら例外ポリシーの決定へ誘導する
 3. open ISSUE がある場合は必ず最初に列挙する（人の判断待ちが最優先）
 4. ⛔ blocked の関数は「ISSUE裁定 → 反映 → `ledger unblock <func-id>` → 再トリガ」の手順を添える
 5. 人から「これ覚えておいて」系の業務知識を聞いたら domain-knowledge.md へ
@@ -40,7 +44,8 @@ user-invocable: true
 
 | フェーズ | skill | 主な成果物 |
 |---|---|---|
-| ⓪ 解析 | legacy-0-analyze | functions.json・仕様書骨子・WBS・conventions.md |
+| ⓪ 解析 | legacy-0-analyze | functions.json（call_sites・hazards）・仕様書骨子・WBS・conventions.md・例外ポリシー |
+| ⓪ 変数辞書 | legacy-0-dict | data/variables.json・docs/variables.qmd（approved まで） |
 | ① 仕様書 | legacy-1-spec | docs/specs/F-xxxx.md（reviewed まで） |
 | ② テスト仕様 | legacy-2-testspec | docs/test-specs/F-xxxx.md（approved まで） |
 | ③ テストコード | legacy-3-testcode | tests/（freeze まで） |

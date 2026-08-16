@@ -1,0 +1,79 @@
+{
+  "project": {
+    "name": "graph-selftest",
+    "legacy_lang": "fortran",
+    "new_lang": "python",
+    "package": "gsfixture"
+  },
+  "flows": [
+    { "flow_id": "FL-01", "name": "メインフロー", "entries": ["F-0000"], "desc": "" },
+    { "flow_id": "FL-02", "name": "サブバッチ", "entries": ["F-0006"], "desc": "" }
+  ],
+  "functions": [
+    {
+      "func_id": "F-0000",
+      "legacy": { "file": "legacy/main.f", "name": "MAIN", "lines": "1-20" },
+      "new": { "module": "src/gsfixture/main.py", "name": "main", "signature": "main() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0001", "F-0002"]
+    },
+    {
+      "func_id": "F-0001",
+      "legacy": { "file": "legacy/main.f", "name": "SUB1", "lines": "21-40" },
+      "new": { "module": "src/gsfixture/main.py", "name": "sub1", "signature": "sub1() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0003"]
+    },
+    {
+      "func_id": "F-0002",
+      "legacy": { "file": "legacy/main.f", "name": "SUB2", "lines": "41-60" },
+      "new": { "module": "src/gsfixture/main.py", "name": "sub2", "signature": "sub2() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0003", "F-0004"]
+    },
+    {
+      "func_id": "F-0003",
+      "legacy": { "file": "legacy/leaf.f", "name": "CALCTAX", "lines": "1-10" },
+      "new": { "module": "src/gsfixture/leaf.py", "name": "calc_tax", "signature": "calc_tax() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": []
+    },
+    {
+      "func_id": "F-0004",
+      "legacy": { "file": "legacy/cycle.f", "name": "PING", "lines": "1-10" },
+      "new": { "module": "src/gsfixture/cycle.py", "name": "ping", "signature": "ping() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0005"]
+    },
+    {
+      "func_id": "F-0005",
+      "legacy": { "file": "legacy/cycle.f", "name": "PONG", "lines": "11-20" },
+      "new": { "module": "src/gsfixture/cycle.py", "name": "pong", "signature": "pong() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0004"]
+    },
+    {
+      "func_id": "F-0006",
+      "legacy": { "file": "legacy/batch.f", "name": "BATCHENTRY", "lines": "1-10" },
+      "new": { "module": "src/gsfixture/batch.py", "name": "batch_entry", "signature": "batch_entry() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": ["F-0007"]
+    },
+    {
+      "func_id": "F-0007",
+      "legacy": { "file": "legacy/batch.f", "name": "BATCHLEAF", "lines": "11-20" },
+      "new": { "module": "src/gsfixture/batch.py", "name": "batch_leaf", "signature": "batch_leaf() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": []
+    },
+    {
+      "func_id": "F-0008",
+      "legacy": { "file": "legacy/oldstuff.f", "name": "OLDUNUSED", "lines": "1-10" },
+      "new": { "module": "src/gsfixture/oldstuff.py", "name": "old_unused", "signature": "old_unused() -> None" },
+      "inputs": [], "outputs": [], "globals": [], "external_files": [],
+      "calls": [],
+      "excluded": true,
+      "excluded_reason": "予定先の定期バッチで不使用と確認済み"
+    }
+  ]
+}

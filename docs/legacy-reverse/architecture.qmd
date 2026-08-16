@@ -1,7 +1,7 @@
 ---
 title: "アーキテクチャと設計判断"
 subtitle: "スキル群の構造と、そうした理由"
-date: 2026-08-07
+date: 2026-08-09
 ---
 
 # 責務の分離: skills / scripts / MCP / hooks / 画面
@@ -15,14 +15,15 @@ date: 2026-08-07
 flowchart TB
   subgraph skills["skills 層"]
     P["legacy-reverse<br>全体管理・次の一手"]
-    S["legacy-0-analyze 〜 legacy-7-analyze<br>(フェーズ別 8 skill)"]
+    S["legacy-0-analyze → legacy-0-dict<br>→ legacy-1-spec 〜 legacy-7-analyze<br>(フェーズ別 9 skill)"]
   end
   subgraph ui["画面 層"]
     SS["serve_site.py<br>配信 + 実行・承認 API"]
-    BR["browser_run.py / review_actions.py<br>ブラウザ実行・承認・裁定"]
+    BR["browser_run.py / review_actions.py<br>ブラウザ実行・承認・裁定・辞書承認"]
   end
   subgraph scripts["scripts 層"]
-    EX["extract_fortran.py / extract_c.py"]
+    EX["extract_fortran.py / extract_c.py<br>(⓪抽出 + hazard 検知)"]
+    GR["graph.py<br>(コールグラフ導出層)"] --- VA["variables.py<br>(変数辞書)"] --- HZ["hazards.py<br>(例外ポリシー突合)"]
     LG["ledger.py"] --- RV["review_checks.py"]
     CS["check_stubs.py"] --- CR["collect_results.py"]
     RS["render_site.py"] --- PB["pdf_book.py"]
@@ -53,16 +54,52 @@ skills から scripts への呼び出しは、MCP 登録済み環境では **MCP
 契約検証)に合流し、同じ実行枠ロックを取り合う。入口を増やしても実行系統は分岐しない
 ([画面設計](screens.qmd))。
 
+# 設計判断: 導出層を正データにしない
+
+⓪には後から 4 つの層(コールグラフ・変数辞書・フロー・例外ポリシー)が乗ったが、
+**どれも「もう 1 つの正データ」にはしなかった**。functions.json が唯一の正データで、
+派生物は再生成するという原則をそのまま延長している。
+
+| 層 | 持ち方 | そうした理由 |
+|----|-------|------------|
+| コールグラフ(graph.py) | **保存しない**。functions.json から毎回構築(純標準ライブラリの BFS / Tarjan。依存追加ゼロ) | グラフ DB を置くと再抽出のたびに同期が要り、ずれたときに「どちらが正か」が決まらない。毎回構築なら不整合が原理的に起きない |
+| フロー到達集合 | **保存しない**。`flows` に定義するのはエントリ関数だけで、到達集合は graph.py がその都度計算 | 関数の増減・呼び出し関係の変化に自動追随する。保存すると⓪を回し直すたびに古い集合が残る |
+| 変数辞書(data/variables.json) | **唯一の派生台帳**。functions.json を正として build し、承認済みの語義を `propagate` で IO/globals の desc へ戻す | 人の承認(誰が・いつ)は導出できない情報なので保存が要る。ただし var_id は不変で、再 build は `evidence_hash` と occurrence 集合で承認を維持する |
+| 例外ポリシー(docs/exception-policy.md) | hazard の**検知結果はソース完全導出で常に上書き**、**決定(EP-xxx)だけを人の資産として別置き** | 検知は機械が何度でもやり直せるが、決定は人の判断。同じファイルに混ぜると再抽出で人の資産が消える |
+: ⓪拡張層をどう持つか、と決めた理由 {#tbl-arch-derived}
+
+`call_sites` と `hazards` が**再抽出時に常に上書き**されるのも同じ理由で、
+「手修正保持」の例外にしてある(ソースから完全に導出できるものは、人が直す対象ではない)。
+設計の正は `references/graph-dict-design.md`。
+
+## 変数辞書と dict-gate
+
+レガシーの変数名(`R8TBL`・`WKA`)はそのまま仕様書の IO 表に出る。語義が未確定のまま
+①を書くと、同じ実体に関数ごとに違う説明が付き、後から直すと全仕様書へ波及する。
+そこで**「1 変数 = 1 語義」を先に人が確定させる**層を⓪と①の間に挟んだ。
+5 原則の適用のしかたは次のとおり。
+
+- **機械が正、AI は意味づけ** — クラスタリング(Union-Find)・根拠収集・rank 判定・伝搬は
+  決定的スクリプト。LLM が書けるのは `data/interpretations.json` だけで、範囲逸脱は
+  `verify-interp` が全件差し戻しで弾く。**rank は LLM の申告でなく検証側がルーブリックで決める**
+- **人の承認ゲート** — 語義の確定と例外ポリシーの決定は人。AI は仮説 + 根拠で聞く
+- **強制は仕組みで** — 「先に辞書」は文書での指示ではなく `dict-gate` という機械的な対象選定で
+  強制する。`ledger next` とブラウザの実行ボタンが同じ `dict_gate_blockers` を共有し、
+  既に draft / reviewed の関数だけ免除する
+- **状態はすべてファイル** — 辞書の状態は data/variables.json と仕様書フロントマターの
+  `dict-hash` に持ち、別の進捗 DB を作らない
+
 # フェーズ・スキルの構成
 
-スキルは「全体管理 1 + フェーズ別 8」に分割されている。
+スキルは「全体管理 1 + フェーズ別 9」に分割されている。
 フェーズごとに分けるのは、(1) 情報遮断を「そのフェーズの skill には読んではいけない入力が
 書かれていない」形で構造化するため、(2) 人がトリガを引く単位と一致させるため。
 
 | skill | フェーズ | 責務 |
 |-------|---------|------|
 | legacy-reverse | — | セットアップ確認・進捗要約・次アクション提案(状態はスクリプトに聞く) |
-| legacy-0-analyze | ⓪ | 解析 → functions.json・骨子・WBS・規約(Fortran の列挙は機械抽出。LLM は説明の充填とレポート確認のみ) |
+| legacy-0-analyze | ⓪ | 解析 → functions.json(call_sites・hazards 込み)・骨子・WBS・規約。グラフ確認・フロー定義・例外ポリシーの初期決定・辞書の初期 build まで(Fortran の列挙は機械抽出。LLM は説明の充填とレポート確認のみ) |
+| legacy-0-dict | ⓪ | 変数辞書。**読むのは機械が集めた根拠バンドルだけ**(legacy 全文は読まない)。書けるのは interpretations.json 1 つ。承認は人 |
 | legacy-1-spec | ① | 仕様書執筆。**レガシーを読める唯一の役割**(spec-gap 改訂も担当)。バッチモードあり |
 | legacy-2-testspec | ② | テスト仕様。①のみ入力。人の承認ゲート |
 | legacy-3-testcode | ③ | テストコード。②のみ入力。完了時 freeze でハッシュ固定 |
@@ -101,14 +138,17 @@ flowchart TB
 
 | ファイル | 責務 | 設計メモ |
 |---|---|---|
-| extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ | 固定・自由形式、継続行、COMMON/USE/intent、call+関数参照の呼出推定。**再実行 = マージ(func_id 不変・手修正保持)**が再開性の要 |
+| extract_fortran.py | Fortran 静的解析 → functions.json 生成/マージ・**hazard 検知** | 固定・自由形式、継続行、COMMON/USE/intent、call+関数参照の呼出推定。call_sites(実引数)と hazards はソース完全導出なので**常に上書き**。それ以外は**再実行 = マージ(func_id 不変・手修正保持)**が再開性の要 |
 | extract_c.py | C/C++ 静的解析 → 同じ functions.json にマージ | Fortran↔C の呼び出しをアンダースコア規約込みで突合。**抽出の実行順に依存しない**(後から走った側が未解決名を解決する) |
-| ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check | 状態判定 `status_of()` が唯一の判定ロジック(WBS / next / check が共有)。200 関数超で WBS を自動分割。**正データが壊れていたら行番号つきで停止**する(黙って空扱いにしない) |
+| graph.py | functions.json → コールグラフの導出層(reachable / callers / between / dead / cycles / summary) | **依存ゼロ・LLM 不使用・保存なし**(毎回構築)。ledger / variables / pipeline がライブラリとして import するので二重実装がない。dead は列挙のみで**自動 exclude はしない** |
+| variables.py | 変数辞書(build / verify-interp / list-targets / approve / revise / propagate / page / conflicts) | クラスタリングと根拠収集は機械、LLM が書けるのは interpretations.json だけ。**rank は検証側がルーブリックで決める**。再 build は `evidence_hash` と occurrence 集合で承認を維持 |
+| hazards.py | 例外ポリシーの突合(match / add-policy / status) | 検知は⓪、決定は人(EP-xxx 登録簿)、突合は機械、の 3 分割。適用範囲は 全体既定 → 関数 → 個別 で個別が勝つ。review_checks.py が import する |
+| ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check・**flow・dict-gate** | 状態判定 `status_of()` が唯一の判定ロジック(WBS / next / check が共有)。200 関数超で WBS を自動分割。**正データが壊れていたら行番号つきで停止**する(黙って空扱いにしない)。dict-gate / dict-hash は data/variables.json が無ければ完全に無効(後方互換) |
 | review_checks.py | ①②の機械レビュー・一斉レビュー表の生成 | LLM 不使用。書式はテンプレ(assets/templates)に依存。表は「承認できる行」が上に来る順で出す |
 | render_site.py | docs/ → HTML サイト・**ウィジェットの焼き込み** | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。**差分レンダが既定**(2000 関数で数十秒)。承認・実行ボタンはここで各ページに埋め込まれる = **UI は再レンダ時点のスナップショット** |
-| pipeline.py | 無人バッチドライバ・実行ループの実体 | **1 関数 = 1 headless Claude プロセス**(毎回まっさらなコンテキスト = トークン上限に依存しない)。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止。`run_one` は 3 つの入口が共有する |
+| pipeline.py | 無人バッチドライバ・実行ループの実体(spec / run / **dict**) | **1 関数 = 1 headless Claude プロセス**(毎回まっさらなコンテキスト = トークン上限に依存しない)。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止。`run_one` は 3 つの入口が共有する。`dict` だけ単位が「変数のチャンク」で、検証は `verify-interp` の exit code・既定モデルは sonnet |
 | browser_run.py | ブラウザからの単発実行・連続実行・残タスク走査 | `_decide_kind` が「次に着手すべき 1 工程」を決める唯一の判定。連続実行は 1 件ごとに再走査するので、承認が下りた関数を自動で拾う |
-| review_actions.py | ①②の承認・修正依頼、⑤の裁定 | **承認時にサーバ側で機械レビューを再実行**してから確定(クライアント表示を信用しない)。完了後に WBS・一斉レビュー表・サイトを再生成 |
+| review_actions.py | ①②の承認・修正依頼、⑤の裁定、**変数辞書の承認** | **承認時にサーバ側で機械レビューを再実行**してから確定(クライアント表示を信用しない)。完了後に WBS・一斉レビュー表・サイトを再生成。辞書承認はチャットの `variables.py approve/revise` と**同じライブラリ関数**を呼ぶ(片方だけの抜け道を作らない) |
 | serve_site.py | ローカル配信 + 実行・承認 API | 127.0.0.1 のみ・プロジェクト別固定ポート・`--watch`。**書き込み POST は 4 段のガード**(接続元・Host/Origin・EXE 判定・ルート限定)。人の操作の入口なので MCP 化しない |
 | collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号(0 pass / 1 fail / 2 blocked / 3 mismatch)。attempt 上限 3 で自動 block |
 | check_stubs.py | ④のスタブ検出 | 空実装・NotImplementedError・TODO/FIXME |
@@ -136,7 +176,10 @@ flowchart TB
 
 | 拡張 | 方法 |
 |---|---|
-| 新レガシー言語(C# 等) | extract_fortran.py / extract_c.py と同じ出力契約(functions.json スキーマ + extract-report)で抽出器を追加し、MCP ツールに登録。既存の抽出結果とはマージされ、実行順は問わない |
+| 新レガシー言語(C# 等) | extract_fortran.py / extract_c.py と同じ出力契約(functions.json スキーマ + extract-report)で抽出器を追加し、MCP ツールに登録。既存の抽出結果とはマージされ、実行順は問わない。`call_sites` / `hazards` も同じキーで出せば辞書・例外ポリシーがそのまま効く |
+| 新しい hazard 検出器 | extract_fortran.py の `HAZARD_DETECTORS`(kind → 走査関数のテーブル)に 1 行足す。EP 登録簿・質問キュー・①②の機械レビューは **kind 非依存**なので変更不要 |
+| 辞書の根拠の種類 | variables.py の `EV_KINDS` / `EV_LIMITS` に追加し、rank A 相当なら `RANK_A_KINDS` に入れる。LLM 側のプロンプトは「強い根拠 / 弱い根拠」の区別しか持たないので触らない |
+| 工程ごとのモデル階層 | `browser_run.KINDS` の各エントリに `model` を足す(省略時は既定モデル)。CLI の `pipeline.py --model` は全 kind を一括上書きする |
 | 新フェーズの自動運転化 | ①〜⑤は実装済み(`browser_run.KINDS` に「プロンプト・検証関数・リトライ数」を 1 行足す形)。⑥は LLM 不使用の同期実行、⑦は計測 → 提案の 2 段。**新しい工程を足すときも骨格は同じ**: 対象選定 → headless 実行 → ファイル状態で契約検証 → ログ |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント(①と legacy だけを読む)をドライバ段に挿入 |
 | ⑦の改善適用ループ | 現状は「計測 → 提案」まで。施策票の承認 → 適用 → 再計測 → 達成判定のイタレーションは形が大きく異なるため別設計 |

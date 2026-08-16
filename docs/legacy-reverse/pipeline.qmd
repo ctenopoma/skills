@@ -1,7 +1,7 @@
 ---
 title: "パイプライン仕様(⓪〜⑦)"
 subtitle: "各フェーズの入出力・完了判定・人の関与"
-date: 2026-08-07
+date: 2026-08-09
 ---
 
 # フェーズ一覧(全体)
@@ -12,7 +12,8 @@ date: 2026-08-07
 
 | フェーズ | 起動(チャット) | 起動(ブラウザ) | 入力 | 出力 | 完了判定(機械) |
 |---|---|---|---|---|---|
-| ⓪ 解析 | `/legacy-0-analyze` | — | legacy/ 全部 | functions.json・骨子・WBS・規約 | 抽出器の完全性突合 |
+| ⓪ 解析 | `/legacy-0-analyze` | — | legacy/ 全部 | functions.json(call_sites・hazards・flows 込み)・骨子・WBS・規約 | 抽出器の完全性突合 |
+| ⓪ 辞書 | `/legacy-0-dict` | 変数辞書ページ(承認) | 機械が集めた根拠バンドルのみ | data/variables.json・docs/variables.qmd | 全変数 approved(= dict-gate が開く) |
 | ① 仕様書 | `/legacy-1-spec F-xxxx` | 仕様書ページ / 連続実行 | legacy/ 該当関数+DK | docs/specs/*.md | status: reviewed(人 OK) |
 | ② テスト仕様 | `/legacy-2-testspec F-xxxx` | 仕様書ページ / 連続実行 | ①(reviewed)+規約 | docs/test-specs/*.md | status: approved かつ spec-hash 一致 |
 | ③ テストコード | `/legacy-3-testcode F-xxxx` | 仕様書ページ / 連続実行 | ②(approved)+規約 | tests/ | ledger の freeze ハッシュ一致 |
@@ -34,6 +35,7 @@ date: 2026-08-07
 | フェーズ | 読んでよい入力 | 読んではいけないもの |
 |---|---|---|
 | ⓪ 解析 | legacy/ 全部 | — |
+| ⓪ 辞書解釈 | `.legacy-reverse/dict-targets.json`(機械が収集した根拠バンドル)、domain-knowledge.md | **legacy/ 全文**、functions.json、docs/specs/ |
 | ① 仕様書 | legacy/ 該当関数、functions.json、domain-knowledge.md | tests/、src/ |
 | ② テスト仕様 | ①(reviewed)、conventions.md、domain-knowledge.md | **legacy/**、src/、tests/ |
 | ③ テストコード | ②(approved)、conventions.md | **legacy/**、**①**、src/ |
@@ -42,7 +44,27 @@ date: 2026-08-07
 | ⑦ 分析 | src/・docs/・計測結果(全体を見る) | tests/ の編集(挙動保存が大原則) |
 : フェーズごとに読んでよい入力と禁止する入力 {#tbl-pipe-isolation}
 
-レガシー原文を読める役割は **⓪ と ①(改訂含む)だけ**。
+レガシー原文を読める役割は **⓪解析 と ①(改訂含む)だけ**。
+
+⓪辞書解釈にわざわざ legacy/ 全文を読ませないのは、**根拠として引用できない「読んだ気配」で
+desc を埋めさせない**ため。引用は ev_id でしか行えず、実在しない ev_id は `verify-interp` が
+弾く。根拠から意味を決められないものは desc「不明」・引用なしで返すのが正しい振る舞いで、
+それらは rank D として人のキューに回る。書いてよいファイルは `data/interpretations.json` 1 つだけ。
+
+# 着手順のゲート(dict-gate)と作業スコープ(--flow)
+
+①に着手できるかどうかは、フェーズの順序だけでなく次の 2 つでも絞られる。
+
+| 仕組み | 効果 | 解除・指定 |
+|--------|------|-----------|
+| **dict-gate**(既定 ON) | その関数の変数に approved でない語義が残っている間、①の対象から除外する。判定の唯一の実装は `ledger.Project.dict_gate_blockers` で、`ledger next` とブラウザの実行ボタンが共有する | `ledger next --no-dict-gate`。免除は ①辞書の無いプロジェクト ②spec が既に draft / reviewed の関数 |
+| **--flow** | 対象をそのフローの到達集合に限定する(「このフローだけ今日やる」) | `ledger next --flow <名前\|FL-01>` / `pipeline.py spec\|run\|dict --flow …` |
+: ①の対象選定に効く 2 つの絞り込み {#tbl-pipe-gates}
+
+ゲートに掛かったら**辞書の承認を進めるのが正しい対処**で、解除は例外運用。
+除外された関数と未承認の var_id は `next` が理由つきで表示する。
+フローは関数が複数に属し得るため、**成果物は従来どおり関数単位**(骨子の新規生成時だけ
+フロントマターに所属フロー名が入る。文脈付与のみ)。
 
 # 各フェーズの詳細仕様
 
@@ -57,10 +79,62 @@ date: 2026-08-07
 - 完全性突合(2 系統カウントの照合)が NG のファイルは監査ログに残り、調査対象になる
 - 出力: functions.json(正データ)・仕様書骨子・WBS・conventions.md・docs-sphinx/ テンプレ配置
 
+抽出のあと、①へ渡す前に**人に聞くこと**が 3 つある(すべて⓪の skill が誘導する)。
+
+1. **グラフの確認** — `graph.py summary` / `dead` / `cycles`。到達率が極端に低い・
+   エントリが想定と違うときは抽出漏れかメインルーチンの誤判定を疑う。
+   **dead は exclude 候補の列挙にすぎず自動除外はしない**(除外は人が `ledger exclude`)
+2. **フロー定義(該当するときだけ)** — メインが複数ある、または main 内の大分岐を
+   系統ごとに進めたい場合だけ `ledger flow add <名前> --entry F-xxxx[,F-yyyy]`。
+   当てはまらないなら定義しない(未定義時は F-0000 が既定エントリ = 従来動作)
+3. **例外ポリシーの初期決定** — `hazards.py match` が出す docs/exception-queue.md を
+   人に見せ、**kind ごとの既定を人に決めてもらう**(AI が決めない)。回答を
+   `hazards.py add-policy` で EP-xxx として登録すると同種の全箇所に一括で効く。
+   未決定が 0 になるのが⓪完了条件のひとつ
+
+最後に `variables.py build` で辞書を初期構築し、**⓪辞書フェーズへ引き継ぐ**。
+
+## ⓪ 変数辞書
+
+レガシーの変数名(`R8TBL`・`WKA`)はそのまま仕様書の IO 表に出る。語義が未確定のまま
+①を書くと、同じ実体に関数ごとに違う説明が付き、後から直すと全仕様書へ波及する。
+そこで**「1 変数 = 1 語義」を人が確定させてから①へ渡す**。
+
+```{mermaid}
+%%| label: fig-pipe-dict
+%%| fig-cap: "⓪変数辞書の流れ — 機械のクラスタリングから人の承認・伝搬まで"
+
+flowchart TB
+  B["build — クラスタリング + 根拠収集<br>(機械・常にマージ)"]
+  B --> T["list-targets — 根拠バンドル<br>(解釈の唯一の入力)"]
+  T --> I["LLM → interpretations.json<br>(desc / unit / 引用 ev_id だけ)"]
+  I --> V["verify-interp — 欠落・余剰・捏造を検査<br>rank を機械が決定"]
+  V -->|"rank A / B"| BA["辞書ページ: 一括承認"]
+  V -->|"rank C / D"| Q["辞書ページ: 1 件ずつ修正して承認"]
+  BA --> A["人が承認"]
+  Q --> A
+  A --> P["propagate → 骨子 → dict-gate が開く"]
+```
+
+- **単位は関数ではなく変数**。承認 1 回でクラスタの全出現(別名・COMMON・呼び出し結線)に効く
+- 解釈の全件実行は無人バッチ `pipeline.py dict`(1 チャンク = 変数 40 件 = 1 headless
+  プロセス。既定モデル **sonnet**)。契約検証は LLM の申告ではなく
+  `variables.py verify-interp` の exit code
+- チャンクごとに辞書ページとサイトを更新するので、**人は実行中でも並行して承認できる**
+- 承認後は propagate(functions.json の IO/globals の desc へ `[V-xxxx]` 付きで転記)→
+  骨子再生成 → 辞書ページ再生成 → サイト差分レンダまで自動で走る
+- 完了条件は「その関数の変数がすべて approved」= dict-gate が開くこと。
+  全変数を一度に終わらせる必要はなく、**承認できた関数から①へ流れていく**
+
 ## ① 関数仕様書
 
 - 執筆単位は関数。仕様の各項目に **Confidence(🟢確認済 / 🟡推測 / 🔴仮定)と
   レガシー行番号の根拠**を必須付与
+- 着手できるのは **dict-gate が開いた関数だけ**(既定)。IO 表の `[V-xxxx]` は辞書が正なので
+  ①は書き換えない(矛盾を見つけたら辞書側を `revise` する)
+- **「例外・数値特異点」節**が必須。その関数の hazard 全件について
+  「hazard × 適用 EP × 仕様記述」を表で書く。検討漏れ・EP-ID の捏造・
+  ポリシー未決定のままの仕様化は機械レビューが NG にする
 - status 遷移: skeleton → draft → **reviewed(人が OK して確定)**
 - draft 化の直後に機械レビュー(`review_checks.py spec`)を通し、NG ゼロにしてから人に出す
 - 🟡🔴 項目は ISSUE(仮説+Yes/No)として人へ。回答は domain-knowledge.md に蓄積され再質問を防ぐ
@@ -81,6 +155,9 @@ date: 2026-08-07
   ケース ID(TC-xxx)と SPEC-ID の対応が機械レビューで突合される
 - レガシー実行環境なしが基本前提のため、**期待値は「仕様🟢+人間確認」で確定**
   (実測は環境がある場合のみ)
+- ①の「例外・数値特異点」節から**境界ケース**(0・0 近傍・負値)を導出する。
+  決定が挙動に現れる hazard(`guard_raise` / `guard_value` / `legacy_preserve`)は
+  hz_id を引用した TC が必須で、漏れは機械レビューが検知する
 - フロントマター `spec-hash` に生成時点の①ハッシュを記録(連鎖の起点)
 - status 遷移: generated → **approved(人の承認ゲート)**。⚠未確定ゼロが承認条件
 - 承認依頼前に `review_checks.py testspec` を通し NG ゼロにする

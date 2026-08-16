@@ -3,8 +3,10 @@
 ## 機械操作の呼び出し方（MCP優先）
 
 mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出てくる
-`ledger.py …`・pytest＋collect_results（⑤）・check_stubs・profile_run・quarto/sphinx/pdf_book は
-**同名相当の MCP ツールで呼ぶこと**（pipeline_status / run_tests / render_site 等。
+`ledger.py …`・`graph.py`・`variables.py`・`hazards.py`・pytest＋collect_results（⑤）・
+check_stubs・profile_run・quarto/sphinx/pdf_book は
+**同名相当の MCP ツールで呼ぶこと**（pipeline_status / run_tests / render_site /
+graph_query / dict_build / dict_approve / hazard_match 等。
 構造化された結果が返り、シェル引用の事故と許可プロンプトが減る）。
 未登録の環境では従来どおりスクリプトを直接実行する。両者の実体は同一。
 
@@ -13,6 +15,7 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 | フェーズ | 読んでよい入力 | 読んではいけないもの |
 |---|---|---|
 | ⓪ 解析 | legacy/ 全部 | — |
+| ⓪ 辞書解釈 | `.legacy-reverse/dict-targets.json`（機械が収集した根拠バンドル）、domain-knowledge.md | **legacy/ 全文**、functions.json、docs/specs/ |
 | ① 仕様書 | legacy/ 該当関数、functions.json、domain-knowledge.md | tests/、src/ |
 | ② テスト仕様 | ①(reviewed)、conventions.md、domain-knowledge.md | **legacy/**、src/、tests/ |
 | ③ テストコード | ②(approved)、conventions.md | **legacy/**、**①**、src/ |
@@ -22,12 +25,24 @@ mcp-servers/legacy-reverse-mcp が登録済みの環境では、本書に出て�
 
 - 「読んではいけない」に触れたくなったら、それは仕様の穴。ISSUE を起票して停止する
 - レガシー原文を読める役割は ⓪ と ①（改訂含む）だけ
+- **辞書解釈（`pipeline.py dict` / `/legacy-0-dict`）は根拠バンドルだけを読む**。
+  legacy 全文を読ませないのは、根拠として引用できない「読んだ気配」で desc を埋めさせない
+  ため（引用は ev_id でしか行えず、実在しない ev_id は `verify-interp` が弾く）。
+  根拠から意味を決められないものは desc「不明」＋引用なしで返すのが**正しい振る舞い**で、
+  それらは rank D として人のキューに回る。書いてよいファイルは
+  `data/interpretations.json` 1つだけ
 
 ## ハッシュ連鎖
 
 - ②のフロントマター `spec-hash` に生成時点の①のハッシュ、ledger.json に③freeze時のハッシュを記録
 - `python <LR>/scripts/ledger.py verify <func-id>` で連鎖を検証。不一致＝上流が改訂された＝下流は「要再生成」
 - ハッシュは `ledger.py hash <path>`（sha256 先頭8桁）
+- **dict-hash 連鎖**（変数辞書がある場合のみ）: ①仕様書のフロントマター `dict-hash` に、
+  その関数の approved 変数の (var_id, desc) 集合のハッシュを `ledger skeletons` が刻む。
+  承認後に語義が改訂されると `ledger verify` が NG、WBS の要対応に「⚠辞書stale」・
+  関数一覧に「辞書⚠」が出る。**reviewed 済みの仕様書は自動修正しない**——
+  `variables.py conflicts` が docs/dict-conflicts.md に矛盾候補を列挙するだけで、
+  直すかどうかは人が決める（骨子のままの仕様書は次の `ledger skeletons` が現在値へ同期する）
 
 ## 機械レビュー（ハルシネーション・省略の検知ゲート）
 
@@ -36,8 +51,8 @@ review_all）で機械検証する。**NG が残る成果物を「できまし�
 
 | フェーズ | ゲート | 検知するもの |
 |---|---|---|
-| ① draft後 | `review_checks.py spec <fid>` | 実在しない `file:lines` の引用、🟢なのに根拠なし、プレースホルダ残存（省略）、必須節欠落、原本ハッシュ不一致 |
-| ② 承認依頼前 | `review_checks.py testspec <fid>` | 🟢仕様項目のケース漏れ、①に無いSPEC-IDの参照（捏造）、TC参照先の不在、根拠の規定外表記、spec-hash 鮮度 |
+| ① draft後 | `review_checks.py spec <fid>` | 実在しない `file:lines` の引用、🟢なのに根拠なし、プレースホルダ残存（省略）、必須節欠落、原本ハッシュ不一致、**hazard の検討漏れ・EP-ID の捏造・未決定のまま仕様化** |
+| ② 承認依頼前 | `review_checks.py testspec <fid>` | 🟢仕様項目のケース漏れ、①に無いSPEC-IDの参照（捏造）、TC参照先の不在、根拠の規定外表記、spec-hash 鮮度、**挙動が変わる hazard（guard_raise/guard_value/legacy_preserve）の境界ケース漏れ** |
 | ③ freeze前 | `pytest --collect-only` ＋ marker突合（collect_results が exit 3） | ケースIDとテスト関数の過不足 |
 | ④ 完了前 | `check_stubs.py` | 空実装・NotImplementedError・TODO/FIXME（スタブ化の検知） |
 | ⑤ | `ledger verify` ＋ collect_results | ②stale・テスト改変・blocked |
@@ -46,13 +61,136 @@ review_all）で機械検証する。**NG が残る成果物を「できまし�
 機械で検知できない「意味のすり替え」（式は書いてあるがレガシーと違う等）は、
 人レビューと④→⑤の失敗ループが受け持つ。疑わしければ ISSUE。
 
+## グラフ・変数辞書・フロー・例外ポリシー（⓪の拡張層）
+
+設計の正は [graph-dict-design.md](graph-dict-design.md)。ここは運用規則だけ。
+**どれも functions.json からの導出物**で、再抽出すれば自動追随する（グラフとフロー到達集合は
+保存すらしない）。データの形は [schema.md](schema.md) が正。
+
+### コールグラフ（graph.py・依存ゼロ・LLM不使用）
+
+```bash
+python <LR>/scripts/graph.py --root . summary            # ノード/エッジ数・到達率・dead件数（JSON）
+python <LR>/scripts/graph.py --root . dead               # エントリから到達不能な関数（exclude 候補）
+python <LR>/scripts/graph.py --root . reachable F-0000   # 到達集合（--flow でフロー指定も可）
+python <LR>/scripts/graph.py --root . callers F-0087 --transitive   # 影響範囲（逆方向）
+python <LR>/scripts/graph.py --root . between F-0000 F-0087         # 最短経路（BFS）
+python <LR>/scripts/graph.py --root . cycles             # SCC（Tarjan）でサイズ2以上の循環
+```
+
+- `dead` は**列挙するだけで自動 exclude はしない**（除外は人の判断＝`ledger exclude`）。
+  excluded の関数は「対象外(除外済み)」として別掲される
+- ledger.py / variables.py / pipeline.py はライブラリとして import する（二重実装しない）
+
+### 変数辞書（variables.py）— 手順は /legacy-0-dict skill が正
+
+```bash
+python <LR>/scripts/variables.py build --root .          # クラスタリング＋根拠収集（常にマージ）
+python <LR>/scripts/variables.py list-targets --limit 30 --root .   # 未解釈の根拠バンドル（JSON）
+python <LR>/scripts/variables.py verify-interp --root .  # interpretations.json を機械検証してマージ
+python <LR>/scripts/variables.py page --root .           # docs/variables.qmd を生成
+python <LR>/scripts/variables.py approve V-0001,V-0002 --by <名前> --root .
+python <LR>/scripts/variables.py revise V-0003 --desc "..." [--unit "..."] --by <名前> --root .
+python <LR>/scripts/variables.py propagate --root .      # approved を functions.json の IO/globals へ転記
+python <LR>/scripts/variables.py conflicts --root .      # docs/dict-conflicts.md（reviewed との矛盾候補）
+```
+
+- **機械が正、AIは意味づけ**。クラスタリング・根拠収集・rank 判定・伝搬は決定的。
+  LLM が書けるのは `data/interpretations.json` だけで、範囲逸脱は `verify-interp` が弾く
+- **rank は LLM の申告でなく検証側が決める**（A/B/C/D）。D（引用なし）はマージせず
+  人のキューに残る。A/B は一括承認候補、C/D は1件ずつ人が確定させる
+- rank B は domain-knowledge.md の語との一致で決まる。⓪で人から聞ける略語・区分値は
+  「語彙・略語集」へ**先行投入**してから解釈を回す（legacy-0-analyze 手順3.9）。
+  同様に、②の期待値の前提になる全体既定（丸め・⑤の許容誤差・単位・日付・文字コード・
+  既知バグの扱い）は conventions.md の「後戻り高コスト項目」として⓪で人と確定させる
+  （覆ると②以降が作り直しになるため。関数単位の例外は DK に記録し、個別が既定に勝つ）
+- `propagate` は functions.json の inputs/outputs/globals の desc を
+  `"<意味>(<単位>) [V-0001]"` 形式に機械転記する。**①は IO 表の `[V-xxxx]` を書き換えない**
+  （辞書が正。矛盾を見つけたら辞書側を revise する）
+- 承認は人（チャットの `approve`/`revise` と、辞書ページのウィジェットは同格）
+
+### dict-gate（既定 ON）
+
+**変数の語義が未承認の関数には①を書かせない。**
+
+- 判定の唯一の実装は `ledger.Project.dict_gate_blockers`。`ledger next` と
+  ブラウザの実行ボタン（`browser_run._decide_kind`）が共有する
+- 免除: ①data/variables.json が無いプロジェクト（従来どおり）
+  ②spec が既に **draft / reviewed** の関数（仕様化済みを今更止めても意味がない）
+- 解除: `ledger next --no-dict-gate`。除外された関数と未承認 var_id は next が理由つきで表示する
+- ゲートに掛かったら、辞書の承認を進めるのが正しい対処（解除は例外運用）
+
+### フロー（作業スコープ）
+
+```bash
+ledger flow add 月次バッチ --entry F-0000[,F-0006] [--desc "..."]
+ledger flow list        # flow_id・名前・entries・到達関数数
+ledger flow rm 月次バッチ
+```
+
+- main が複数あるとき・main 内の大分岐を別扱いしたいときに、人が定義する
+  （分岐先の代表サブルーチンをエントリに指定する）
+- `ledger next --flow <名前|FL-01>` / `pipeline.py spec|run|dict --flow <名前|FL-01>` で
+  作業対象をその到達集合に限定できる。WBS には「フロー別進捗」表が出る
+  （flows 未定義なら表ごと出ない＝従来出力と一致）
+- 関数は複数フローに属し得るので**成果物は従来どおり関数単位**。骨子の新規生成時のみ
+  フロントマターに `flows:` を記載する（文脈付与のみ）
+
+### 例外ポリシー（hazards.py）— 0割はその一例
+
+**検知（機械）→ 登録簿と突合（機械）→ 未決定は人に質問 → 決定を登録 → 再突合**。
+Fortran は 0割でも Inf を作って走り続けるが Python は停止するため、
+**決めずに①→④へ進むことはできない**（①の機械レビューが NG にする）。
+
+```bash
+python <LR>/scripts/hazards.py status --root .           # 総数・kind別・決定済み/未決定
+python <LR>/scripts/hazards.py match --root .            # 突合 → data/hazard-map.json ＋ 質問キュー
+python <LR>/scripts/hazards.py add-policy --kind div_by_var --decision guard_raise \
+       --by <承認者> [--func F-0012 | --hazard H-0012-01] [--note "..."] --root .
+```
+
+- ⓪の抽出が `functions.json` の `hazards` に検知結果を記録する（常に上書き）
+- 未決定は `docs/exception-queue.md` に kind ごとに集約して「仮説＋選択肢」で出る。
+  人の回答を `add-policy` で `docs/exception-policy.md`（EP-xxx 登録簿）に登録すると、
+  同種の全箇所に一括で効く（自動で再突合まで走る）
+- 決定の語彙: `detect_only` / `guard_raise` / `guard_value`（値を備考に明記）/
+  `legacy_preserve` / `caller_guarantees`（根拠を備考に必須）。
+  適用範囲は 全体既定 → 関数 → 個別 hazard の順に個別が勝つ
+- 流れ: **hazard 検知 → EP 決定 → ①の「例外・数値特異点」節（hazard × 適用EP × 仕様記述）
+  → ②の境界ケース**。①②の機械レビューが各段の抜けを突合する
+
+### 推奨作業順（⓪〜①）
+
+1. `extract_fortran.py --write`（⓪の機械抽出）
+2. `graph.py summary` / `graph.py dead` で全体像と孤立関数を確認 → 対象外は `ledger exclude`
+3. （任意）`ledger flow add` でフローを定義（main が複数・大分岐があるときだけ）
+4. `hazards.py match` → `docs/exception-queue.md` を人に見せて決定 → `hazards.py add-policy`
+5. `variables.py build` → **略語・区分値の先行投入**（頻出トークンを人に見せて
+   domain-knowledge.md の語彙表へ。rank B の母集団になる）
+   → **辞書フェーズ（`/legacy-0-dict`）** → 人の承認 → `propagate`
+6. `ledger skeletons` → `ledger wbs` → ①（dict-gate が効いた状態で `ledger next`）
+
+### 既に①が走っているプロジェクトへの後付け
+
+- `variables.py build` は**いつ実行しても安全**（functions.json は読むだけ。
+  変更するのは data/variables.json のみ）
+- dict-gate は draft / reviewed の関数を免除するので、**進行中の①は止まらない**。
+  ゲートが効くのは骨子のまま残っている関数だけ
+- reviewed 済みの仕様書は辞書の承認では書き換わらない。`variables.py conflicts` が
+  docs/dict-conflicts.md に矛盾候補を出すので、人が読んで必要なものだけ①改訂する
+- `hazards.py match` も同様に読み取りのみ。ただし**未決定 hazard がある関数の①は
+  以後の機械レビューで NG になる**ので、EP を決めてから①を再実行する
+
 ## 無人バッチ実行（pipeline.py ドライバ）
 
 ①の全件実行（2000件規模）はエージェントの会話内ループでは行わない
 （コンテキスト上限・コンパクション劣化のため）。`scripts/pipeline.py` を使う:
 
 ```bash
-python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20]
+python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20]  # ①のみ
+python <LR>/scripts/pipeline.py run  --root .                    # ①〜⑤を工程横断
+python <LR>/scripts/pipeline.py run  --root . --only testspec    # ②だけ全件（工程単位）
+python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（実行中でも効く）
 ```
 
 - **1関数 = 1つの新しい headless Claude プロセス**（`claude -p "/legacy-1-spec F-xxxx"`）。
@@ -71,6 +209,28 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
 - 実行ログ: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト・所要）
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
+- **`--flow <名前|FL-01>`**（spec / run / dict 共通）で対象をそのフロー到達集合に限定できる
+  （`ledger flow add` で定義したもの。「このフローだけ今日やる」）
+- **モデル階層**: kind ごとに既定モデルを持てる（`browser_run.KINDS` の `model` キー）。
+  現状 `dict`（辞書解釈）だけが **sonnet** 既定で、①〜⑤は指定なし＝従来の既定モデル。
+  CLI の `--model <id>` は全 kind を一括上書きする
+
+### 辞書解釈バッチ（`pipeline.py dict`）
+
+①〜⑤と違い**対象は関数でなく変数のチャンク**（既定40件＝headless 1プロセス）。
+
+```bash
+python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500] [--model sonnet]
+```
+
+1. `variables.py list-targets` 相当で未解釈（status: unreviewed）の根拠バンドルを取り出し、
+   `.legacy-reverse/dict-targets.json` に書いて claude を1回起動する
+2. 契約検証は **`variables.py verify-interp --ids <チャンク>` の exit code**
+   （LLM の自己申告は使わない）。成功すればその呼び出しが variables.json へのマージまで済ませる
+3. チャンクごとに辞書ページを再生成しサイトを更新する——人は**実行中でも並行して承認できる**
+4. 前提: `variables.py build` 済み（variables.json が無ければ即エラー）
+
+ロック（run.lock）・レート耐性・中断安全・`/pipeline.html` のライブ進捗は①〜⑤と共有する。
 
 ### ブラウザからの単発実行（browser_run.py。試作・①〜⑤対応）
 
@@ -163,9 +323,13 @@ python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20
   残タスクは `GET /batch-queue`（実行順・検索・件数集計。`_scan_targets` と同じ判定）、
   ⭐優先は `POST /batch-priority` → `.legacy-reverse/batch-priority.json`
   （order=割り込み順・retry=失敗スキップの解除。次の走査で反映）
-- CLI の pipeline.py は `spec`（①専用・従来バッチ）と `run`（①〜⑤工程横断。
-  browser_run の `_scan_targets`/`KINDS` を共有し⭐優先も反映）の2サブコマンド。
-  連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する
+- CLI の pipeline.py は `spec`（①専用・従来バッチ）/ `run`（①〜⑤工程横断。
+  browser_run の `_scan_targets`/`KINDS` を共有し⭐優先も反映。`--only testspec` の
+  ように工程を限定すれば「②だけ全件」等の工程単位バッチにもなる）/ `dict` /
+  `priority`（⭐優先の ON/OFF・一覧。ブラウザの⭐と同じ `browser_run.prioritize` を
+  呼ぶだけでロックを取らないため、**バッチ実行中に端末から割り込み順を変えられる**）。
+  連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する。
+  ブラウザ画面でできる操作は原則 CLI にも同じ入口を用意する（画面専用機能を作らない）
 - 現状は①〜⑥（⑥は下記別枠）。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
 
 ### ⑤（テスト実行）の verify_fn が①〜④と違う点
@@ -280,15 +444,19 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 | ファイル | 手編集 | 備考 |
 |---|:---:|---|
 | conventions.md / domain-knowledge.md / ISSUEの回答欄 | ⭕ | 人が著者。編集後は render_site.py（またはskillに依頼） |
+| exception-policy.md | ⭕ | 人が承認する登録簿。`hazards.py add-policy` 経由が基本（列の並びは変えない） |
 | specs/ | △ | 編集可。ハッシュ連鎖が②を stale に落とし再確認が走る（設計どおり） |
 | index.qmd / test-results/ / completion-check.md | ❌ | 自動生成。再生成で消える |
+| variables.qmd / exception-queue.md / dict-conflicts.md | ❌ | 自動生成。語義の修正は `variables.py revise` か辞書ページのウィジェットで |
+| data/variables.json / hazard-map.json | ❌ | スクリプト専用。手編集しない |
 
 - conventions.md を途中で変更した場合は影響が③④の既存成果物に及ぶ。skillは変更を検知したら
   「どの関数の成果物と不整合になり得るか」を洗い出して人に報告する
 
 ## 人の承認ゲート
 
-対象: ①の reviewed 化、②の approved 化、⑤トリアージの (b)(c)、ループ上限後の再開。
+対象: **変数辞書の語義確定**、**例外ポリシーの決定**、①の reviewed 化、②の approved 化、
+⑤トリアージの (b)(c)、ループ上限後の再開。
 
 承認の媒体は2通りあり、どちらも同格（承認が人である、という原則は変わらない）:
 
@@ -311,6 +479,33 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
   まとめて OK / 個別修正指示を返せる。承認が人であることは変わらない（粒度の違いだけ）。
   一斉レビュー表の「機械レビュー」列は仕様書ページの承認ウィジェットへ直接ジャンプする
   リンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）
+
+### 変数辞書の承認（辞書ページ / チャット）
+
+`variables.py page` が生成する `docs/variables.qmd` に、render_site.py が承認ウィジェットを
+埋め込む（未承認が1件も無ければ埋め込まない）。ナビバーの「変数辞書」は
+docs/variables.qmd が存在するときだけ自動で追加される。
+
+- 並び順は**影響度（出現関数数）降順 × rank 昇順**——人の確認が要る C/D と、
+  多くの関数に効く変数が上に来る。`rank A/B` はチェックボックスで**一括承認**、
+  `C/D` は1件ずつ desc/unit を修正入力して承認する（修正と承認が同時に確定する）
+- 送信先は `POST /dict-action`（serve_site.py）。既存の `/review-action` と同じ防御
+  （127.0.0.1 限定・Host/Origin 検証・配布EXEでは無効化）。承認可否（rank D・desc 未確定の
+  拒否）は**クライアントの表示を信用せずサーバ側で再判定**する
+- 承認1回でクラスタの全出現に効く。承認後は
+  **propagate → skeletons → 辞書ページ再生成 → サイト差分レンダ**まで自動で走る
+- チャット承認も同格: `variables.py approve V-0001,V-0002 --by <名前>` /
+  `variables.py revise V-0003 --desc "..." --by <名前>`（同じライブラリ関数を通る）
+
+### 例外ポリシーの決定（exception-queue → add-policy）
+
+1. `hazards.py match` が未決定を `docs/exception-queue.md` に kind ごとに集約して出す
+   （仮説＋選択肢＋該当箇所の表＋登録コマンド例）
+2. 人にその kind の**既定**をどうするか聞く（`guard_raise` / `detect_only` / … /
+   「式ごとに個別判断」）。AIが勝手に決めない
+3. 回答を `hazards.py add-policy --kind <k> --decision <語彙> --by <名前>` で登録する
+   （個別に変えたい箇所だけ `--func` / `--hazard` を付けて追加登録。個別が全体既定に勝つ）
+4. 登録すると自動で再突合され、キューが更新される。全件決定するまで①は書けない
 
 ### ブラウザからの承認・修正依頼（レビューウィジェット）
 

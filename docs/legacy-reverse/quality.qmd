@@ -1,7 +1,7 @@
 ---
 title: "品質ゲート仕様"
 subtitle: "ハルシネーション・省略・改変を機械で検知する層"
-date: 2026-08-07
+date: 2026-08-09
 ---
 
 # 全体像
@@ -12,11 +12,13 @@ LLM の成果物は、人のレビューに届く前に**決定的スクリプ�
 | フェーズ | ゲート | 検知対象 |
 |---|---|---|
 | ⓪ 完全性 | 抽出器(extract_fortran.py / extract_c.py)内蔵 | 2 系統カウント突合による数え漏れ |
-| ① draft 後 | review_checks.py spec | 実在しない `file:lines` 引用、🟢なのに根拠なし、プレースホルダ残存(省略)、必須節欠落、原本ハッシュ不一致 |
-| ② 承認依頼前 | review_checks.py testspec | 🟢仕様項目のケース漏れ、①に無い SPEC-ID 参照(捏造)、宙に浮いた TC 参照、根拠の規定外表記、spec-hash 鮮度 |
+| **⓪ 辞書解釈** | **variables.py verify-interp** | 対象 var_id の欠落・余剰、ev_id の捏造、根拠なし(rank D)の解釈 |
+| **⓪→① ゲート** | **ledger.Project.dict_gate_blockers** | 語義が未承認のまま①に着手すること(dict-gate。既定 ON) |
+| ① draft 後 | review_checks.py spec | 実在しない `file:lines` 引用、🟢なのに根拠なし、プレースホルダ残存(省略)、必須節欠落、原本ハッシュ不一致、**hazard の検討漏れ・EP-ID の捏造・未決定のまま仕様化** |
+| ② 承認依頼前 | review_checks.py testspec | 🟢仕様項目のケース漏れ、①に無い SPEC-ID 参照(捏造)、宙に浮いた TC 参照、根拠の規定外表記、spec-hash 鮮度、**挙動が変わる hazard の境界ケース漏れ** |
 | ③ freeze 前 | pytest --collect-only + マーカー突合 | ケース ID とテスト関数の過不足(collect_results が exit 3) |
 | ④ 完了前 | check_stubs.py | 空実装・NotImplementedError・TODO/FIXME(スタブ化) |
-| ⑤ 事前 | ledger verify | ② stale・freeze 後のテスト改変・blocked の見落とし |
+| ⑤ 事前 | ledger verify | ② stale・**辞書 stale(dict-hash 不一致)**・freeze 後のテスト改変・blocked の見落とし |
 | ⑥ 前 | review_checks.py all | 全関数の①②総点検 |
 | **承認の瞬間** | **サーバ側で機械レビューを再実行** | クライアント表示の改竄・競合による「NG 付き成果物の承認」 |
 | **全編集の直後** | **hooks/guard_json.py** | AI の編集による正データ(JSON)の破損 |
@@ -35,6 +37,82 @@ LLM の成果物は、人のレビューに届く前に**決定的スクリプ�
 
 疑わしければ ISSUE(仮説+Yes/No)へ。これが「機械が正、AI は意味づけ、裁定は人」の分担。
 
+# ⓪のゲート: 辞書解釈の検証と dict-gate
+
+## 解釈の機械検証(`variables.py verify-interp`)
+
+辞書フェーズで LLM が書けるのは `data/interpretations.json` だけで、
+そこから variables.json へマージするかどうかは**すべてこの検証が決める**。
+
+| 検査 | 検知するもの |
+|------|-------------|
+| 対象 var_id 集合との**完全一致** | 指示された変数の欠落・余剰(**一致しなければ全件差し戻し**。都合のいい一部だけ返す手抜きを防ぐ) |
+| `evidence_cited` の実在 | その変数の evidence に無い ev_id の引用 = **根拠の捏造** |
+| desc が空でない | 記入の省略 |
+| **rank の再判定** | LLM の `rank_claim` は参考値。**根拠の種別からルーブリックで機械が決める**(申告 A → 検証 C は表示される) |
+: 辞書解釈で機械が検証する 4 点 {#tbl-qual-interp-checks}
+
+rank D(引用なし)は**マージせず** desc「不明」・`needs_human` で人のキューに残す。
+「根拠から意味を決められないものは desc『不明』・引用なしで返す」ことが**正しい振る舞い**で、
+推測で埋めさせないための逃げ道をあえて用意してある(埋めると rank D として人に回るだけ)。
+
+rank A / B は一括承認候補、C / D は人が 1 件ずつ確定させる。
+**承認するのは常に人**で、機械が決めるのは「どちらのキューに入れるか」まで。
+
+## dict-gate(語義未確定のままの①着手を止める)
+
+「先に辞書」を文書での指示ではなく**対象選定の機械判定**で強制する層。
+
+- 判定の唯一の実装は `ledger.Project.dict_gate_blockers`。`ledger next` と
+  ブラウザの実行ボタン(`browser_run._decide_kind`)、無人バッチの対象選定が共有する
+- 免除は 2 つ — ①data/variables.json が無いプロジェクト(従来どおり)
+  ②spec が既に **draft / reviewed** の関数(仕様化済みを今更止めても意味がない)
+- 解除は `--no-dict-gate`。除外された関数と未承認の var_id は理由つきで表示される
+- ゲートに掛かったら**辞書の承認を進めるのが正しい対処**(解除は例外運用)
+
+## dict-hash(承認後の語義改訂の検知)
+
+①生成時に使った (var_id, desc) 集合のハッシュを仕様書フロントマターに刻んでおき、
+`ledger verify` と WBS が現在値と突き合わせる。ずれていれば「⚠辞書stale」。
+
+**reviewed 済みの仕様書は自動修正しない。** `variables.py conflicts` が
+docs/dict-conflicts.md に矛盾候補を列挙するだけで、直すかどうかは人が決める
+(自動書き換えは「人が承認した成果物」の意味を壊すため)。
+骨子(skeleton)のままの仕様書は次の `ledger skeletons` が現在値へ同期するので、
+承認直後にいきなり stale にはならない。
+
+# ⓪のゲート: 例外ポリシー(hazards)
+
+**検知(機械)→ 登録簿と突合(機械)→ 未決定は人に質問 → 決定を登録 → 再突合**、という
+4 段の分割にしてある。Fortran は 0 割でも Inf を作って走り続けるが Python は停止するため、
+**決めずに①→④へ進むことはできない**。
+
+```{mermaid}
+%%| label: fig-qual-hazard
+%%| fig-cap: "hazard の検知から①②の突合までの流れ"
+
+flowchart TB
+  D["⓪抽出: hazards を検知<br>(ソース完全導出・常に上書き)"]
+  D --> M["hazards.py match — EP 登録簿と突合"]
+  M -->|未決定| Q["docs/exception-queue.md<br>kind ごとに仮説 + 選択肢"]
+  Q --> H["人が kind ごとの既定を決める"]
+  H --> P["add-policy → docs/exception-policy.md<br>(EP-xxx。個別＞関数＞全体既定)"]
+  P -->|自動で再突合| M
+  M -->|決定済み| S1["① 「例外・数値特異点」節<br>hazard × 適用 EP × 仕様記述"]
+  S1 --> S2["② 境界ケース(0・0 近傍・負値)"]
+```
+
+| 段 | ゲート | 検知するもの |
+|----|-------|-------------|
+| ① | `_check_hazards`(review_checks.py spec) | (a) hazard があるのに節が無い・該当 hz_id の行が無い = **検討漏れ** (b) 引用 EP-ID が登録簿に実在しない = **捏造** (c) ポリシー未決定の hazard を仕様化している = **決めてから書く** |
+| ② | `_check_testspec_hazards`(review_checks.py testspec) | 決定が挙動に現れる hazard(`guard_raise` / `guard_value` / `legacy_preserve`)について、hz_id を引用した**境界ケースの欠落** |
+: hazard に関する①②の機械ゲート {#tbl-qual-hazard-checks}
+
+- hazard が 1 件も無い関数は**素通り**する(従来のプロジェクトの挙動は変わらない)
+- data/hazard-map.json が無い場合は NG ではなく**警告**にとどめ、
+  「先に `hazards.py match` を実行する」と案内する
+- 検査はすべて **kind 非依存**。新しい検出器を⓪に足しても、ここは変更不要
+
 # review_checks.py の検査仕様
 
 ## ① spec 検査(`review_checks.py spec <fid>`)
@@ -46,6 +124,7 @@ LLM の成果物は、人のレビューに届く前に**決定的スクリプ�
 | プレースホルダ残存 | テンプレの穴埋めが残っている(記入の省略) |
 | 必須節の欠落 | テンプレ(assets/templates/spec.md)が定める節の欠落 |
 | 原本ハッシュ鮮度 | 仕様書が参照するレガシー原本が書き換わっていないか |
+| 例外・数値特異点 | hazard 全件が節に載っているか(検討漏れ)/ 引用 EP-ID が実在するか(捏造)/ 未決定のまま仕様化していないか |
 : ①仕様書の検査項目と検知するハルシネーション {#tbl-qual-spec-checks}
 
 ## ② testspec 検査(`review_checks.py testspec <fid>`)
@@ -58,6 +137,7 @@ LLM の成果物は、人のレビューに届く前に**決定的スクリプ�
 | 期待値根拠 | 根拠の表記が規定(仕様🟢/人間確認/実測)に準拠しているか |
 | ⚠未確定 | 未確定件数(approved の前提はゼロ) |
 | spec-hash 鮮度 | ①改訂後の古い②でないか |
+| hazard 境界ケース | 挙動が変わる決定(`guard_raise` / `guard_value` / `legacy_preserve`)の hazard に、hz_id を引用したケースがあるか |
 : ②テスト仕様書の検査項目とトレーサビリティ検証 {#tbl-qual-testspec-checks}
 
 ## 一斉レビュー支援(`review_checks.py report`)
@@ -91,6 +171,10 @@ LLM の成果物は、人のレビューに届く前に**決定的スクリプ�
   複数の画面・複数の人が同時に触っても、状態が壊れない
 - 承認の記録先はフロントマターの `reviewed-by` / `reviewed-date`(②は `approved-*`)で、
   チャット承認・ブラウザ承認のどちらでも同じフィールドに書く
+- **変数辞書の承認(`POST /dict-action`)も同じ流儀**。承認可否(rank D・desc が空や「不明」の
+  拒否)は**クライアントの表示を信用せずサーバ側で再判定**し、実処理は
+  チャットの `variables.py approve / revise` と同じライブラリ関数を通る
+  (片方の UI だけに抜け道を作らない)
 
 # hooks: 拒否と差し戻しの 2 系統
 

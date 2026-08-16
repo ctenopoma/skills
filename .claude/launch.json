@@ -1,0 +1,42 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "batch-screen",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "C:/work_space/skills/legacy-reverse/scripts/serve_site.py",
+        "--root",
+        "C:/Users/naoki/AppData/Local/Temp/claude/C--work-space-skills/37ae1638-7677-4b01-940d-f2a2327ab4d0/scratchpad/fakeproj",
+        "--port",
+        "8877",
+        "--no-open"
+      ],
+      "port": 8877
+    },
+    {
+      "name": "docs-site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8879",
+        "--directory",
+        "C:/work_space/skills/docs/legacy-reverse/_site"
+      ],
+      "port": 8879
+    },
+    {
+      "name": "slides",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8878",
+        "--directory",
+        "C:/work_space/skills/legacy-reverse"
+      ],
+      "port": 8878
+    }
+  ]
+}

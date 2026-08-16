@@ -2,6 +2,8 @@
 title: "関数仕様書: {{new_name}}"
 func-id: "{{func_id}}"
 status: skeleton        # skeleton(0で生成) → draft(①でLLM充填) → reviewed(人が確認)
+dict-hash: "{{dict_hash}}"  # 変数辞書の語義ハッシュ。ledger skeletons が刻む。①は書き換えずそのまま残す
+                        # （書き換えると辞書改訂の検知が壊れる。辞書が無いプロジェクトではこの行ごと出ない）
 reviewed-by: null       # 承認者（ブラウザの承認ウィジェット or チャット承認で自動記入）
 reviewed-date: null
 legacy:
@@ -88,6 +90,30 @@ flowchart TD
 # 副作用・例外
 
 <!-- 画面出力・ログ・DB・異常終了条件など。なければ「なし」と明記（空欄と区別する） -->
+
+## 例外・数値特異点
+
+<!--
+data/functions.json の hazards（⓪の機械検知: 0割・SQRT/LOG の定義域・変数添字…）を
+**1件も落とさず**この表に書く。行が足りない・hz_id が違うと機械レビューでNGになる。
+
+- 「適用EP」は docs/exception-policy.md に実在する EP-ID だけを書く（捏造はNG）。
+  まだ決まっていない hazard は書けない ——
+  `python hazards.py match --root .` → docs/exception-queue.md を人に見せて決めてもらい、
+  `hazards.py add-policy` で登録してから①を書く（未決定のまま仕様化するとNG）
+- 「仕様記述」は決定を新実装の言葉にしたもの。guard_raise なら送出する例外と条件、
+  guard_value なら代替値、caller_guarantees なら保証の根拠（SPEC-ID や上流の関数）
+- ②はこの節から境界ケース（0・0近傍・負値・添字の下限上限）を導出する
+- **hazards が1件も無い関数は、表を空にせず「該当なし」と1行書く**（検討の省略と区別するため）
+
+| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |
+|--------|------|------|--------|----------|
+| H-{{func_num}}-01 | div_by_var | `{{legacy_file}}:152` | EP-001 | 分母 RATE が 0 のとき ZeroDivisionError |
+-->
+
+| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |
+|--------|------|------|--------|----------|
+| 該当なし | | | | |
 
 # 未確定事項
 

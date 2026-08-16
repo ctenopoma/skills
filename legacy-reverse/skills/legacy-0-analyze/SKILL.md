@@ -16,7 +16,9 @@ user-invocable: true
 - レガシーコードの場所と言語（機械抽出できるのは Fortran / C・C++。その他は AI と人で列挙）
 - 新パッケージ名・src 配置
 - conventions.md の中身: 型対応表（例: `PIC 9(9)V99`→`Decimal`、`REAL*8`→`float`）、
-  命名規則、モック方針。テンプレ `assets/templates/conventions.md` を埋めて
+  命名規則、モック方針、**後戻り高コスト項目**（丸め・⑤の許容誤差／単位・スケール／
+  日付規則／文字コード／既知バグの扱い既定。②の期待値の前提になるため、後から覆ると
+  ②以降が全て作り直しになる）。テンプレ `assets/templates/conventions.md` を埋めて
   **docs/conventions.md として確定させ、人のOKをもらう**
 
 ### 2. 解析（機械抽出が正。LLMは意味づけのみ）
@@ -61,6 +63,93 @@ Fortran は extract_fortran.py が内蔵（状態機械パースと素朴カウ�
 （grep 等）と functions.json の件数を突合する。
 不一致は原因を特定。判断がつかないものは ISSUE 起票（`ledger next-issue` で採番）。
 
+### 3.5. グラフの確認（抽出直後・LLMは数えない）
+
+```bash
+python <LR>/scripts/graph.py --root . summary   # ノード/エッジ数・エントリ・到達率・dead件数
+python <LR>/scripts/graph.py --root . dead      # どのエントリからも到達不能な関数
+```
+
+（MCP登録済みなら `graph_query`。）
+
+- `summary` の到達率が極端に低い／エントリが想定と違うときは、抽出漏れか
+  メインルーチンの誤判定を疑う（`unresolved_calls` と併せて確認する）
+- `dead` は**exclude 候補の列挙にすぎない**。自動除外はしない。
+  1件ずつ人に「これは移植対象外でよいか」を確認し、OK のものだけ
+  `ledger exclude F-xxxx --reason "..."` にする
+- 循環があれば `graph.py cycles`（WBS の警告と同じもの）で内訳を見る
+
+### 3.6. フロー定義のヒアリング（任意。該当するときだけ）
+
+**次のどちらかに当てはまるときだけ**、人に「作業スコープを分けますか」と聞く:
+
+- メインルーチンが複数ある（`F-0000` 以外にも実質のエントリがある）
+- main の中に大きな分岐があり、系統ごとに別々に進めたい
+
+```bash
+ledger flow add 月次バッチ --entry F-0000 --desc "..."
+ledger flow list
+```
+
+エントリは「分岐先の代表サブルーチン」でよい。定義すると WBS に「フロー別進捗」表が出て、
+`ledger next --flow <名前>` / `pipeline.py spec|run|dict --flow <名前>` で対象を絞れる。
+**当てはまらないなら定義しない**（未定義時は F-0000 を既定エントリとする従来動作）。
+
+### 3.7. 例外ポリシーの初期決定（hazards。人に聞く）
+
+⓪の抽出は数値特異点（0割・SQRT/LOG の定義域・変数添字）を機械検知して
+functions.json の `hazards` に記録している。**Fortran は 0割でも走り続けるが Python は
+停止する**ので、ここで扱いを決めておかないと①以降が進まない。
+
+```bash
+python <LR>/scripts/hazards.py status --root .   # 総数・kind別・決定済み/未決定
+python <LR>/scripts/hazards.py match  --root .   # 突合 → docs/exception-queue.md（質問キュー）
+```
+
+1. `docs/exception-queue.md` を人に見せる（kind ごとに仮説・選択肢・該当箇所が出ている）
+2. **kind ごとの既定をどうするか人に聞く**。AIが決めない。語彙は
+   `detect_only` / `guard_raise` / `guard_value`（値も聞く）/ `legacy_preserve` /
+   `caller_guarantees`（根拠も聞く）
+3. 回答を登録する（EP-ID 自動採番。登録すると自動で再突合される）:
+   ```bash
+   python <LR>/scripts/hazards.py add-policy --kind div_by_var --decision guard_raise \
+          --by <承認者> --note "..." --root .
+   ```
+   個別に変えたい箇所だけ `--func F-0012` / `--hazard H-0012-01` を付けて追加登録する
+   （個別が全体既定に勝つ）
+4. `status` の未決定が 0 になるのが⓪の完了条件のひとつ
+   （残ったまま①へ進むと `review_checks.py spec` が NG にする）
+
+### 3.8. 変数辞書の初期構築
+
+```bash
+python <LR>/scripts/variables.py build --root .
+```
+
+（MCP登録済みなら `dict_build`。）COMMON の同一位置・実引数↔仮引数・EQUIVALENCE・
+同一関数内の同名から変数クラスタを作り、コメント・FORMAT 文字列・初期値・使用式を
+根拠として収集する。**再実行は常にマージ**（var_id 不変・承認維持）。
+
+出力された件数（rank・同名別義）を報告し、**辞書フェーズ `/legacy-0-dict` へ誘導する**。
+既定では変数の語義が未承認の関数は①に進めない（dict-gate）ので、
+⓪の次は①ではなく辞書、という順になる。
+
+### 3.9. ドメイン知識の先行投入（略語・区分値。人に聞く）
+
+辞書の解釈を始める前に、人が知っている語彙を `docs/domain-knowledge.md` の
+「語彙・略語集」「区分値・番兵値」へ先行投入する
+（テンプレ `assets/templates/domain-knowledge.md`。出典:「⓪ヒアリング YYYY-MM-DD」）:
+
+1. build の出力・変数名一覧から頻出トークン（例: `ZAN`・`KBN`・`RITU`）を人に見せ、
+   「読める略語はあるか」を聞く。**わかるものだけでよい**（網羅は求めない）
+2. 区分値・番兵値（KBN=9 はエラー、999999=上限なし等）で自明なものがあれば聞く
+3. 表に追記して `render_site.py` でHTML更新
+
+`verify-interp` の rank B 判定は domain-knowledge.md の語との一致で決まるため、
+ここで投入した語彙は辞書解釈を一括承認候補（rank B）へ押し上げ、
+rank C/D の1件ずつ確認と ISSUE の往復を減らす。
+**人がわからない語を推測で埋めないこと**（それは辞書フェーズの根拠ベース解釈が受け持つ）。
+
 ### 4. 生成
 
 ```bash
@@ -93,10 +182,13 @@ ledger wbs         # docs/index.qmd
 
 ### 6. 報告
 
-関数数・コールグラフの循環有無・open ISSUE・推奨着手順の先頭5件を報告し、
-`/legacy-1-spec` へ誘導する。
+関数数・コールグラフの循環有無・dead 件数・hazard の決定済み/未決定・変数辞書の件数・
+open ISSUE・推奨着手順の先頭5件を報告し、**`/legacy-0-dict`（辞書フェーズ）へ誘導する**。
+辞書を使わない（dict-gate を解除して進める）と人が決めた場合だけ `/legacy-1-spec` へ。
 
 ## 禁止
 
 - functions.json に確信のない情報を書くこと（不明は ISSUE に出す。推測で埋めない）
 - WBS・骨子の手書き修正（必ず functions.json を直して再生成）
+- `graph.py dead` の結果を人に確認せず exclude すること
+- 例外ポリシー（EP）を人に聞かずに決めること

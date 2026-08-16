@@ -1,0 +1,112 @@
+{
+  "project": {
+    "name": "variables-selftest",
+    "legacy_lang": "fortran",
+    "new_lang": "python",
+    "package": "newpkg"
+  },
+  "functions": [
+    {
+      "func_id": "F-0000",
+      "legacy": {
+        "file": "legacy/main.f",
+        "name": "MAIN",
+        "lines": "2-22",
+        "kind": "program"
+      },
+      "new": {
+        "module": "src/newpkg/main.py",
+        "name": "main",
+        "signature": ""
+      },
+      "inputs": [],
+      "outputs": [],
+      "globals": [
+        { "name": "COMMON /taxcom/", "access": "", "desc": "rate limit" }
+      ],
+      "external_files": [],
+      "calls": ["F-0001", "F-0002", "F-0003"],
+      "call_sites": [
+        { "callee": "F-0001", "name": "CALCTAX", "line": 14,
+          "args": ["AMT", "WRK", "TAX"] },
+        { "callee": "F-0002", "name": "CONVRT", "line": 18,
+          "args": ["FXR", "YEN"] },
+        { "callee": "F-0002", "name": "CONVRT", "line": 19,
+          "args": [null, "YEN2"] },
+        { "callee": "F-0003", "name": "PACKIT", "line": 21,
+          "args": ["NCNT"] }
+      ]
+    },
+    {
+      "func_id": "F-0001",
+      "legacy": {
+        "file": "legacy/tax.f",
+        "name": "CALCTAX",
+        "lines": "1-14",
+        "kind": "subroutine"
+      },
+      "new": {
+        "module": "src/newpkg/tax.py",
+        "name": "calctax",
+        "signature": ""
+      },
+      "inputs": [
+        { "name": "A", "legacy_type": "real*8", "new_type": "", "desc": "" },
+        { "name": "R", "legacy_type": "real*8", "new_type": "", "desc": "" },
+        { "name": "T", "legacy_type": "real*8", "new_type": "", "desc": "" }
+      ],
+      "outputs": [],
+      "globals": [
+        { "name": "COMMON /taxcom/", "access": "", "desc": "rtbl lim" }
+      ],
+      "external_files": [],
+      "calls": [],
+      "call_sites": []
+    },
+    {
+      "func_id": "F-0002",
+      "legacy": {
+        "file": "legacy/util.f",
+        "name": "CONVRT",
+        "lines": "1-7",
+        "kind": "subroutine"
+      },
+      "new": {
+        "module": "src/newpkg/util.py",
+        "name": "convrt",
+        "signature": ""
+      },
+      "inputs": [
+        { "name": "RATE", "legacy_type": "real*8", "new_type": "", "desc": "" },
+        { "name": "OUT", "legacy_type": "real*8", "new_type": "", "desc": "" }
+      ],
+      "outputs": [],
+      "globals": [],
+      "external_files": [],
+      "calls": [],
+      "call_sites": []
+    },
+    {
+      "func_id": "F-0003",
+      "legacy": {
+        "file": "legacy/util.f",
+        "name": "PACKIT",
+        "lines": "8-16",
+        "kind": "subroutine"
+      },
+      "new": {
+        "module": "src/newpkg/util.py",
+        "name": "packit",
+        "signature": ""
+      },
+      "inputs": [
+        { "name": "N", "legacy_type": "integer", "new_type": "", "desc": "" }
+      ],
+      "outputs": [],
+      "globals": [],
+      "external_files": [],
+      "calls": [],
+      "call_sites": []
+    }
+  ]
+}

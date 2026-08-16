@@ -186,6 +186,284 @@ def _split_depth0(s: str, sep: str) -> list:
     return out
 
 
+def _paren_span(s: str, i: int) -> int:
+    """s[i] が '(' のとき、対応する ')' の位置を返す。閉じていなければ -1。"""
+    depth, quote = 0, None
+    for j in range(i, len(s)):
+        ch = s[j]
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+    return -1
+
+
+def _call_args(s: str, pos: int) -> list:
+    """s の pos 直後にある実引数リスト `( ... )` を depth0 で分割して返す。括弧が無ければ []。"""
+    i = pos
+    while i < len(s) and s[i] == " ":
+        i += 1
+    if i >= len(s) or s[i] != "(":
+        return []
+    end = _paren_span(s, i)
+    if end < 0:
+        return []
+    inner = s[i + 1:end]
+    if not inner.strip():
+        return []
+    return _split_depth0(inner, ",")
+
+
+RE_SIMPLE_VAR = re.compile(r"^[a-z]\w*$")
+RE_ARRAY_REF = re.compile(r"^[a-z]\w*\s*\(")
+
+
+def _arg_to_var(arg: str, func_names) -> str:
+    """実引数1個 → 変数名（大文字）。変数名に還元できなければ None。
+
+    単純な変数名はそのまま。配列要素参照 `X(I)` は `X` に落とす（配列全体と同一実体のため）。
+    式・リテラル・文字列・関数呼び出しの結果は None。
+    """
+    a = arg.strip()
+    if not a:
+        return None
+    if RE_SIMPLE_VAR.match(a):
+        return a.upper()
+    if RE_ARRAY_REF.match(a):
+        i = a.index("(")
+        if _paren_span(a, i) == len(a) - 1:       # 全体が name(...) の形
+            base = a[:i].strip()
+            if base in INTRINSICS or base in func_names:
+                return None                       # 関数呼び出し＝式なので還元できない
+            return base.upper()
+    return None
+
+
+# ---------- hazard（例外・数値特異点）スキャン ----------
+# 設計は references/graph-dict-design.md「P5. 例外ポリシー機構」。
+# 「0割」は一例で、検出器は kind → 走査関数のテーブル（HAZARD_DETECTORS）に足せば増やせる。
+# 走査関数の契約: fn(low, ctx) -> [{"expr": 部分式, "vars": [大文字変数名], "col": 開始位置}]
+#   low = 文字列リテラルを空白化して小文字化した文（analyze_unit と同じもの。
+#         文字列の中身は空白なので `'A/B'` のような見せかけの除算は拾わない）
+#   ctx = {"arrays": 宣言済み配列名, "funcs": function 名, "orig": 原文（expr の切り出し用）}
+# 検出結果は merge で hz_id（H-<func連番>-<枝番>）を振る。ソース完全導出なので常に上書き。
+
+SQRT_FUNCS = frozenset("sqrt dsqrt csqrt cdsqrt qsqrt".split())
+LOG_FUNCS = frozenset("log alog dlog clog cdlog log10 alog10 dlog10".split())
+
+# 実行文でない（＝式として評価されない）文の先頭語。宣言の `/` は COMMON ブロック名や
+# DATA の初期値区切りで、除算ではない。FORMAT 中の `/` は改行指定
+NONEXEC_HEAD = frozenset("""
+common data save dimension parameter equivalence external intrinsic implicit namelist
+format use include entry subroutine function program module submodule interface block
+end endif enddo endwhere contains integer real doubleprecision double complex logical
+character type class allocatable pointer target public private protected optional
+intent sequence procedure import stop return continue go goto
+""".split())
+
+RE_IDENT = re.compile(r"[a-z_]\w*")
+RE_NUMLIT = re.compile(r"\b\d+\.?\d*(?:[ed][-+]?\d+)?")
+RE_NAME_PAREN = re.compile(r"\b([a-z]\w*)\s*\(")
+
+
+def _is_exec_stmt(low: str) -> bool:
+    """式を含み得る実行文か（宣言・FORMAT 等を除く）。行ラベル付きの文も実行文とみなす。"""
+    m = re.match(r"([a-z]\w*)", low)
+    return not (m and m.group(1) in NONEXEC_HEAD)
+
+
+def _expr_vars(expr: str, ctx: dict) -> list:
+    """部分式に含まれる変数名（大文字・出現順）。数値リテラル・演算子・既知の関数名は除く。
+
+    `X(I)` のような参照は配列名と添字変数の両方を返す（どちらが 0/範囲外でも問題になる）。
+    未知の名前で後ろに `(` が続くものは配列とみなして残す（暗黙の型宣言があるため）。
+    """
+    e = re.sub(r"\.\w+\.", " ", expr)          # .and. / .true. 等
+    e = RE_NUMLIT.sub(" ", e)                  # 2.0d0 / 1.0e-3 の指数部を名前と誤認しない
+    out = []
+    for m in RE_IDENT.finditer(e):
+        name = m.group(0)
+        if name.startswith("_"):               # 3.0_8 のような kind 指定の残り
+            continue
+        nxt = e[m.end():].lstrip()[:1]
+        if nxt == "(" and name not in ctx["arrays"] \
+                and (name in INTRINSICS or name in ctx["funcs"]):
+            continue                           # 関数呼び出し（値であって変数ではない）
+        u = name.upper()
+        if u not in out:
+            out.append(u)
+    return out
+
+
+def _primary_after(s: str, i: int):
+    """s[i] の直後にある1項（primary）の (開始, 終了) を返す。取れなければ None。"""
+    j = i + 1
+    while j < len(s) and s[j] == " ":
+        j += 1
+    if j >= len(s):
+        return None
+    if s[j] == "(":
+        e = _paren_span(s, j)
+        return (j, e + 1) if e > 0 else None
+    m = re.match(r"[+-]?\s*[\w.]+", s[j:])
+    if not m:
+        return None
+    end = j + m.end()
+    k = end
+    while k < len(s) and s[k] == " ":
+        k += 1
+    if k < len(s) and s[k] == "(":             # 配列参照・関数呼び出しの括弧まで含める
+        e = _paren_span(s, k)
+        if e > 0:
+            end = e + 1
+    return (j, end)
+
+
+def _primary_before(s: str, i: int):
+    """s[i] の直前にある1項の (開始, 終了)。expr の見た目を整えるためだけに使う。"""
+    j = i - 1
+    while j >= 0 and s[j] == " ":
+        j -= 1
+    if j < 0:
+        return None
+    if s[j] == ")":
+        depth, k = 0, j
+        while k >= 0:
+            if s[k] == ")":
+                depth += 1
+            elif s[k] == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+            k -= 1
+        if k < 0:
+            return None
+        m = re.search(r"[a-z_]\w*$", s[:k])
+        return (m.start() if m else k, j + 1)
+    m = re.search(r"[\w.]+$", s[:j + 1])
+    return (m.start(), j + 1) if m else None
+
+
+def _expr_text(orig: str, a: int, b: int, limit: int = 80) -> str:
+    """原文の該当部分式。空白を詰め、長ければ limit 字で切る。"""
+    s = re.sub(r"\s+", " ", orig[a:b]).strip()
+    return s if len(s) <= limit else s[:limit - 1] + "…"
+
+
+def _scan_div_by_var(low: str, ctx: dict) -> list:
+    """分母に変数を含む除算。`//`（文字列連結）・`/=`・`(/ /)`（配列構成子）は除く。"""
+    hits, n = [], len(low)
+    for i, ch in enumerate(low):
+        if ch != "/":
+            continue
+        if i + 1 < n and low[i + 1] in "/=)":       # a//b（連結）・a/=b・(/…/)
+            continue
+        if i > 0 and low[i - 1] in "/(":            # //b の2本目・(/…
+            continue
+        span = _primary_after(low, i)
+        if not span:
+            continue
+        vs = _expr_vars(low[span[0]:span[1]], ctx)
+        if not vs:
+            continue                                # 純リテラルの分母（/2.0 等）は対象外
+        left = _primary_before(low, i)
+        hits.append({"expr": _expr_text(ctx["orig"], left[0] if left else i, span[1]),
+                     "vars": vs, "col": i})
+    return hits
+
+
+def _scan_intrinsic_arg(low: str, ctx: dict, names) -> list:
+    """指定した組み込み関数群の引数に変数が含まれるもの（定義域の特異点）。"""
+    hits = []
+    for m in RE_NAME_PAREN.finditer(low):
+        if m.group(1) not in names:
+            continue
+        e = _paren_span(low, m.end() - 1)
+        if e < 0:
+            continue
+        vs = _expr_vars(low[m.end():e], ctx)
+        if vs:
+            hits.append({"expr": _expr_text(ctx["orig"], m.start(), e + 1),
+                         "vars": vs, "col": m.start()})
+    return hits
+
+
+def _scan_sqrt_arg(low: str, ctx: dict) -> list:
+    return _scan_intrinsic_arg(low, ctx, SQRT_FUNCS)
+
+
+def _scan_log_arg(low: str, ctx: dict) -> list:
+    return _scan_intrinsic_arg(low, ctx, LOG_FUNCS)
+
+
+def _scan_array_index_var(low: str, ctx: dict) -> list:
+    """宣言済み配列の添字に変数（範囲外参照の候補）。vars は添字側の変数のみ。"""
+    hits = []
+    for m in RE_NAME_PAREN.finditer(low):
+        if m.group(1) not in ctx["arrays"]:
+            continue
+        e = _paren_span(low, m.end() - 1)
+        if e < 0:
+            continue
+        vs = []
+        for part in _split_depth0(low[m.end():e], ","):
+            for v in _expr_vars(part, ctx):
+                if v not in vs:
+                    vs.append(v)
+        if vs:
+            hits.append({"expr": _expr_text(ctx["orig"], m.start(), e + 1),
+                         "vars": vs, "col": m.start()})
+    return hits
+
+
+# kind → 走査関数。ここに1行足せば検出器が増える（hz_id は登録順→行順で振られる）
+HAZARD_DETECTORS = {
+    "div_by_var": _scan_div_by_var,
+    "sqrt_arg": _scan_sqrt_arg,
+    "log_arg": _scan_log_arg,
+    "array_index_var": _scan_array_index_var,
+}
+
+
+def scan_hazards(stmts: list, arrays: set, func_names) -> list:
+    """文リスト → hazard のリスト（hz_id は merge で付与）。"""
+    hazards, seen = [], set()
+    ctx = {"arrays": arrays, "funcs": set(func_names), "orig": ""}
+    for ln, low, orig in stmts:
+        if not _is_exec_stmt(low):
+            continue
+        ctx["orig"] = orig
+        for kind, scan in HAZARD_DETECTORS.items():
+            for h in sorted(scan(low, ctx), key=lambda x: x["col"]):
+                key = (kind, ln, h["expr"], tuple(h["vars"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                hazards.append({"kind": kind, "line": ln,
+                                "expr": h["expr"], "vars": h["vars"]})
+    return hazards
+
+
+def _function_names(units: list) -> set:
+    """呼び出し推定の対象となる function 名の集合（組み込みは除く）。"""
+    return {u["name"] for u in units if u["kind"] == "function"} - INTRINSICS
+
+
+def _fname_pattern(fnames: set):
+    """function 名を1本の交替正規表現にまとめる（2000関数規模でも1回の走査で済ませる）。"""
+    if not fnames:
+        return None
+    return re.compile(r"\b(" + "|".join(re.escape(n) for n in
+                                        sorted(fnames, key=len, reverse=True)) + r")\s*\(")
+
+
 # ---------- 解析（状態機械） ----------
 
 def scan_file(rel: str, stmts: list, warnings: list) -> list:
@@ -299,10 +577,19 @@ def naive_count(stmts: list) -> int:
 
 # ---------- ユニット → functions.json エントリ ----------
 
-def analyze_unit(u: dict) -> dict:
-    """引数の型/intent・COMMON・use・呼び出し・外部ファイルを本文から拾う。"""
+def analyze_unit(u: dict, func_names=frozenset(), fn_pat=None) -> dict:
+    """引数の型/intent・COMMON・use・呼び出し・外部ファイルを本文から拾う。
+
+    あわせて call_sites（呼び出し1件ごとの物理行・実引数）と hazards（0割・SQRT/LOG の
+    引数・変数添字などの数値特異点）を作る。fn_pat が与えられたときは
+    call 文でない function 参照（`Y = FOO(X)`）も推定して `inferred: True` で記録する。
+    callee の func_id 解決と hz_id の採番は merge が行う
+    （この時点では他ファイルの関数も自分の func_id も知らないため）。
+    """
     decls, calls, commons, uses, files = {}, [], [], [], []
-    for _, low, orig in u["stmts"]:
+    arrays = set()                      # 宣言済み配列名（array_index_var の判定に使う）
+    raw_sites = []                      # (物理行, 呼び先名, 実引数の文字列, 推定フラグ)
+    for ln, low, orig in u["stmts"]:
         md = RE_TYPEDECL.match(low)
         if md and not re.match(r"^(real|integer|complex|logical|character|type|class)\s*function\b",
                                low):
@@ -313,10 +600,19 @@ def analyze_unit(u: dict) -> dict:
                 attrs, entities = "", rest
             intent = (re.search(r"intent\s*\(\s*(in|out|inout)\s*\)", attrs) or [None, None])[1] \
                 if attrs else None
+            dim_attr = bool(attrs and re.search(r"\bdimension\b", attrs))
             for ent in _split_depth0(entities, ","):
                 name = re.match(r"\s*([a-z]\w*)", ent)
                 if name:
                     decls[name.group(1)] = (typ, intent)
+                    if dim_attr or re.match(r"\s*[a-z]\w*\s*\(", ent):
+                        arrays.add(name.group(1))       # REAL X(10) / DIMENSION 属性つき
+        if low.startswith("dimension"):
+            rest = re.sub(r"^dimension\s*(::)?", "", low).strip()
+            for ent in _split_depth0(rest, ","):
+                ma = re.match(r"\s*([a-z]\w*)\s*\(", ent)
+                if ma:
+                    arrays.add(ma.group(1))
         if low.startswith("common"):
             rest = low[len("common"):].strip()
             blocks = re.findall(r"/\s*(\w*)\s*/([^/]*)", rest)
@@ -325,11 +621,24 @@ def analyze_unit(u: dict) -> dict:
             for bname, members in blocks:
                 mem = [re.match(r"\s*([a-z]\w*)", x).group(1)
                        for x in _split_depth0(members, ",") if re.match(r"\s*[a-z]\w*", x)]
+                for x in _split_depth0(members, ","):
+                    ma = re.match(r"\s*([a-z]\w*)\s*\(", x)     # COMMON /B/ TBL(10)
+                    if ma:
+                        arrays.add(ma.group(1))
                 commons.append((bname or "(無名)", mem))
         mu = RE_USE.match(low)
         if mu:
             uses.append(mu.group(1))
         calls += RE_CALL.findall(low)
+        for mc in RE_CALL.finditer(low):
+            raw_sites.append((ln, mc.group(1), _call_args(low, mc.end()), False))
+        if fn_pat is not None and not md \
+                and not low.startswith(("external", "intrinsic", "dimension",
+                                        "common", "save", "data", "parameter")):
+            for mf in fn_pat.finditer(low):
+                if mf.group(1) == u["name"] or re.search(r"\bcall\s*$", low[:mf.start()]):
+                    continue              # 自身の再帰参照と call 文（上で拾い済み）は除く
+                raw_sites.append((ln, mf.group(1), _call_args(low, mf.end() - 1), True))
         # ファイル名は文字列リテラルの中身なので原文から拾う（low は文字列が空白化済み）
         for mo in list(RE_OPEN_FILE.finditer(orig)) + list(RE_INQUIRE_FILE.finditer(orig)):
             val = (mo.group(1) or mo.group(2) or "").strip() \
@@ -359,8 +668,19 @@ def analyze_unit(u: dict) -> dict:
     globals_ += [{"name": f"USE {m}", "access": "", "desc": "モジュール変数（要確認）"}
                  for m in sorted(set(uses))]
     ext = [{"path": f, "access": "", "desc": ""} for f in dict.fromkeys(files)]
+
+    call_sites = []
+    for ln, nm, args, inferred in raw_sites:
+        site = {"name": nm.upper(), "line": ln,
+                "args": [_arg_to_var(a, func_names) for a in args]}
+        if inferred:
+            site["inferred"] = True
+        call_sites.append(site)
+    # hazard は宣言を全部読んでから（配列名が揃ってから）走査する
+    hazards = scan_hazards(u["stmts"], arrays, func_names)
     return {"inputs": inputs, "outputs": outputs, "globals": globals_,
-            "external_files": ext, "call_names": sorted(set(calls))}
+            "external_files": ext, "call_names": sorted(set(calls)),
+            "call_sites": call_sites, "hazards": hazards}
 
 
 def infer_function_calls(units: list, analyses: dict) -> dict:
@@ -368,11 +688,9 @@ def infer_function_calls(units: list, analyses: dict) -> dict:
 
     2000関数規模を想定し、全 function 名を1本の交替正規表現にまとめて走査する。
     """
-    fnames = {u["name"] for u in units if u["kind"] == "function"} - INTRINSICS
-    if not fnames:
+    pat = _fname_pattern(_function_names(units))
+    if pat is None:
         return {}
-    pat = re.compile(r"\b(" + "|".join(re.escape(n) for n in
-                                       sorted(fnames, key=len, reverse=True)) + r")\s*\(")
     inferred = {}
     for u in units:
         body = "\n".join(low for _, low, _o in u["stmts"]
@@ -449,6 +767,8 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
                     f[field] = val
             new_calls = [c for c in call_names]  # 名前のまま。後段で func_id 化
             f.setdefault("_call_names", new_calls)
+            f.setdefault("_call_sites", an["call_sites"])
+            f.setdefault("_hazards", an["hazards"])
         else:
             # メインルーチン（Fortran program / C main）は予約番号 F-0000
             if u.get("is_main") and not any(x["func_id"] == "F-0000" for x in funcs):
@@ -469,7 +789,8 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
                          "name": _snake(u["name"]), "signature": ""},
                  "inputs": an["inputs"], "outputs": an["outputs"],
                  "globals": an["globals"], "external_files": an["external_files"],
-                 "calls": [], "_call_names": call_names}
+                 "calls": [], "_call_names": call_names,
+                 "_call_sites": an["call_sites"], "_hazards": an["hazards"]}
             funcs.append(f)
             by_key[k] = f
             report["added"].append(f["func_id"])
@@ -486,6 +807,8 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
         id_by_name.setdefault(f["legacy"]["name"].upper(), f["func_id"])
     for f in funcs:
         names = f.pop("_call_names", None)
+        sites = f.pop("_call_sites", None)
+        hazs = f.pop("_hazards", None)
         if names is None:
             # 今回の抽出対象外（別言語など）のエントリ。前回までの未解決名を
             # 今回追加された関数と突合する（Fortran→C のリンクはここで繋がる）
@@ -520,6 +843,27 @@ def merge(existing: dict, units: list, analyses: dict, inferred: dict,
             f["unresolved_calls"] = sorted(set(unresolved))   # 後続の別言語抽出で自動解決
         else:
             f.pop("unresolved_calls", None)
+        # call_sites はソースから完全に導出されるので常に上書き（手修正の対象外）
+        if sites is not None:
+            resolved_sites = []
+            for s in sites:
+                fid = _lookup_call(id_by_name, s["name"], f["func_id"])
+                site = {"callee": fid} if fid else {}
+                site.update({"name": s["name"], "line": s["line"], "args": s["args"]})
+                if s.get("inferred"):
+                    site["inferred"] = True
+                resolved_sites.append(site)
+            f["call_sites"] = resolved_sites
+        # hazards も同じくソース完全導出。hz_id は H-<func連番>-<枝番>（関数内連番）
+        if hazs is not None:
+            num = f["func_id"].split("-", 1)[-1]
+            f["hazards"] = [{"hz_id": f"H-{num}-{i:02d}", "kind": h["kind"],
+                             "line": h["line"], "expr": h["expr"], "vars": h["vars"]}
+                            for i, h in enumerate(hazs, 1)]
+            for h in f["hazards"]:
+                report.setdefault("hazard_counts", {})
+                report["hazard_counts"][h["kind"]] = \
+                    report["hazard_counts"].get(h["kind"], 0) + 1
     return data
 
 
@@ -560,11 +904,14 @@ def extract(root: str, legacy_dir: str = "legacy", package: str = None,
                         + ", ".join(f"{u['file']}:{u['name']}" for u in mains)
                         + "（F-0000 は最初の1件。どれが本物のメインか⓪で確認する）")
 
-    analyses = {(u["file"], u["name"]): analyze_unit(u) for u in units}
+    fnames = _function_names(units)
+    fn_pat = _fname_pattern(fnames) if infer_calls else None
+    analyses = {(u["file"], u["name"]): analyze_unit(u, fnames, fn_pat) for u in units}
     inferred = infer_function_calls(units, analyses) if infer_calls else {}
 
     report = {"added": [], "updated_lines": [], "missing_in_source": [],
               "calls_diff": [], "unresolved_calls": [], "cross_resolved": [],
+              "hazard_counts": {},
               "inferred_calls": [{"file": k[0], "name": k[1].upper(), "calls": v}
                                  for k, v in sorted(inferred.items())],
               "completeness_mismatches": mismatches, "warnings": warnings,
@@ -581,6 +928,8 @@ def extract(root: str, legacy_dir: str = "legacy", package: str = None,
             "files": len(per_file), "functions_total": len(data.get("functions", [])),
             "added": len(report["added"]), "missing_in_source": len(report["missing_in_source"]),
             "completeness_mismatches": mismatches,
+            "hazards_total": sum(report["hazard_counts"].values()),
+            "hazard_counts": report["hazard_counts"],
             "inferred_call_sites": len(report["inferred_calls"]),
             "unresolved_call_names": len(report["unresolved_calls"]),
             "warnings": warnings,
@@ -607,7 +956,12 @@ def main() -> None:
         mode = "書き込み" if res["written"] else "ドライラン"
         print(f"[{mode}] ファイル {res['files']} / 関数 {res['functions_total']}"
               f"（新規 {res['added']}） 完全性差分 {len(res['completeness_mismatches'])}"
-              f" 推定呼出 {res['inferred_call_sites']} 未解決名 {res['unresolved_call_names']}")
+              f" 推定呼出 {res['inferred_call_sites']} 未解決名 {res['unresolved_call_names']}"
+              f" hazard {res['hazards_total']}")
+        if res["hazards_total"]:
+            print("  hazard 内訳: "
+                  + " ".join(f"{k}={v}" for k, v in sorted(res["hazard_counts"].items()))
+                  + "  → `python hazards.py match --root <project>` で EP と突合する")
         for m in res["completeness_mismatches"]:
             print(f"  突合NG: {m['file']} parsed={m['parsed']} naive={m['naive']}")
         for w in res["warnings"]:

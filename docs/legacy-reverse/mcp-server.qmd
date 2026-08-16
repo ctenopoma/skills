@@ -1,7 +1,7 @@
 ---
 title: "MCP サーバ仕様"
-subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 30 ツール"
-date: 2026-08-07
+subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 44 ツール"
+date: 2026-08-09
 ---
 
 # 設計方針(全体)
@@ -37,7 +37,21 @@ date: 2026-08-07
 | hooks/guard_tests.py・guard_json.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
 : MCP 化から意図的に除外したスクリプトと理由 {#tbl-mcp-excluded}
 
-# ツールリファレンス(30)
+# ツールリファレンス(44)
+
+| 分類 | 数 | 対応スクリプト |
+|------|:--:|--------------|
+| 台帳(読み取り) | 6 | ledger.py |
+| ⓪ 機械抽出 | 2 | extract_fortran.py / extract_c.py |
+| **⓪拡張: コールグラフ** | **1** | graph.py |
+| **⓪拡張: 変数辞書** | **7** | variables.py |
+| **⓪拡張: 例外ポリシー** | **3** | hazards.py |
+| **⓪拡張: フロー** | **3** | ledger.py(flow) |
+| 機械レビュー | 4 | review_checks.py |
+| 台帳(書き込み) | 12 | ledger.py |
+| 実行系 | 3 | collect_results / check_stubs / profile_run |
+| 出力系 | 3 | render_site / pdf_book / build_viewer |
+: 44 ツールの内訳(太字は⓪拡張で追加した 14 個) {#tbl-mcp-count}
 
 ## 台帳(読み取り) — ledger.py
 
@@ -45,9 +59,9 @@ date: 2026-08-07
 |--------|------|--------|------|
 | `pipeline_status` | root, func_id? | list[dict] | 全関数(または指定関数)の①〜⑤の進捗・stale・blocked 状態。WBS と同じ判定ロジック(`status_of()`)の生データ |
 | `next_action` | root | str | トポロジカル順(葉から)で次に着手すべき関数とフェーズ |
-| `next_actions` | root, limit=20, phase?, skip_draft=False | str | 着手可能な関数を推奨順に最大 limit 件(`fid<TAB>次フェーズ`)。バッチ計画用。`phase="1"〜"5"` で絞り込み、`skip_draft=True` で人のレビュー待ち(① draft・② generated)を除外 — バッチ全件モードの再開時に使う(draft の二重書き直し防止) |
+| `next_actions` | root, limit=20, phase?, skip_draft=False, flow?, no_dict_gate=False | str | 着手可能な関数を推奨順に最大 limit 件(`fid<TAB>次フェーズ`)。バッチ計画用。`phase="1"〜"5"` で絞り込み、`skip_draft=True` で人のレビュー待ち(① draft・② generated)を除外 — バッチ全件モードの再開時に使う(draft の二重書き直し防止)。`flow` でそのフローの到達集合に限定。**既定では語義が未承認の関数の①を除外する(dict-gate)**。`no_dict_gate=True` で解除できるが、原則は辞書の承認を先に進めること |
 | `progress_summary` | root | dict | 各フェーズの完了数・blocked・stale・改変・fail の要約 JSON。2000 関数規模でも全関数リストを読まずに状況把握できる |
-| `verify` | root, func_id | dict | ハッシュ連鎖(①→②、③改変、blocked)の検証。`ok=false` なら `problems` に理由 |
+| `verify` | root, func_id | dict | ハッシュ連鎖(①→②、③改変、blocked、辞書がある場合は dict-hash)の検証。`ok=false` なら `problems` に理由 |
 | `next_issue_id` | root | str | 次に使う ISSUE 番号(全体通し) |
 : 台帳を読み取る MCP ツール {#tbl-mcp-ledger-read}
 
@@ -59,12 +73,72 @@ date: 2026-08-07
 | `extract_c_functions` | root, legacy_dir="legacy", package?, write=True, infer_calls=True | dict | C/C++ を同じ functions.json にマージ。**Fortran↔C の呼び出しをアンダースコア規約込みで突合**するので、抽出の実行順は問わない(後から走った側が未解決名を解決する)。監査ログは data/extract-report-c.json |
 : レガシーソースを静的解析して台帳を作る MCP ツール {#tbl-mcp-extract}
 
+`extract_functions` は関数の列挙に加えて **call_sites(呼び出しの実引数)と hazards
+(数値特異点)も functions.json に書く**。この 2 つはソース完全導出なので再抽出で常に上書きされる。
+
+## ⓪拡張: コールグラフ — graph.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `graph_query` | root, cmd="summary", fid?, to?, flow?, transitive=False | dict / list | functions.json から構築したコールグラフに問い合わせる(**保存しない導出層**)。`cmd` で 6 種の問い合わせを切り替える |
+: コールグラフを問い合わせる MCP ツール {#tbl-mcp-graph}
+
+| cmd | 返すもの |
+|-----|---------|
+| `summary`(既定) | ノード / エッジ数・エントリ・到達率・dead 件数・循環数 |
+| `dead` | どのエントリからも到達不能な関数。**exclude 候補の列挙のみで自動除外はしない**(除外は人の判断で `exclude_function`) |
+| `cycles` | SCC(Tarjan)でサイズ 2 以上の成分 |
+| `reachable` | `fid`(カンマ区切りで複数可)または `flow` から到達可能な集合 |
+| `callers` | `fid` の呼び出し元。`transitive=True` で推移的な影響範囲 |
+| `between` | `fid` → `to` の最短経路(BFS) |
+: `graph_query` の 6 つの問い合わせ {#tbl-mcp-graph-cmds}
+
+依存ゼロ・LLM 不使用で、ledger / variables / pipeline はライブラリとして直接 import する
+(MCP はあくまで LLM 向けの窓口で、スクリプト間で二重実装はしていない)。
+
+## ⓪拡張: 変数辞書 — variables.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `dict_build` | root | dict | 変数辞書を構築 / 再構築(data/variables.json)。COMMON の同一位置・実引数↔仮引数・EQUIVALENCE・同一関数内の同名という**機械的根拠だけ**でクラスタを作り、コメント / FORMAT / 初期値 / 使用式を根拠として集める。**再実行は常にマージ**(var_id 不変・evidence_hash が同じなら承認と desc を維持) |
+| `dict_list_targets` | root, limit=30, ids? | list | 未解釈(status: unreviewed)の**根拠バンドル**を返す。解釈の**唯一の入力**(legacy 全文は読まない)。var_id / 名前・別名 / 出現 / links / evidence(ev_id・kind・file・line・text)が入る |
+| `dict_verify_interp` | root, ids? | dict | data/interpretations.json を機械検証して variables.json にマージ。対象 var_id との完全一致(欠落・余剰は全件差し戻し)・ev_id の実在(捏造検知)・desc が空でないこと。**rank は LLM の申告でなくここが根拠種別から決める**(D = 引用なしはマージせず人のキューに残る) |
+| `dict_approve` | root, by, ids?, var_id?, desc?, unit? | dict | 語義を承認する(**人の OK を得てから呼ぶ**)。`ids` でそのまま承認、`var_id`+`desc` で「修正して承認」。**承認 1 回でクラスタの全出現に効く**。desc が空・「不明」のままは承認できない |
+| `dict_propagate` | root | dict | 承認済みの語義を functions.json の inputs/outputs/globals の desc へ機械転記(`"<意味>(<単位>) [V-0001]"`)。**①はこの `[V-xxxx]` を書き換えない**(辞書が正) |
+| `dict_page` | root | dict | docs/variables.qmd を生成(自動生成・手編集禁止)。並び順は影響度降順 × rank 昇順。未承認があれば render_site.py が承認ウィジェットを埋め込み、ナビバーに「変数辞書」が自動追加される |
+| `dict_conflicts` | root | dict | 辞書と **reviewed 済み仕様書**の矛盾候補を docs/dict-conflicts.md に出す。reviewed は自動修正しないので、人が判断するための一覧 |
+: 変数辞書を操作する MCP ツール {#tbl-mcp-dict}
+
+呼ぶ順序は `dict_build` → (LLM が interpretations.json) → `dict_verify_interp` →
+`dict_page` → **人の承認** → `dict_propagate` → `generate_skeletons` → `generate_wbs` →
+`render_site`。承認をブラウザで行った場合は propagate 以降がサーバ側で自動的に走る。
+
+## ⓪拡張: 例外ポリシー — hazards.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `hazard_status` | root | dict | hazard(0 割・SQRT/LOG の定義域・変数添字…)の総数・kind 別・決定済み / 未決定。**ok=true(未決定ゼロかつ登録簿に問題なし)が①へ進める条件** |
+| `hazard_match` | root | dict | 全 hazard を docs/exception-policy.md(EP 登録簿)と突合し data/hazard-map.json を更新。未決定は docs/exception-queue.md に kind ごとに「仮説+選択肢」形式で書き出す。**未決定はキューを人に見せて決めてもらう**(AI が決めない) |
+| `hazard_add_policy` | root, kind, decision, by, func?, hazard?, note? | dict | 人が決めたポリシーを EP-xxx として登録簿に追記(**人の OK が前提**)。`decision` は 5 語彙。`func` / `hazard` を付けると適用範囲が狭まり全体既定より優先される。追記後は**自動で再突合**する |
+: 例外ポリシーを突合・登録する MCP ツール {#tbl-mcp-hazard}
+
+## ⓪拡張: フロー(作業スコープ) — ledger.py
+
+| ツール | 引数 | 返り値 | 説明 |
+|--------|------|--------|------|
+| `flow_add` | root, name, entry, desc="" | dict | フローを追加(`entry` は `"F-0000"` / `"F-0000,F-0006"`)。**main が複数ある、または main 内の大分岐を別々に進めたいときだけ**人に確認して定義する。到達集合は保存せず graph.py が毎回計算するので再抽出に自動追随する |
+| `flow_list` | root | dict | 定義済みフローの一覧(flow_id・名前・entries・到達関数数・説明) |
+| `flow_remove` | root, key | dict | フローを削除(名前 or flow_id)。**成果物には影響しない** |
+: 作業スコープを定義する MCP ツール {#tbl-mcp-flow}
+
+定義すると WBS にフロー別進捗表が出て、`next_actions` と pipeline の `--flow` で絞れる。
+
 ## 機械レビュー — review_checks.py
 
 | ツール | 引数 | 返り値 | 説明 |
 |--------|------|--------|------|
-| `review_spec` | root, func_id | dict | ①仕様書の機械レビュー。① draft 後・人レビュー依頼前に必ず実行し ok=true にしてから人に出す |
-| `review_testspec` | root, func_id | dict | ②テスト仕様書の機械レビュー。approved 依頼前に必ず実行 |
+| `review_spec` | root, func_id | dict | ①仕様書の機械レビュー。① draft 後・人レビュー依頼前に必ず実行し ok=true にしてから人に出す。**hazard の検討漏れ・EP-ID の捏造・未決定のまま仕様化**も検査する |
+| `review_testspec` | root, func_id | dict | ②テスト仕様書の機械レビュー。approved 依頼前に必ず実行。**挙動が変わる hazard の境界ケース漏れ**も検査する |
 | `review_all` | root | dict | 全関数の①②一括レビュー(skeleton 除外)。⑥前の総点検 |
 | `spec_review_report` | root | dict | ① draft の一斉レビュー表(docs/spec-review.md)を生成。生成後に render_site で HTML 化して人に案内する |
 : 成果物を機械レビューする MCP ツール {#tbl-mcp-review}
@@ -79,7 +153,7 @@ date: 2026-08-07
 | `exclude_function` | root, func_id, reason | dict | 移植対象外にする(デッドコード等)。①〜⑥・WBS・next の対象から外れ、WBS の「対象外の関数」に**理由つきで残る**。**物理削除はしない**(再抽出で別 ID として復活し成果物との紐付けが切れるため) |
 | `include_function` | root, func_id | dict | 除外を取り消して対象に戻す |
 | `generate_wbs` | root | dict | functions.json+成果物フロントマターから docs/index.qmd(WBS)を再生成 |
-| `generate_skeletons` | root, force=False | dict | functions.json から仕様書骨子を生成(既存はスキップ) |
+| `generate_skeletons` | root, force=False | dict | functions.json から仕様書骨子を生成(既存はスキップ)。辞書があるプロジェクトでは骨子に `dict-hash` と `flows` を書き、**①未着手の骨子の `dict-hash` は現在値へ自動同期**する |
 | `freeze_tests` | root, func_id | dict | ③完了時にテストコードのハッシュを台帳へ記録(以降の改変を検知可能に) |
 | `block` | root, func_id, issue_id | dict | 関数を裁定待ち(⛔)にする |
 | `unblock` | root, func_id | dict | 人の裁定反映後にブロック解除し attempt をリセット |
@@ -114,5 +188,10 @@ date: 2026-08-07
   `PYTHONIOENCODING=utf-8` を強制し Windows のコードページ問題を回避)
 - `progress_summary` は `ledger status --summary` の JSON をパースして返す
   (パース不能時は `{ok: false, output}` に落ちる)
+- `dict_approve` / `hazard_add_policy` は**人の承認を代行するツールではない**。
+  人の OK を得てから呼ぶ契約で、サーバ側は「決めたことを記録する」だけを担う
+- `graph_query` は `--json` 付きでスクリプトを呼び、結果をそのまま構造化して返す。
+  `hazard_match` は返り値から突合表(`map`)を落とし、未決定リストも 50 件で打ち切る
+  (2000 関数規模でコンテキストを埋めないため)
 - 大規模(2000 関数級)での再開は `progress_summary` + `next_actions` から。
   **全関数リストをコンテキストに読み込まない**(`pipeline_status` の全件取得は分析用途に限る)

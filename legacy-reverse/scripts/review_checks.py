@@ -12,10 +12,15 @@ spec <func-id>      ①のレビュー:
   - 骨子プレースホルダの残存（= 記入の省略）・必須節の欠落・空の「副作用・例外」
   - フロントマター legacy.hash と原本の不一致（仕様書が古いソースに基づく）
   - ```{mermaid} の混入（render を落とす）
+  - 例外・数値特異点: functions.json の hazards 全件が節に載っているか（検討漏れ）／
+    引用 EP-ID が docs/exception-policy.md に実在するか（捏造）／
+    ポリシー未決定の hazard を仕様化していないか（hazards が無い関数は素通り）
 testspec <func-id>  ②のレビュー:
   - トレーサビリティ: ①の全🟢仕様項目にケースが1件以上あるか。マトリクスの参照先が実在するか
   - 各ケースに「対応仕様」「期待値の根拠」があるか。⚠未確定の数（approved には 0 が必要）
   - spec-hash の鮮度（①改訂の検知）
+  - hazard 境界ケース: 決定が挙動に現れる hazard（guard_raise/guard_value/legacy_preserve）
+    に hz_id を引用した TC があるか（detect_only/caller_guarantees・未決定は対象外）
 all                 全関数を状態に応じて一括チェック
 
 exit 0 = 問題なし / 1 = 問題あり。--json で機械可読出力（MCP からは import で直接呼ばれる）。
@@ -121,6 +126,170 @@ def _sections(text: str) -> list:
     return out
 
 
+# ---------- 例外・数値特異点（hazards × 例外ポリシー） ----------
+
+HAZ_SECTION = re.compile(r"(?m)^(#{1,4})\s*例外[・･]数値特異点\s*$")
+RE_HZ_ID = re.compile(r"\bH-\d+-\d+\b")
+RE_EP_ID = re.compile(r"\bEP-\d+\b")
+
+_FUNCS_CACHE: dict = {}          # {path: ((mtime_ns, size), {func_id: エントリ})}
+
+
+def _functions_index(rootp: Path) -> dict:
+    """data/functions.json を {func_id: エントリ} で返す（stat 検証つきキャッシュ）。
+
+    無い・壊れている場合は空 dict（＝hazard 検査はすべて素通り）。⓪より前の段階や
+    hazards キーを持たない旧 functions.json でも従来どおり動く（後方互換）。
+    """
+    path = rootp / "data" / "functions.json"
+    if not path.exists():
+        return {}
+    st = path.stat()
+    key, sig = str(path), (st.st_mtime_ns, st.st_size)
+    hit = _FUNCS_CACHE.get(key)
+    if hit and hit[0] == sig:
+        return hit[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        idx = {f["func_id"]: f for f in data.get("functions", [])}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        idx = {}
+    _FUNCS_CACHE[key] = (sig, idx)
+    return idx
+
+
+_POLICY_CACHE: dict = {}         # {path: ((mtime_ns, size), 値)}（無いファイルは (None, 値)）
+
+
+def _hazards_mod():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hazards
+    return hazards
+
+
+def _cached_by_stat(path: Path, build):
+    """レンダ時は全 draft ページから呼ばれるので、stat が変わるまで結果を使い回す。"""
+    sig = None
+    if path.exists():
+        st = path.stat()
+        sig = (st.st_mtime_ns, st.st_size)
+    hit = _POLICY_CACHE.get(str(path))
+    if hit and hit[0] == sig:
+        return hit[1]
+    val = build()
+    _POLICY_CACHE[str(path)] = (sig, val)
+    return val
+
+
+def _policy_eps(rootp: Path) -> set:
+    """docs/exception-policy.md に実在する EP-ID の集合。"""
+    hz = _hazards_mod()
+    path = rootp / hz.POLICY_REL
+    return _cached_by_stat(path, lambda: set(hz.parse_policy(rootp).get("ep_ids") or []))
+
+
+def _hazard_map(rootp: Path) -> dict:
+    """data/hazard-map.json（hazards.py match の突合結果）。無ければ空 dict。"""
+    hz = _hazards_mod()
+    path = rootp / hz.MAP_REL
+    return _cached_by_stat(path, lambda: hz.load_hazard_map(rootp))
+
+
+def _hazard_section(text: str):
+    """「例外・数値特異点」節の本文（次の同レベル以上の見出しまで）。節が無ければ None。"""
+    m = HAZ_SECTION.search(text)
+    if not m:
+        return None
+    level = len(m.group(1))
+    rest = text[m.end():]
+    nxt = re.search(r"(?m)^#{1,%d}\s+\S" % level, rest)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def _check_hazards(rootp: Path, func_id: str, text: str, res: dict) -> list:
+    """①仕様書の「例外・数値特異点」節を hazards / 例外ポリシーと突合する。
+
+    (a) hazard があるのに節が無い・該当 hz_id の行が無い → 検討漏れ
+    (b) 引用 EP-ID が登録簿に実在しない → 捏造
+    (c) ポリシー未決定（EP 未割当）の hazard を仕様化している → 決めてから書く
+    hazards が1件も無い関数は何も見ない（従来どおり）。
+    """
+    f = _functions_index(rootp).get(func_id) or {}
+    hazards = [h for h in (f.get("hazards") or []) if h.get("hz_id")]
+    if not hazards:
+        return []
+    problems = []
+    body = _hazard_section(text)
+    if body is None:
+        ids = ", ".join(h["hz_id"] for h in hazards[:5])
+        more = " ほか" if len(hazards) > 5 else ""
+        return [f"「例外・数値特異点」節がない（⓪が検知した hazard が {len(hazards)} 件ある: "
+                f"{ids}{more}）＝例外の検討漏れ"]
+    mentioned = set(RE_HZ_ID.findall(body))
+    for h in hazards:
+        if h["hz_id"] not in mentioned:
+            problems.append(
+                f"{h['hz_id']}（{h.get('kind', '')} {f.get('legacy', {}).get('file', '')}:"
+                f"{h.get('line', '')} `{h.get('expr', '')}`）が"
+                "「例外・数値特異点」節に無い＝検討漏れ")
+
+    eps = _policy_eps(rootp)
+    for ep in sorted(set(RE_EP_ID.findall(body))):
+        if ep not in eps:
+            problems.append(f"{ep} は docs/exception-policy.md に存在しない"
+                            "（EP-ID の捏造。hazards.py add-policy で登録してから引用する）")
+
+    hz_map = _hazard_map(rootp)
+    if not hz_map:
+        res["warnings"].append(
+            "data/hazard-map.json が無いため EP 割当の検証を省略"
+            "（`python hazards.py match --root .` を先に実行する）")
+    else:
+        for hid in sorted(mentioned):
+            ent = hz_map.get(hid)
+            if ent is not None and not ent.get("ep"):
+                problems.append(
+                    f"{hid} は例外ポリシー未決定（EP 未割当）のまま仕様化されている"
+                    "（docs/exception-queue.md で決定 → hazards.py add-policy → 再突合）")
+    return problems
+
+
+#: 挙動に現れる決定（②に境界ケースが要る）。detect_only / caller_guarantees は
+#: この関数のテストで観測できる挙動が無いため対象外
+BEHAVIOR_DECISIONS = {"guard_raise", "guard_value", "legacy_preserve"}
+
+
+def _check_testspec_hazards(rootp: Path, func_id: str, text: str, res: dict) -> list:
+    """②テスト仕様を hazards × 例外ポリシーの決定と突合する。
+
+    決定が挙動に現れる hazard（BEHAVIOR_DECISIONS）は、②本文に hz_id を引用した
+    境界ケースが無ければ NG（hz_id は①の「例外・数値特異点」節に載っているので、
+    ②は legacy を読まずに引用できる＝情報遮断と両立）。
+    hazard が無い関数・hazard-map が無い場合は spec 側と同じく素通り/警告のみ。
+    """
+    f = _functions_index(rootp).get(func_id) or {}
+    hazards = [h for h in (f.get("hazards") or []) if h.get("hz_id")]
+    if not hazards:
+        return []
+    hz_map = _hazard_map(rootp)
+    if not hz_map:
+        res["warnings"].append(
+            "data/hazard-map.json が無いため hazard 境界ケースの検証を省略"
+            "（`python hazards.py match --root .` を先に実行する）")
+        return []
+    mentioned = set(RE_HZ_ID.findall(text))
+    problems = []
+    for h in hazards:
+        ent = hz_map.get(h["hz_id"]) or {}
+        dec = ent.get("decision")
+        if dec in BEHAVIOR_DECISIONS and h["hz_id"] not in mentioned:
+            problems.append(
+                f"{h['hz_id']}（{h.get('kind', '')}・決定 {dec}）の境界ケースが無い"
+                "（①の例外・数値特異点節の hz_id を引用した TC を追加する。"
+                "0・0近傍・負値など決定した挙動が観測できる入力）")
+    return problems
+
+
 def _check_citations(root: Path, body: str) -> tuple:
     """本文中の file:lines 引用を検証。(有効数, 問題リスト)"""
     ok, problems = 0, []
@@ -169,6 +338,8 @@ def check_spec(root: str, func_id: str) -> dict:
     m = re.search(r"(?ms)^# 副作用・例外\s*$(.*?)(?=^# |\Z)", text)
     if m and not re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S).strip():
         res["problems"].append("「副作用・例外」が空欄（なければ「なし」と明記する規則）")
+    if res["status"] != "skeleton":
+        res["problems"] += _check_hazards(rootp, func_id, text, res)
 
     spec_items = [(sid, head, body) for sid, head, body in _sections(text)
                   if sid and sid.startswith("SPEC-")]
@@ -257,6 +428,8 @@ def check_testspec(root: str, func_id: str) -> dict:
             for tc in tcs:
                 if not any(c.endswith(tc) or tc.endswith(c) for c in cases):
                     res["problems"].append(f"マトリクスの {tc}（{sid}）に対応するケース定義がない")
+
+    res["problems"] += _check_testspec_hazards(rootp, func_id, text, res)
 
     res["ok"] = not res["problems"]
     return res

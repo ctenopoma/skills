@@ -1,7 +1,7 @@
 ---
 title: "データ仕様"
 subtitle: "対象プロジェクトの構成・台帳スキーマ・status 遷移"
-date: 2026-08-07
+date: 2026-08-09
 ---
 
 ::: {.callout-note}
@@ -17,6 +17,13 @@ date: 2026-08-07
   「ファイルが正しければ進捗も正しい」が常に成り立ち、**再開が自明**になる
 - **ledger.json はスクリプト専用**の最小限の台帳(③ freeze ハッシュ・blocked・attempt 基準時刻)。
   人も LLM も手編集しない
+- **導出層は保存しない**。コールグラフとフロー到達集合は functions.json から毎回構築する
+  (graph.py)。保存しないので再抽出との不整合が原理的に起きない
+- **辞書(data/variables.json)は唯一の派生台帳**。人の承認(誰が・いつ)は導出できないため
+  保存するが、var_id は不変で再 build は常にマージ
+- **call_sites / hazards はソース完全導出**なので、再抽出時は「手修正保持」の例外として
+  **常に上書き**する。一方で例外ポリシーの「決定」(EP-xxx)は人の資産なので
+  docs/exception-policy.md に別置きする
 - 機械可読メタデータは YAML フロントマターに集約。WBS・⑥はフロントマター走査で自動生成
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない
   (前例: coverage → tc-coverage に改名)
@@ -49,6 +56,10 @@ date: 2026-08-07
     wbs/                # 200 関数超で自動生成されるファイル別明細(手編集禁止)
     spec-review.md      # ① draft の一斉レビュー表(自動生成。手編集禁止)
     review-feedback.md  # ブラウザからの修正依頼(サーバが追記・skill が applied 化)
+    variables.qmd       # ⓪ 変数辞書 + 承認ウィジェット(variables.py page が生成。手編集禁止)
+    dict-conflicts.md   # 辞書と reviewed 仕様書の矛盾候補(variables.py conflicts。手編集禁止)
+    exception-policy.md # 例外ポリシー登録簿 EP-xxx(人が承認する規約。add-policy が追記)
+    exception-queue.md  # 未決定 hazard の質問キュー(hazards.py match が生成。手編集禁止)
     _site/              # HTML 出力(render_site.py が作り直す。git 管理外)
     _sitework/          # render 用の .qmd 影コピー(作業用。残らない)
     conventions.md      # プロジェクト規約(⓪で確定。人が編集可)
@@ -63,16 +74,21 @@ date: 2026-08-07
     analysis.md                  # ⑦ 施策候補(AI が実測に基づいて記入)
   docs-sphinx/          # ④ API ドキュメント設定(テンプレから⓪で配置)
   data/
-    functions.json      # ⓪の解析結果(正データ)
+    functions.json      # ⓪の解析結果(正データ。call_sites・hazards・flows 込み)
     extract-report.json # ⓪機械抽出の監査ログ
     ledger.json         # ハッシュ・ブロック状態(スクリプト専用)
+    variables.json      # ⓪ 変数辞書(variables.py build。スクリプト専用)
+    interpretations.json          # LLM の解釈の受け渡し用(verify-interp が消費して削除)
+    interpretations-applied-*.json # 消費済みの解釈(監査用の退避)
+    hazard-map.json     # hazard → 適用 EP・決定 の突合結果(hazards.py match)
   .legacy-reverse/      # 実行時データ(git 管理外・消しても成果物は失われない)
     state.json          # 実行中フェーズ(hook の判定に使う)
+    dict-targets.json   # 辞書解釈バッチが LLM に渡す根拠バンドル(pipeline.py dict の一時データ)
     run.lock            # 実行スロットの排他(PID 入り。残骸は自動解除)
     pipeline-status.json  # ライブ進捗(バッチ実行状況ページが読む・表示専用)
     pipeline-log.jsonl  # 実行ログ 1 行 1 試行(結果・コスト・所要)
     agent-logs/F-xxxx.txt # エージェント応答の全文(失敗原因の一次情報)
-    batch-priority.json # ⭐優先の割り込み順(画面が書く)
+    batch-priority.json # ⭐優先の割り込み順(画面の⭐/pipeline.py priority が書く)
     last-run.json       # pytest プラグインの出力(⑤の一時データ)
     quant.json          # ⑦の実測データ(機械可読)
 ```
@@ -107,8 +123,17 @@ date: 2026-08-07
       "globals": [ { "name": "TAX-RATE-TABLE", "access": "read", "desc": "税率マスタ" } ],
       "external_files": [ { "path": "RATEMST.dat", "access": "read", "desc": "税率マスタファイル" } ],
       "calls": [ "F-0087" ],
+      "call_sites": [
+        { "callee": "F-0087", "name": "CALCTAX", "line": 152, "args": ["WK-AMOUNT", "RATE", null] }
+      ],
+      "hazards": [
+        { "hz_id": "H-0123-01", "kind": "div_by_var", "line": 152, "expr": "X / Y", "vars": ["Y"] }
+      ],
       "test_file": "tests/test_tax.py"
     }
+  ],
+  "flows": [
+    { "flow_id": "FL-01", "name": "月次バッチ", "entries": ["F-0000"], "desc": "" }
   ]
 }
 ```
@@ -120,6 +145,19 @@ date: 2026-08-07
 - `unresolved_calls`(任意)は抽出時に解決できなかった呼び出し名。**別言語の抽出が
   走った時点で自動的に解決されて `calls` に移る**ので、抽出の実行順を問わない
 - `test_file` は⓪では省略可。③が確定させる
+
+## ⓪拡張のフィールド(call_sites / hazards / flows)
+
+| フィールド | 位置 | 内容と設計判断 |
+|-----------|------|--------------|
+| `call_sites` | 関数 | 呼び出し 1 件ごとの物理行と実引数。`args` は実引数のうち**単純な変数名だけ**を大文字で入れ、式・リテラル・還元できないものは `null`(`X(I)` は `X` に落とす — 配列全体も同一実体だから)。`callee` は解決できたときだけ入り、未解決なら `name` だけ残る。call 文でない関数参照(`Y = CALCTAX(X)`)から推定したものは `"inferred": true`。`calls` の生成ロジックは従来どおりで、これは**変数辞書の「実引数↔仮引数」クラスタリング用の付加情報** |
+| `hazards` | 関数 | ⓪が機械検知した数値特異点。`hz_id` は `H-<func_id 連番部>-<2 桁枝番>`(関数内連番)。初期 kind は `div_by_var` / `sqrt_arg` / `log_arg` / `array_index_var` で、検出器は kind → 走査関数のテーブルに足せば増やせる |
+| `flows` | トップレベル | 作業スコープ。`ledger flow add/rm/list` が読み書きする。**到達集合は保存せず** graph.py がその都度計算する(再抽出に自動追随)。未定義時の既定エントリは `F-0000` で、従来動作と完全に一致する |
+: ⓪拡張で functions.json に加わったフィールド {#tbl-data-ext-fields}
+
+**`call_sites` と `hazards` は再抽出時に常に上書きされる。** ソースから完全に導出できる
+情報なので「手修正保持」の対象にしない(人が直すべき場所ではない)。
+これは `calls` や `desc` のマージ規則とは意図的に別扱いにしている。
 
 ## 人が後から調整するためのフラグ
 
@@ -168,6 +206,130 @@ date: 2026-08-07
 | attempt_reset_at | この時刻以降の結果ファイル数 = attempt(⑤実行回数)。unblock でリセット |
 : 台帳の各キーが保持する状態 {#tbl-data-ledger-keys}
 
+# data/variables.json(変数辞書)
+
+`variables.py build` だけが生成・マージする**唯一の派生台帳**。手編集禁止
+(語義の変更は `variables.py revise` か辞書ページの承認ウィジェット経由)。
+
+```{#lst-data-variables .json lst-cap="変数辞書 variables.json のスキーマ"}
+{
+  "variables": [
+    {
+      "var_id": "V-0001",
+      "canonical_name": "RATE",
+      "aliases": ["RATE", "R8TBL"],
+      "desc": "年間税率", "unit": "無次元(比率)",
+      "status": "unreviewed | interpreted | approved",
+      "rank": "A | B | C | D",
+      "confidence_basis": ["E-0001-01"],
+      "occurrences": [
+        { "func_id": "F-0001", "name": "RATE", "role": "input",
+          "legacy_type": "REAL*8", "line": 120 }
+      ],
+      "links": [
+        { "kind": "call_binding", "from": "F-0001:WK_R", "to": "F-0087:RATE", "line": 152 }
+      ],
+      "evidence": [
+        { "ev_id": "E-0001-01", "kind": "comment", "file": "legacy/tax.f",
+          "line": 118, "text": "C  RATE: ANNUAL TAX RATE" }
+      ],
+      "evidence_hash": "a1b2c3d4",
+      "approved_by": null, "approved_date": null,
+      "flags": []
+    }
+  ]
+}
+```
+
+## クラスタリング(機械的根拠だけ)
+
+ノードは **`(func_id, 変数名)`**。Union-Find で結合するが、根拠にできるのは次の 4 つだけ。
+
+| # | 結合根拠 |
+|:-:|---------|
+| 1 | 同一 COMMON ブロックの同一位置(別名でも同一実体 → `aliases` に集約) |
+| 2 | `call_sites` の実引数 ↔ 呼び先仮引数(位置対応) |
+| 3 | EQUIVALENCE |
+| 4 | 同一関数スコープ内の同名 |
+: 変数クラスタの結合根拠は 4 つだけ {#tbl-data-cluster}
+
+**別関数の同名だけでは結合しない。** 「名前が同じなら同じ意味だろう」は根拠ではないため。
+同名で別クラスタになったものは相互に `name_collision` フラグを立て、辞書ページに
+「同名別義」として併記して取り違えを防ぐ。
+
+## 根拠バンドルと rank
+
+`evidence.kind` は `comment`(宣言行の近傍・同行コメント)/ `format_label`(WRITE・PRINT +
+FORMAT の文字列リテラル)/ `data_init`(DATA・PARAMETER 初期値)/ `usage_expr`(代入・式での
+使用行)/ `common_pos`(COMMON 名と位置)の 5 種。`ev_id` は var 内連番。
+`evidence_hash` は evidence 配列の正規化 sha256 先頭 8 桁で、**再 build 時の承認維持判定**に使う。
+
+| rank | 条件(`verify-interp` が判定する) | 扱い |
+|:----:|--------------------------------|------|
+| A | `comment` / `format_label` / `data_init` を引用している | 一括承認候補 |
+| B | domain-knowledge.md の語、または links で結ばれた approved 済み変数を引用 | 一括承認候補 |
+| C | `usage_expr` / `common_pos` のみ | 人が 1 件ずつ確認 |
+| D | 引用なし | **マージ拒否**。desc は「不明」で人のキューに残る |
+: rank のルーブリック(LLM の申告ではなく検証側が決める) {#tbl-data-rank}
+
+## 再 build のマージ規則(後発合流)
+
+追加開発でレガシーが増えても、承認済みの語義をやり直させないための規則。
+
+| 変化 | 扱い | フラグ |
+|------|------|-------|
+| 何も変わらない(`evidence_hash` 一致) | 承認・desc を維持 | — |
+| 出現が増えただけ | **承認を維持**(辞書ページで任意再確認) | `occurrence_added` |
+| クラスタが分裂・併合した | status を `unreviewed` に戻す | `cluster_changed` |
+| rank D(引用なし) | マージせず人のキューに残す | `needs_human` |
+: 再 build で承認をどこまで維持するか {#tbl-data-vars-merge}
+
+分裂・併合のときだけ人に戻すのは、**「意味の同一性」の前提そのものが崩れた場合**だから。
+出現が増えただけで承認を落とすと、追加開発のたびに辞書全体を承認し直す運用になる。
+
+# data/interpretations.json(LLM 解釈の受け渡し)
+
+LLM(`pipeline.py dict` または `/legacy-0-dict`)が書ける**唯一のファイル**。
+variables.json は編集しない。`variables.py verify-interp` が機械検証してマージし、
+成功したら `interpretations-applied-<日時>.json` へ退避して元ファイルを消す。
+
+```{#lst-data-interp .json lst-cap="LLM 解釈の受け渡し interpretations.json のスキーマ"}
+{ "V-0001": { "desc": "年間税率", "unit": "無次元(比率)",
+              "rank_claim": "A", "evidence_cited": ["E-0001-01"], "notes": "" } }
+```
+
+- 検証は 3 点 — 対象 var_id 集合と**完全一致**(欠落・余剰は全件差し戻し)/
+  `evidence_cited` がその var に実在する ev_id か(**捏造検知**)/ desc が空でないか
+- `rank_claim` は書いてよいが**最終判定は機械**。食い違えば「LLM 申告 A → 検証 C」と表示される
+- 「根拠から意味を決められないものは desc を『不明』・引用なしで返す」のが**正しい振る舞い**で、
+  それらは rank D として人のキューに回る
+
+# data/hazard-map.json(hazard × 例外ポリシーの突合結果)
+
+`hazards.py match` が生成し、review_checks.py が①②の検査で読む。
+
+```{#lst-data-hazmap .json lst-cap="hazard と EP の突合結果 hazard-map.json のスキーマ"}
+{ "H-0012-01": { "ep": "EP-001", "decision": "guard_raise",
+                 "func_id": "F-0012", "kind": "div_by_var" } }
+```
+
+- **未決定の hazard も `"ep": null, "decision": null` でエントリを持つ**。
+  「①が仕様化してよいか」の判定材料になるため、黙って落とさない。
+  未決定分は docs/exception-queue.md に kind ごとの質問として出る
+- 決定の語彙は 5 つ。適用範囲は **全体既定 → 関数 → 個別 hazard** の順に個別が勝つ
+
+| 決定 | 意味 |
+|------|------|
+| `detect_only` | 仕様に記載するだけ(コードでは検知せず、挙動もレガシーのまま) |
+| `guard_raise` | ガードして例外送出(Python の例外として仕様化する) |
+| `guard_value` | 代替値で継続(**値を備考に明記**) |
+| `legacy_preserve` | レガシー挙動を再現(IEEE の Inf / NaN 等をそのまま流す) |
+| `caller_guarantees` | 呼び出し元が保証(**根拠を備考に必須記載**) |
+: 例外ポリシーの決定語彙 5 種 {#tbl-data-decisions}
+
+**Fortran は 0 割でも Inf を作って走り続けるが Python は停止する。**
+だから「決めずに①→④へ進む」という選択肢を残さず、①の機械レビューが NG にする。
+
 # .legacy-reverse/state.json
 
 ```{#lst-data-state .json lst-cap="hook が参照するフェーズ状態のスキーマ"}
@@ -213,7 +375,8 @@ date: 2026-08-07
 
 # .legacy-reverse/batch-priority.json
 
-画面の「⭐優先」が書く割り込み指示。スクリプト専用。
+画面の「⭐優先」と CLI `pipeline.py priority` が書く割り込み指示
+(どちらも `browser_run.prioritize` 経由)。スクリプト専用。
 
 ```{#lst-data-priority .json lst-cap="⭐優先の割り込み指示 batch-priority.json のスキーマ"}
 { "order": ["F-0033", "F-0021"], "retry": ["F-0021"] }
@@ -244,14 +407,31 @@ WBS の ✅ 判定・`ledger next` の着手可否判定は、すべてこの表
 | ⑦ 施策票 | proposed → approved → applied → verified | achieved |
 : 成果物ごとの status 遷移と WBS の完了条件 {#tbl-data-status-flow}
 
+変数辞書の承認だけは成果物フロントマターではなく data/variables.json の
+`status` / `approved_by` / `approved_date` に記録する(承認の単位が関数ではなく変数のため)。
+
+## ①仕様書に載る辞書・フローのキー
+
+辞書があるプロジェクト(data/variables.json が存在する)でのみ、①仕様書のフロントマターに
+次の 2 キーが載る。どちらも `ledger skeletons` が骨子生成時に書き、**①は値を書き換えない**。
+
+| キー | 値 | 意味 |
+|------|-----|------|
+| `dict-hash` | `"a1b2c3d4"`(approved が 0 件なら `""`) | その関数の approved 変数の (var_id, desc) 集合の sha256 先頭 8 桁。①生成後に語義が改訂されると `ledger verify` が NG になり、WBS の要対応に「⚠辞書stale」が出る。**骨子(skeleton)のままの仕様書は次の `ledger skeletons` が現在値へ自動同期する**(承認直後にいきなり stale にならないため) |
+| `flows` | `["月次バッチ"]` | 所属フロー名(骨子の新規生成時のみ記載)。**文脈付与だけで機械判定には使わない** |
+: 辞書・フローが①フロントマターに書き込む 2 キー {#tbl-data-dict-fm}
+
+`dict-hash` を持たない旧骨子・辞書なしプロジェクトでは判定が常に無効になる(後方互換)。
+
 ## ハッシュ連鎖の実装
 
 ```{mermaid}
 %%| label: fig-data-hash-chain
-%%| fig-cap: "レガシー原文から台帳まで伝搬するハッシュ連鎖"
+%%| fig-cap: "レガシー原文・変数辞書から台帳まで伝搬するハッシュ連鎖"
 
 flowchart LR
   L["legacy 原文"] -->|"legacy.hash"| S1["① spec フロントマター"]
+  D[("data/variables.json<br>approved の語義")] -->|"dict-hash"| S1
   S1 -->|"spec-hash"| S2["② test-spec フロントマター"]
   S2 --> S3["③ tests/"]
   S3 -->|"freeze: test_code_hash"| LG[("ledger.json")]
@@ -260,6 +440,9 @@ flowchart LR
 - ハッシュは `ledger.py hash <path>`(sha256 先頭 8 桁)
 - `ledger verify <func-id>` が連鎖を検証。不一致 = 上流が改訂された = 下流は「要再生成」
 - ⑤の実行前に必ず verify が走るため、stale なテストで pass を出すことはできない
+- **dict-hash だけは自動修正しない。** reviewed 済みの仕様書を辞書の改訂で書き換えると
+  「人が承認した成果物」の意味が壊れるため、`variables.py conflicts` が
+  docs/dict-conflicts.md に矛盾候補を列挙するだけで、直すかどうかは人が決める
 
 # WBS の表示記号
 
@@ -270,4 +453,9 @@ flowchart LR
 | ☐ | 未着手 |
 | ⛔ | 裁定待ち(blocked。ISSUE に回答を) |
 | ⚠ | stale(上流改訂)または改変(freeze 後変更)→ 要再確認 |
+| 辞書⚠ | 辞書stale(①生成後に語義が改訂された)→ ①要再確認 |
 : 関数一覧に出る記号と対応する状態 {#tbl-data-wbs-marks}
+
+フローを定義しているプロジェクトでは、WBS に**フロー別進捗表**(フロー / エントリ /
+到達関数数 / ①〜⑤の完了数)が追加される。`flows` が未定義なら表ごと出ないので、
+従来のプロジェクトの出力はバイト単位で変わらない。
