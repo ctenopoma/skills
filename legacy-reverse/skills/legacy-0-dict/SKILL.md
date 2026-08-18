@@ -106,23 +106,22 @@ ledger wbs && python <LR>/scripts/render_site.py --root .
 ```
 
 `docs/variables.qmd`（自動生成・手編集禁止）ができ、ナビバーに「変数辞書」が自動で出る。
-未承認が残っていれば render_site.py が承認ウィジェットを埋め込む。
-
-### 6. 人の承認（ブラウザ / チャット。どちらも同格）
-
-**ブラウザ**（推奨。件数が多いとき）: 変数辞書ページを開くと、
-**影響度（出現関数数）降順 × rank 昇順**で並んでいる——確認が要る C/D と、
+未承認が残っていれば render_site.py が承認方法の案内パネル（閲覧専用）を焼き込む。
+ページは**影響度（出現関数数）降順 × rank 昇順**で並ぶ——確認が要る C/D と、
 多くの関数に効く変数が先頭に来る。
 
-- rank A/B: チェックボックスで**一括承認**
-- rank C/D: 1件ずつ desc/unit を修正入力して承認（修正と承認が同時に確定する）
+### 6. 人の承認（チャット / CLI。どちらも同格）
 
-**チャット**:
+人が辞書ページを読み、チャットで返す（「V-0001,V-0002 を承認」「V-0003 の意味は〜」）か、
+端末で CLI を直接実行する:
 
 ```bash
 python <LR>/scripts/variables.py approve V-0001,V-0002 --by <名前> --root .
 python <LR>/scripts/variables.py revise  V-0003 --desc "..." [--unit "..."] --by <名前> --root .
 ```
+
+- rank A/B: 明示的な根拠があるので**まとめて承認**してよい（一括承認候補として提示する）
+- rank C/D: 1件ずつ `revise` で desc/unit を確定させながら承認する
 
 - 人に出すときは**影響度の大きいものから、根拠を添えて**提示する
   （「V-0001 RATE（12関数で使用）: 年間税率。根拠 legacy/tax.f:118 のコメント」）
@@ -131,7 +130,7 @@ python <LR>/scripts/variables.py revise  V-0003 --desc "..." [--unit "..."] --by
 
 ### 7. propagate（仕様書側へ伝搬）
 
-ブラウザ承認では自動で走る。チャット承認のときは明示的に実行する:
+承認のたび（またはまとまった区切りで）明示的に実行する:
 
 ```bash
 python <LR>/scripts/variables.py propagate --root .   # functions.json の IO/globals の desc へ転記

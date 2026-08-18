@@ -10,6 +10,45 @@ graph_query / dict_build / dict_approve / hazard_match 等。
 構造化された結果が返り、シェル引用の事故と許可プロンプトが減る）。
 未登録の環境では従来どおりスクリプトを直接実行する。両者の実体は同一。
 
+## HTML サイトは閲覧専用・返答は3チャネル
+
+HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、実行・承認・裁定の
+操作を持たない。人の対応が要るページには「いま何待ちで、どう返答するか」の案内パネルが
+焼き込まれる。人の返答チャネルは次の3つで、**すべて同格**（どれで返しても同じ結果になる）:
+
+| チャネル | 方法 | 反映 |
+|---|---|---|
+| チャット | 「F-0012 OK」「F-0012 修正: 〜」「ISSUE-004 は Yes」 | skill が review_actions / ledger を使って反映する |
+| ファイル記入 | ISSUE の「回答（人が記入）」欄・docs/review-feedback.md に人が書く | 各 skill の起動時スキャンが拾って反映する |
+| CLI | `review_actions.py approve / request-changes / adjudicate`・`variables.py approve / revise`・`hazards.py add-policy`・`ledger unblock` | スクリプトが直接反映しサイトも更新する |
+
+実行の入口も CLI に一本化されている: 単発はチャット（`/legacy-1-spec F-xxxx` 等）、
+バッチは `pipeline.py spec / run / dict`。進捗のライブ表示（/pipeline.html）は残るが表示専用。
+
+## 固定と可変（固変分離）
+
+ワークフロー（工程・情報遮断・ハッシュ連鎖・ゲート・本書の規則）は **skill 共有の固定部**。
+一方、**仕様書の項目立てと書き方はプロジェクトの所有物**で、人が編集する:
+
+- `docs/templates/spec.md` … ①仕様書の骨子テンプレ（節構成＋記入ガイドコメント）。
+  `ledger skeletons` がこの本文を骨子に写し、review_checks が `# 見出し` を必須節として検証する
+- `docs/templates/test-spec.md` … ②テスト仕様書の書式
+- 無いプロジェクトは skill 同梱のシード（assets/templates/）にフォールバック。
+  `ledger init-templates` がシードを docs/templates/ へコピーする（セットアップ時に実行）
+- 見出し行末に `LR:OPTIONAL`（HTMLコメント形式）を付けた節は任意節（必須節から外れる）
+
+**固定契約**（テンプレを編集しても変えられない、機械が生成・検証するアンカー）:
+
+| 対象 | 契約 |
+|---|---|
+| ① 置換マーカー | `LR:IO-TABLES`（IO表）・`LR:CALLS-TABLE`（呼出表）・`LR:HAZARD-TABLE`（hazard表）。機械が functions.json から生成して差し込む |
+| ① 契約見出し | `# 機能詳細`（SPEC-ID・Confidence・根拠 file:lines）／`# 副作用・例外`＋`## 例外・数値特異点`／`# 未確定事項` |
+| ① フロントマター | status / dict-hash / legacy.hash / reviewed-by 等（機械が生成・更新） |
+| ② 契約 | `# トレーサビリティマトリクス`・ケースID `<func_num>-TC-NNN`・「対応仕様」「期待値の根拠」行と根拠語彙 |
+
+テンプレが契約を満たすかは `review_checks.py template --root .` で機械検証できる
+（`ledger skeletons` も生成前に検証して不正なら停止する）。
+
 ## 情報遮断（クリーンルーム）
 
 | フェーズ | 読んでよい入力 | 読んではいけないもの |
@@ -100,21 +139,22 @@ python <LR>/scripts/variables.py conflicts --root .      # docs/dict-conflicts.m
 - **rank は LLM の申告でなく検証側が決める**（A/B/C/D）。D（引用なし）はマージせず
   人のキューに残る。A/B は一括承認候補、C/D は1件ずつ人が確定させる
 - rank B は domain-knowledge.md の語との一致で決まる。⓪で人から聞ける略語・区分値は
-  「語彙・略語集」へ**先行投入**してから解釈を回す（legacy-0-analyze 手順3.9）。
+  人が「語彙・略語集」へ**先行投入**してから解釈を回す（legacy-0-analyze 手順3.9。
+  AI は頻出トークンの候補リストを提示するだけで、記入は人）。
   同様に、②の期待値の前提になる全体既定（丸め・⑤の許容誤差・単位・日付・文字コード・
-  既知バグの扱い）は conventions.md の「後戻り高コスト項目」として⓪で人と確定させる
-  （覆ると②以降が作り直しになるため。関数単位の例外は DK に記録し、個別が既定に勝つ）
+  既知バグの扱い）は conventions.md の「後戻り高コスト項目」として⓪で人が確定・記入する
+  （覆ると②以降が作り直しになるため。関数単位の例外は人が DK に記録し、個別が既定に勝つ）
 - `propagate` は functions.json の inputs/outputs/globals の desc を
   `"<意味>(<単位>) [V-0001]"` 形式に機械転記する。**①は IO 表の `[V-xxxx]` を書き換えない**
   （辞書が正。矛盾を見つけたら辞書側を revise する）
-- 承認は人（チャットの `approve`/`revise` と、辞書ページのウィジェットは同格）
+- 承認は人（チャットで頼んでも、人が CLI の `approve`/`revise` を直接叩いても同格）
 
 ### dict-gate（既定 ON）
 
 **変数の語義が未承認の関数には①を書かせない。**
 
 - 判定の唯一の実装は `ledger.Project.dict_gate_blockers`。`ledger next` と
-  ブラウザの実行ボタン（`browser_run._decide_kind`）が共有する
+  連続実行の対象選定（`pipeline._decide_kind`）が共有する
 - 免除: ①data/variables.json が無いプロジェクト（従来どおり）
   ②spec が既に **draft / reviewed** の関数（仕様化済みを今更止めても意味がない）
 - 解除: `ledger next --no-dict-gate`。除外された関数と未承認 var_id は next が理由つきで表示する
@@ -211,7 +251,7 @@ python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（�
   `.claude/settings.json` で allow（または `--skip-permissions` を明示）
 - **`--flow <名前|FL-01>`**（spec / run / dict 共通）で対象をそのフロー到達集合に限定できる
   （`ledger flow add` で定義したもの。「このフローだけ今日やる」）
-- **モデル階層**: kind ごとに既定モデルを持てる（`browser_run.KINDS` の `model` キー）。
+- **モデル階層**: kind ごとに既定モデルを持てる（`pipeline.KINDS` の `model` キー）。
   現状 `dict`（辞書解釈）だけが **sonnet** 既定で、①〜⑤は指定なし＝従来の既定モデル。
   CLI の `--model <id>` は全 kind を一括上書きする
 
@@ -232,156 +272,55 @@ python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500] [--m
 
 ロック（run.lock）・レート耐性・中断安全・`/pipeline.html` のライブ進捗は①〜⑤と共有する。
 
-### ブラウザからの単発実行（browser_run.py。試作・①〜⑤対応）
+### ライブ進捗ページ（/pipeline.html）は表示専用
 
-「1関数だけ様子を見ながら進めたい」向けに、pipeline.py の実行ロジック
-（`run_one` / `RunStatus` / 起動プリフライト・agent-logs 保存）をそのまま流用した
-単発トリガーがある。render_site.py が①仕様書ページに「N を実行する」ボタンを
-埋め込み、押すと serve_site.py の `POST /run-phase` が `browser_run.start()` を呼ぶ:
+serve_site.py の `/pipeline.html` は、バッチ（pipeline.py spec / run / dict）の
+ライブ進捗を表示する**閲覧専用ページ**——いま何を実行中か・成功率・失敗の内訳・ETA・
+残タスク（実行順・検索つき）・直近の結果とエージェント応答ログが見える。
+実行・中止・承認・⭐操作の類は一切持たない（対応する CLI: 停止は Ctrl+C、
+割り込みは `pipeline.py priority F-xxxx`、承認・裁定は本書冒頭の3チャネル）。
 
-- ボタンは常に①仕様書ページに出る（関数の「ホーム」として工程を通じて存在し
-  続けるページのため）。`browser_run._decide_kind` が①〜④のうち次に着手すべき
-  ものを判定する: skeleton→①、reviewed かつ test-spec 無し→②、
-  test-spec が approved かつ `Project.status_of` の test_code_ok が False→③、
-  test_code_ok かつ impl_ok が False→④。draft/generated 中（承認待ち）は
-  承認ウィジェット側の担当なので None（ボタンを出さない）
-- `pipeline.py` の `verify_spec`/`verify_testspec`/`verify_testcode`/`verify_impl`
-  は全て `(ok, why, problems)` の3-tupleで統一されている。`verify_testcode` は
-  `Project.status_of` の test_code_ok/test_code_tampered を見る（③自体には①②の
-  ような静的レビューは無く、freeze前の marker突合が機械チェックの役割）。
-  `verify_impl` は `check_stubs.check_file` をそのまま呼んで problems を作る。
-  `problems` は `RunStatus.result()` を経由して pipeline-status.json の
-  `recent[].problems` にそのまま乗り、`/pipeline.html` が承認ウィジェットと
-  同じ見た目（赤箱＋箇条書き）で描画する
-- **③④は hook ガード（phase-start/phase-end）を気にしなくてよい**。
-  `ledger phase-start 4 <fid>` は legacy-4-impl/SKILL.md の手順としてAI自身が
-  呼ぶので、headless 実行（`claude -p`）でもチャット実行と同じに効く。
-  オーケストレータ（pipeline.py/browser_run.py）側は何も特別なことをしていない
-- ④が `ok=True` で完了したら `docs-sphinx` の有無を見て、あれば
-  `ledger sphinx-index` → `python -m sphinx -b html docs-sphinx docs/_site/api`
-  を実行し「新コード詳細(API)」を作り直す（`browser_run._build_sphinx_if_needed`。
-  MCP の `render_site(with_sphinx=True)` と同じ2段構え）
-- 実行はバックグラウンドスレッドで行い、POSTは即座に返る（数分かかる処理をHTTPで
-  待たせない）。進捗はページ側のポーリングと `/pipeline.html` の両方で見える。
-  **状態を finished にするのは WBS・サイトの更新（と④ならSphinx）が終わった後**
-  ——先に finished にすると、ポーリング側が「終わった」と判断してまだ古いままの
-  ページを reload してしまう（承認ウィジェットへの切替が反映されない）ため
-- **排他制御は実行スロットロックで双方向**。バッチ（pipeline.py）とブラウザ単発は
-  同じ `.legacy-reverse/run.lock`（`O_CREAT|O_EXCL` の原子的なファイル作成。
-  `pipeline.acquire_run_lock`）を取り合う——バッチがブラウザ実行を、ブラウザが
-  バッチを、どちらの方向でも締め出す。pipeline-status.json の running チェック
-  （`pipeline.current_run_state`）は分かりやすいエラーメッセージ用の補助で、
-  本命はロック。ロックには保持プロセスの **PID** が入っており、取得失敗時に
-  死活を確認してクラッシュの残骸（Ctrl+C・強制終了で finally が走らなかった
-  ケース）は自動解除する。status ファイル側も同様に `pid` を持ち、書いた
-  プロセスが死んでいる running は無視される——**残骸がボタンやバッチを永久に
-  塞ぐことはない**。ロックは実行完了までスレッド側で保持し、検証NG等での
-  早期returnはその場で解放する
-- **中止できる**: 実行中はボタン横に「中止」が出る（`POST /run-cancel` →
-  `browser_run.cancel()` が cancel_event を set → `run_claude` がプロセスツリー
-  ごと kill。Windows は claude.cmd の子に node が居るため taskkill /T を使う）。
-  レート待機中も event.wait で即座に打ち切れる。serve_site.py の終了時
-  （Ctrl+C）も `browser_run.shutdown()` が同じ経路で中止して片付けを待つので、
-  claude の孤児プロセスやロック残留を残さない
-- 単発の `rate_wait_total` は **900秒**（バッチの6時間と違い、人がボタンを押して
-  待っている対話操作なので、15分で諦めて「今は混んでいる」ことを返す）。
-  それ以外の既定値は `pipeline.RUN_ARG_DEFAULTS` をバッチと共有する
-- claude の起動プリフライトは `start()`（POST の同期部分）で1回だけ行い、
-  解決済みコマンドをスレッドに渡す。起動不能はボタン押下の直後に分かり、
-  スレッド側の「state=running だが current 未設定」の空白時間も短くなる
-- ウィジェットの JS（実行・⑥・承認の3種）は `browser_run.WIDGETS_JS` に集約し、
-  render_site.py が `_site/lr-widgets.js` として書き出す。各ページは
-  `<script src="/lr-widgets.js">` で参照する（ページごとの複製をやめ、修正1箇所）
-- FROZEN・ローカルホスト限定に加え **Host/Origin ヘッダ検証**（DNSリバインディング・
-  `text/plain` フォームのCSRF対策）を全 POST に掛ける（serve_site.py の
-  `WRITE_ROUTES` と `_cross_site_reason` にまとめてある）
-- **修正依頼・機械NGの再実行**: draft/generated（承認待ち）は通常ボタンを出さないが、
-  人の修正依頼(pending)か機械レビューNGが残っている間だけ、承認ウィジェット内に
-  「再実行」ボタンが出る（`review_actions.widget_html` が埋め込み、サーバ側は
-  `_decide_kind(include_rerun=True)` で検証。`_rerun_wanted` が
-  `pending_feedback_kinds` と `check_spec/check_testspec` で判定）。
-  `request_changes` は送信後に `refresh_site` を呼んでボタンを即座に出す
-- **⑤裁定（ISSUE回答→unblock）もブラウザで完結**: blocked の関数の①ページに
-  裁定ウィジェット（`review_actions.adjudicate_widget_html`）が出て、ISSUE の
-  「質問（人への問い）」をその場に表示する。回答を書いて送ると
-  `review_actions.adjudicate` が ISSUE に回答を記入（status: answered）→
-  `ledger unblock` → サイト更新まで行う。リロード後は「⑤を実行する」ボタンに
-  切り替わり、AI が回答を反映して再テストする
-- **連続実行（ブラウザからのバッチ）**: `/pipeline.html` の「連続実行」→
-  `POST /run-batch` → `browser_run.batch_start`。全関数を走査して
-  `_decide_kind(include_rerun=True)` が返す「次に着手できる工程」を1件ずつ実行し、
-  実行後に再走査する（③が終われば同じ関数の④、承認が下りれば次工程、と自動で進む。
-  承認・裁定待ちと完了はスキップ）。失敗した (関数, 工程) は同一バッチ内で再試行せず、
-  連続3件失敗で安全停止。5件ごとに `refresh_site` するので、人は実行中も
-  ブラウザで承認・裁定を並行できる。上限件数指定可（予算上限は CLI の
-  `--budget-usd` のみ。ブラウザUIからは外した）。停止は単発と同じ `/run-cancel`。
-  「この1件だけスキップ」は `/run-skip`（item_cancel イベント。バッチは続行）。
-  ブラウザ実行は**既定で --dangerously-skip-permissions を付ける**（browser_run.SKIP_PERMISSIONS=True。
-  ボタン押下は人の明示操作・サーバは 127.0.0.1 限定 + Host/Origin 検証のため）。
-  permissions.allow で管理したい環境は serve_site.py --no-skip-permissions で外せる。
-  レート待機は無人前提なのでバッチ既定の6時間。
-  残タスクは `GET /batch-queue`（実行順・検索・件数集計。`_scan_targets` と同じ判定）、
-  ⭐優先は `POST /batch-priority` → `.legacy-reverse/batch-priority.json`
-  （order=割り込み順・retry=失敗スキップの解除。次の走査で反映）
-- CLI の pipeline.py は `spec`（①専用・従来バッチ）/ `run`（①〜⑤工程横断。
-  browser_run の `_scan_targets`/`KINDS` を共有し⭐優先も反映。`--only testspec` の
-  ように工程を限定すれば「②だけ全件」等の工程単位バッチにもなる）/ `dict` /
-  `priority`（⭐優先の ON/OFF・一覧。ブラウザの⭐と同じ `browser_run.prioritize` を
-  呼ぶだけでロックを取らないため、**バッチ実行中に端末から割り込み順を変えられる**）。
-  連続実行はロック（run.lock）・RunStatus・/pipeline.html 表示をすべて共有する。
-  ブラウザ画面でできる操作は原則 CLI にも同じ入口を用意する（画面専用機能を作らない）
-- 現状は①〜⑥（⑥は下記別枠）。⑦は探索的な改善ループで形が大きく異なるため別途設計が要る
+- 進捗の実体は `.legacy-reverse/pipeline-status.json`（RunStatus がアトミックに更新）。
+  Quarto を通さないポーリング表示なので、WBS の再生成なしにリアルタイムで見える
+- 残タスク一覧（GET /batch-queue）は「次に何が走るか」と「人待ち（承認・裁定）」を
+  実行順で見せる。人待ちの行は該当ページへのリンクだけで、返答方法はページ先頭の
+  案内パネルが示す
+- 排他制御は実行スロットロック（`.legacy-reverse/run.lock`。`O_CREAT|O_EXCL` の
+  原子的なファイル作成）。複数のバッチ（別端末の spec / run / dict）が取り合い、
+  ロックには保持プロセスの PID が入っていて、クラッシュの残骸は自動解除される。
+  status ファイル側も `pid` を持ち、書いたプロセスが死んでいる running は無視される
+- 連続実行の対象選定は `pipeline._scan_targets` / `_decide_kind`（①〜⑤のうち次に
+  着手すべき工程。承認・裁定待ちと完了はスキップ。修正依頼(pending)・機械レビューNGが
+  残る draft/generated は自動修復の再実行対象になる）。1件ごとに再走査するので、
+  実行中に人が承認・裁定した分も次の走査で拾われる
 
 ### ⑤（テスト実行）の verify_fn が①〜④と違う点
 
-`verify_test` は `retries=0` で呼ばれる（KINDS の `"test"` エントリで指定。
-`run_one` は `cfg.get("retries", RUN_DEFAULTS.retries)` で kind ごとの上書きに対応）。
+`verify_test` は `retries=0` で呼ばれる（`pipeline.KINDS` の `"test"` エントリで指定。
+`run_one` は kind ごとの retries 上書きに対応）。
 理由: legacy-5-test/SKILL.md の設計上、(a)実装バグは1回の headless 実行の中で
 AI 自身が「src/ 修正→⑤再実行」を attempt 上限までループし、pass か blocked
 （attempt上限到達で自動 ISSUE 起票）のどちらかで自然に止まる。**blocked は
 orchestrator から見て「異常な失敗」ではなく「設計どおりの正常な停止」**——
 ここで orchestrator 側がさらにリトライしても `ledger verify` が blocked を検知して
 即座に断るだけの空実行になる（SKILL.md で「attempt を稼ぐための空実行」は
-明示的に禁止）。`_decide_kind` も `blocked_by` が立っている間は "test" を返さず
-ボタンを出さない（人が ISSUE に回答して `unblock` するまで再実行できない）。
+明示的に禁止）。`_decide_kind` も `blocked_by` が立っている間は "test" を返さない
+（人が ISSUE に回答して `unblock` するまで再実行対象にならない）。
 `classify_ng` は「裁定待ち」を専用の分類（⛔人の裁定待ち・正常）に振り分け、
 機械的な異常（claude起動不可・タイムアウト等）と区別して集計する。
 
-### ⑥（完了検証）は browser_run.py の中でも別枠
+### ⑥（完了検証）と⑦（分析）は CLI / チャット駆動
 
-⑥は headless Claude を呼ばない純粋な機械チェック（`ledger check`）で、数秒〜
-数十秒で終わる。①〜⑤のような「バックグラウンドスレッド起動＋ポーリング」は
-不要——`browser_run.run_check()` が POST をブロックしたまま同期的に実行して
-結果を返す。ボタンは docs/index.qmd（WBSトップ）に出るが、**全関数の⑤が pass する
-まで表示しない**（`browser_run.check_widget_html`。時期が来る前のボタンは
-「①も終わっていないのに⑥が押せる」という誤解のもとになるため。
-⑦のウィジェットも同様に⑥が pass するまで表示しない。途中の不足確認は
-WBS の進捗表・spec-review.md、CLI なら `ledger check` が担う）。
-排他は①〜⑤・CLI バッチと同じ `.legacy-reverse/run.lock` を共有する
-（バッチも同じロックを取るようになったため、check 実行中にバッチが割り込む
-隙間は無い。逆に⑥の数十秒はバッチ開始がロック取得失敗で断られるが、
-`ledger check` は短時間で終わるので再実行すればよい）。
+⑥は headless Claude を呼ばない純粋な機械チェック: `ledger check`（または
+`/legacy-6-check`。検証 → 最終レンダリングまで行う）。全関数の⑤が pass すると、
+WBS トップの案内パネルに実行方法が表示される（それまでは出さない——時期が来る前の
+案内は「もう押せるの？」という誤解のもとになるため。途中の不足確認は WBS の進捗表・
+spec-review.md、CLI なら `ledger check` が担う）。
 
-### ⑦（分析）は「機械計測 → LLM提案」の2段構え。適用はブラウザ化しない
-
-「計測せずに提案しない」が⑦の大原則なので、ブラウザの「⑦分析を実行する」
-（WBSトップ・⑥がpassのときだけ有効）は2段で動く（`browser_run.analyze_start`）:
-
-1. **定量評価（決定的・LLM不要）**: `quant_analyze.py` が cProfile
-   （profile_run.py に委譲。bench.py があれば本命、無ければスモーク）＋
-   radon cc/mi・ruff・bandit・pip-audit を機械実行し、`.legacy-reverse/quant.json` と
-   `docs/quant.md` に集約する。未導入ツールはエラーにせず「未実施」として記録
-2. **提案（headless Claude 1回）**: 実測データを読ませて docs/analysis.md に
-   施策候補（OPT-/REF-/SEC-、期待効果・リスク・優先順位、実測値の引用）を記入させる。
-   **施策の適用・コード変更・施策票の起票は明示的に禁止**したプロンプトで起動する
-
-検証は `pipeline.verify_analysis`（analysis.md の存在・プレースホルダ残存・
-候補ゼロなら「候補なし」明記・quant.md の存在）。ロック・中止・進捗表示は
-①〜⑤と同じ枠を共有する（fid は "analyze" 固定）。
-
-改善の適用側（施策票 approved → 1施策1コミット → 再計測 → 達成判定 → 未達revert）は
-git 操作とロールバック判断が絡み「1回実行して検証」の枠に収まらないため、
-ブラウザ化しない（分析までがブラウザ、適用はチャット駆動のまま）。
+⑦（分析・改善）は「計測せずに提案しない」が大原則。チャットで `/legacy-7-analyze` を
+起動すると、定量評価（quant_analyze.py。cProfile＋radon/ruff/bandit/pip-audit、
+LLM不使用）→ 実測データに基づく施策候補の提案（docs/analysis.md）→ 人の承認 →
+挙動保存で適用、と進む。⑥が pass するまで WBS に⑦の案内は出ない。
 
 `/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
 **中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。
@@ -422,36 +361,65 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 
 - 採番は全体通し。`docs/issues/` の最大番号+1（`ledger.py next-issue` が返す）
 - 必ず「仮説＋Yes/Noで答えられる問い」の形式（templates/issue.md）
-- 人の回答が付いたら status: answered → 成果物へ反映して applied。ドメイン知識なら domain-knowledge.md へ転記
+- 人の回答が付いたら status: answered → 成果物へ反映して applied。
+  ドメイン知識として残すべき回答は、**AI が転記文を提案し、人が domain-knowledge.md に貼る**
+  （domain-knowledge.md は人だけが書くファイル。下記「ファイルの作成者区分」）
 - kind: spec-gap(④が詰まった) / domain / legacy-bug / triage(⑤ループ上限) / other
-- **回答の受け取り方は2系統**: チャットでの回答（AskUserQuestion 含む）と、人がISSUEファイルの
-  「回答（人が記入）」欄へ直接記入する方法。どちらも同等に扱う
+- **回答の受け取り方は3系統**（本書冒頭の返答チャネル）: チャット（AskUserQuestion 含む）、
+  人が ISSUE ファイルの「回答（人が記入）」欄へ直接記入、
+  ⑤裁定なら CLI `review_actions.py adjudicate`。どれも同等に扱う
 
 ## 人の直接入力（起動時スキャン）
 
 **すべてのフェーズskillは、本処理の前に次を確認する:**
 
 1. open の ISSUE で「回答（人が記入）」欄が埋まっているものがないか → あれば先に
-   反映処理（answered → 成果物更新 → applied → 必要なら domain-knowledge.md 転記）を行う
-2. 人からチャットでドメイン知識・規約変更を告げられたら、その場で
-   domain-knowledge.md（出典:「直接指示 YYYY-MM-DD」）/ conventions.md に反映する
+   反映処理（answered → 成果物更新 → applied）を行う。ドメイン知識として残すべき回答は
+   転記文を提案し、人が domain-knowledge.md へ貼る（AI は書き込まない）
+2. 人からチャットでドメイン知識・規約変更を告げられたら、記入すべき内容を
+   提案文（出典:「直接指示 YYYY-MM-DD」付き）として提示し、人が
+   domain-knowledge.md / conventions.md に記入する。記入後のレンダリングは AI が行う
 3. `docs/review-feedback.md` に「状態: pending」の項目がないか → あれば先に反映し
-   「状態: applied」に書き換える（ブラウザの承認ウィジェットの「修正依頼」が書く。
-   人がチャットで「F-xxxx は修正: 〜」と言うのと同じ扱い。詳細は次節）
+   「状態: applied」に書き換える（このファイルの著者は人。直接編集でも
+   `review_actions.py request-changes` 経由でもよく、チャットで「F-xxxx は修正: 〜」と
+   言うのと同じ扱い）
 
-手編集の可否:
+### ファイルの作成者区分（人だけが書く / AI が書く / 機械生成）
 
-| ファイル | 手編集 | 備考 |
-|---|:---:|---|
-| conventions.md / domain-knowledge.md / ISSUEの回答欄 | ⭕ | 人が著者。編集後は render_site.py（またはskillに依頼） |
-| exception-policy.md | ⭕ | 人が承認する登録簿。`hazards.py add-policy` 経由が基本（列の並びは変えない） |
-| specs/ | △ | 編集可。ハッシュ連鎖が②を stale に落とし再確認が走る（設計どおり） |
-| index.qmd / test-results/ / completion-check.md | ❌ | 自動生成。再生成で消える |
-| variables.qmd / exception-queue.md / dict-conflicts.md | ❌ | 自動生成。語義の修正は `variables.py revise` か辞書ページのウィジェットで |
-| data/variables.json / hazard-map.json | ❌ | スクリプト専用。手編集しない |
+**人だけが書くファイル**（AI は読み・提案まで。書き込まない）:
+
+| ファイル | 備考 |
+|---|---|
+| docs/conventions.md | プロジェクト規約。⓪で AI が質問リストと記入例を提示し、人が記入する |
+| docs/domain-knowledge.md | 業務知識・ISSUE回答の蓄積。AI は転記文を提案、人が貼る |
+| docs/exception-policy.md | EP-xxx 登録簿。人が `hazards.py add-policy` を実行して登記する（直接編集も可。列の並びは変えない） |
+| docs/templates/*.md | 仕様書の項目立て・書き方（固変分離の可変部） |
+| ISSUE の「回答（人が記入）」欄 | 本文（仮説・質問）は AI が書く。回答欄だけ人 |
+| docs/review-feedback.md | 修正依頼。直接編集でも `review_actions.py request-changes` でもよい |
+
+**AI が書くファイル**（パイプライン成果物。機械レビュー＋人の承認ゲートを通る）:
+
+| ファイル | 備考 |
+|---|---|
+| docs/specs/ | ①。人の手編集も可（ハッシュ連鎖が②を stale に落とし再確認が走る） |
+| docs/test-specs/ / tests/ / src/ | ②③④ |
+| docs/test-results/ / docs/analysis.md | ⑤⑦ |
+| ISSUE の本文 | 仮説＋Yes/No の問い |
+| data/interpretations.json | 辞書解釈の受け渡し（verify-interp が検証後に消費） |
+
+**機械生成**（手編集禁止。再生成で消える）:
+
+| ファイル | 備考 |
+|---|---|
+| docs/index.qmd / docs/wbs/ / spec-review.md / completion-check.md | ledger / review_checks が生成 |
+| variables.qmd / exception-queue.md / dict-conflicts.md / quant.md | 語義の修正は `variables.py revise` で |
+| data/functions.json / variables.json / hazard-map.json / ledger.json | スクリプト専用（functions.json への人の調整は ledger add/exclude 経由） |
 
 - conventions.md を途中で変更した場合は影響が③④の既存成果物に及ぶ。skillは変更を検知したら
   「どの関数の成果物と不整合になり得るか」を洗い出して人に報告する
+- 「人だけが書く」は著者の区分であって、人が CLI（add-policy / request-changes 等）を
+  使って書き込むのは当然可。**AI がチャット指示を受けて代筆することもしない**
+  （提案文の提示まで。これらのファイルが人の意思の一次記録である状態を保つ）
 
 ## 人の承認ゲート
 
@@ -463,39 +431,42 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 **チャット経由**
 1. skill が承認用サマリ（変更点・チェックリスト）をチャットに提示する
 2. 人がチャットで OK / 修正指示を返す
-3. OK なら skill がフロントマター（status, reviewed-by/approved-by, reviewed-date/approved-date）を更新する
+3. OK なら skill が review_actions（approve / request_changes）で反映する
+   （承認直前にサーバ側で機械レビューを再検証し、NG が残る成果物は入口によらず拒否される）
 
-**ブラウザ経由**（①②のみ。render_site.py が draft/generated 状態の仕様書・
-テスト仕様書ページに埋め込む承認ウィジェット。詳細は次項）
-1. 人が WBS サイトで該当ページを開く（機械レビュー結果が全文その場に出ている）
-2. 「承認する」または「修正依頼…」を押す
-3. serve_site.py の `/review-action` がフロントマターを更新し、WBS・一斉レビュー表・
-   サイトを差分再生成する（数秒で反映。ページを再読み込みすれば見える）
+**CLI 経由**（人が端末で直接実行する）
+```bash
+python <LR>/scripts/review_actions.py approve spec F-0012 --by 山田 --root .
+python <LR>/scripts/review_actions.py request-changes spec F-0012 --by 山田 --comment "…" --root .
+python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by 山田 --comment "…" --root .
+```
+どちらの経路もフロントマター更新 → WBS・一斉レビュー表・サイトの差分再生成まで行う。
+閲覧サイトの案内パネル（承認待ち・裁定待ちのページ先頭）に、この3チャネルの
+具体的なコマンドが表示される。
 
 勝手に approved にしない。承認待ちで turn を終えるのは正しい動作。
 
 - **①は一斉レビュー可**: バッチモード（legacy-1-spec）で複数関数を draft まで連続処理し、
   `review_checks.py report` が生成する docs/spec-review.md（一斉レビュー表）で人が
   まとめて OK / 個別修正指示を返せる。承認が人であることは変わらない（粒度の違いだけ）。
-  一斉レビュー表の「機械レビュー」列は仕様書ページの承認ウィジェットへ直接ジャンプする
-  リンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）
+  一斉レビュー表の「機械レビュー」列は仕様書ページの案内パネル（#review-<fid>）へ直接
+  ジャンプするリンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）
 
-### 変数辞書の承認（辞書ページ / チャット）
+### 変数辞書の承認（チャット / CLI）
 
-`variables.py page` が生成する `docs/variables.qmd` に、render_site.py が承認ウィジェットを
-埋め込む（未承認が1件も無ければ埋め込まない）。ナビバーの「変数辞書」は
-docs/variables.qmd が存在するときだけ自動で追加される。
+`variables.py page` が生成する `docs/variables.qmd`（辞書ページ）は、
+**影響度（出現関数数）降順 × rank 昇順**で並ぶ——人の確認が要る C/D と、多くの関数に
+効く変数が上に来る。未承認が残る間は、render_site.py がページ先頭に承認方法の
+案内パネルを焼き込む（閲覧専用。件数と CLI コマンドを表示する）。
 
-- 並び順は**影響度（出現関数数）降順 × rank 昇順**——人の確認が要る C/D と、
-  多くの関数に効く変数が上に来る。`rank A/B` はチェックボックスで**一括承認**、
-  `C/D` は1件ずつ desc/unit を修正入力して承認する（修正と承認が同時に確定する）
-- 送信先は `POST /dict-action`（serve_site.py）。既存の `/review-action` と同じ防御
-  （127.0.0.1 限定・Host/Origin 検証・配布EXEでは無効化）。承認可否（rank D・desc 未確定の
-  拒否）は**クライアントの表示を信用せずサーバ側で再判定**する
+- 承認はチャット（「V-0001,V-0002 を承認」等）か CLI:
+  `variables.py approve V-0001,V-0002 --by <名前>` /
+  `variables.py revise V-0003 --desc "..." [--unit "..."] --by <名前>`
+  （rank A/B は一括承認候補、C/D は revise で意味を確定させながら承認する。
+  rank D・desc 未確定の approve は variables.py 側が拒否する）
 - 承認1回でクラスタの全出現に効く。承認後は
-  **propagate → skeletons → 辞書ページ再生成 → サイト差分レンダ**まで自動で走る
-- チャット承認も同格: `variables.py approve V-0001,V-0002 --by <名前>` /
-  `variables.py revise V-0003 --desc "..." --by <名前>`（同じライブラリ関数を通る）
+  **propagate → skeletons → 辞書ページ再生成 → サイト差分レンダ**まで続けて実行する
+  （/legacy-0-dict の手順。CLI 直叩きの場合も同じ順で実行する）
 
 ### 例外ポリシーの決定（exception-queue → add-policy）
 
@@ -503,29 +474,30 @@ docs/variables.qmd が存在するときだけ自動で追加される。
    （仮説＋選択肢＋該当箇所の表＋登録コマンド例）
 2. 人にその kind の**既定**をどうするか聞く（`guard_raise` / `detect_only` / … /
    「式ごとに個別判断」）。AIが勝手に決めない
-3. 回答を `hazards.py add-policy --kind <k> --decision <語彙> --by <名前>` で登録する
-   （個別に変えたい箇所だけ `--func` / `--hazard` を付けて追加登録。個別が全体既定に勝つ）
+3. **人が** `hazards.py add-policy --kind <k> --decision <語彙> --by <名前>` を実行して
+   登録する（exception-policy.md は人だけが書くファイル。AI はキューに出ている
+   コマンド例を示すまで。個別に変えたい箇所だけ `--func` / `--hazard` を付けて追加登録。
+   個別が全体既定に勝つ）
 4. 登録すると自動で再突合され、キューが更新される。全件決定するまで①は書けない
 
-### ブラウザからの承認・修正依頼（レビューウィジェット）
+### 閲覧サイトの案内パネル（render 時に焼き込む静的表示）
 
 `docs/specs/<fid>.md` が `status: draft`、`docs/test-specs/<fid>.md` が `status: generated`
-の間、render_site.py はそのページの本文冒頭（フロントマター直後）に承認ウィジェットを
-埋め込む。仕様書を読んでいるその場で完結させる設計で、別ページには分離していない
-（一覧ページと詳細ページを往復させない）。
+の間、render_site.py はそのページの本文冒頭（フロントマター直後）に案内パネルを焼き込む。
+仕様書を読んでいるその場で「何待ちか・どう返答するか」が分かる設計で、操作は持たない。
 
-- 機械レビュー結果は render 時点のものをその場に埋め込み表示する（NGなら理由の全文。
-  ✅なら「承認する」ボタンが有効）。**NGの間は承認ボタンをグレーアウトして押せなくする**
-  （UI 側の抑止）。加えて `/review-action` は承認要求のたびにサーバ側で機械レビューを
-  再実行し、NGなら拒否する（disabled 属性を無視した直接POSTにも効く二重の防御）
-- 「修正依頼…」はコメント欄に理由を書いて送ると `docs/review-feedback.md` に
-  「状態: pending」で追記される。status は変えない（次回の①/②AI実行時に
+- 機械レビュー結果は render 時点のものをその場に表示する（NGなら理由の全文と
+  「AI に自己修正させる」手順。✅なら3チャネルの承認方法）。NG が残る成果物の承認要求は
+  review_actions 側（チャット/CLI どちらの入口でも）が再検証して拒否する
+- ⑤裁定待ち（blocked）の関数の①ページには、ISSUE へのリンク・「質問（人への問い）」の
+  本文・回答方法（回答欄への記入 / チャット / `review_actions.py adjudicate`）が出る
+- 変数辞書ページ・WBSトップ（⑥⑦の時期が来たとき）にも同様の案内が出る
+- 修正依頼は `docs/review-feedback.md` に「状態: pending」で記録される（人が直接書いても
+  `request-changes` 経由でも同じ）。status は変えない（次回の①/②AI実行時に
   「人の直接入力（起動時スキャン）」で拾われ、反映後「状態: applied」になる）
-- 承認・修正依頼は **127.0.0.1 からのみ**受け付ける（`--host 0.0.0.0` で LAN 公開していても
-  リモートから成果物を書き換えさせない）。配布用 EXE（build_viewer.py の成果物）は
-  docs/_site のスナップショットを同梱しているだけで元プロジェクトへの書き込み経路が
-  無いため、レビュー操作自体を無効化している
-- WBS の関数一覧・一斉レビュー表からのリンクは、承認待ちの間だけこのウィジェットの
+- 配布用 EXE（build_viewer.py の成果物）は docs/_site のスナップショット同梱で、
+  もともと書き込み経路が無い（閲覧専用という性質は開発機のサイトと同じ）
+- WBS の関数一覧・一斉レビュー表からのリンクは、承認待ちの間だけこのパネルの
   アンカー（`#review-<fid>`）へ直接ジャンプする
 - **draft は再実行（書き直し）自由**。reviewed の書き直しは②が stale になるため人の了承を先に取る
 

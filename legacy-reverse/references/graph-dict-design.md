@@ -131,16 +131,14 @@ LLM（pipeline kind: `dict`、既定モデル sonnet）は variables.json を**�
   - D: 引用なし → マージ拒否（desc は「不明」でキュー直行）
 - rank A/B → 一括承認候補、C/D → 人の確認キュー
 
-### 人の承認導線（辞書ページ）
+### 人の承認導線（辞書ページ＝閲覧・承認はチャット / CLI）
 
 - `variables.py page` が `docs/variables.qmd` を生成（自動生成・手編集禁止）。
-  render_site.py がウィジェットを埋め込み、serve_site.py に `POST /dict-action` を追加
-  （既存 `/review-action` と同じ 127.0.0.1 限定・Host/Origin 検証・FROZEN 無効化）
-- 並び順: **影響度（出現関数数）降順 × rank 昇順（C/D が先）**。rank・status・
-  名前でフィルタ。A/B はチェックボックス一括承認、C/D は1件ずつ desc/unit を
-  修正入力して承認（修正入力は approved と同時に desc を確定させる）
+  未承認が残る間は render_site.py が承認方法の案内パネル（閲覧専用）を焼き込む
+- 並び順: **影響度（出現関数数）降順 × rank 昇順（C/D が先）**。
+  A/B は一括承認候補、C/D は1件ずつ `revise` で desc/unit を確定させながら承認
 - 承認1回でクラスタ全出現に効く。approved_by / approved_date を記録
-- チャット承認も同格（従来どおり）
+- チャット承認と CLI（`variables.py approve / revise`）は同格（同じライブラリ関数）
 
 ### 伝搬とゲート
 
@@ -219,14 +217,14 @@ hz_id は関数内連番。ソース導出なのでマージ時は常に上書�
 - `hazards.py match`（または variables.py に同居）: 全 hazard に EP を割り当て、
   未マッチを `docs/exception-queue.md` に「仮説＋選択肢」形式で列挙
   （kind ごとに集約: 「div_by_var が N 箇所。既定をどうしますか: guard_raise /
-  detect_only / 式ごとに個別判断」）。人の回答（チャット or ウィジェット）を
+  detect_only / 式ごとに個別判断」）。人の回答を人自身が `add-policy` で
   EP 登録 → 再突合で同種全箇所に反映
 - ①テンプレに「例外・数値特異点」節を追加: hazard × 適用 EP × 仕様記述の表。
   review_checks.py spec に「hazards 全件が言及され、引用 EP が実在するか」を追加
   （検討漏れ・EP 捏造の機械検知）
 - ②はこの節から境界ケース（0・0近傍・負値）を導出。review_checks.py testspec で網羅突合
 
-## モデル階層（pipeline / browser_run）
+## モデル階層（pipeline.KINDS）
 
 - KINDS の各エントリに `model`（省略時は現行どおり既定モデル）。
   `claude -p --model <id>` を付けて起動。CLI `--model` で一括上書き可
@@ -239,8 +237,8 @@ hz_id は関数内連番。ソース導出なのでマージ時は常に上書�
 | M1a | call_sites 抽出 | scripts/extract_fortran.py |
 | M1b | graph.py 新規 | scripts/graph.py |
 | M2a | variables.py（build/verify-interp/propagate/page/conflicts） | scripts/variables.py |
-| M2b | 辞書ウィジェット・/dict-action | scripts/render_site.py, serve_site.py, review_actions.py |
-| M2c | dict-gate・dict-hash・IO表辞書列・pipeline kind dict＋model | scripts/ledger.py, pipeline.py, browser_run.py |
+| M2b | 辞書ページの承認導線（現在は案内パネル＋CLI） | scripts/render_site.py, variables.py |
+| M2c | dict-gate・dict-hash・IO表辞書列・pipeline kind dict＋model | scripts/ledger.py, pipeline.py |
 | M3 | flows・--flow・WBS フロー表 | scripts/ledger.py, graph.py, pipeline.py |
 | M4 | hazards 検知・EP 突合・テンプレ・review_checks | scripts/extract_fortran.py, hazards.py(新), review_checks.py, assets/templates/ |
 | M5 | 辞書マージの承認維持・conflicts | scripts/variables.py, ledger.py |

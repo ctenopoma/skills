@@ -23,10 +23,14 @@ func-id 省略時は `ledger next` の提案に従う。
 ## 新規作成の手順
 
 0. **起動時スキャン**: `docs/review-feedback.md` に対象func-idの「状態: pending」が
-   ないか確認（人がブラウザの承認ウィジェットから「修正依頼」を送っている場合がある）。
+   ないか確認（人が修正依頼を記入している場合がある。直接記入でも
+   `review_actions.py request-changes` 経由でも同じ形式）。
    あれば内容を反映してから「状態: applied」に書き換える
 1. `docs/specs/<func-id>.md`（骨子, status: skeleton）と functions.json、
-   `docs/domain-knowledge.md`、レガシー原文の該当範囲を読む
+   `docs/domain-knowledge.md`、レガシー原文の該当範囲を読む。
+   **項目立てと書き方の正はプロジェクトの `docs/templates/spec.md`（人が著者）**——
+   骨子の節構成と記入ガイドコメントはそこから来ている。ガイドに従って充填し、
+   充填し終えたガイドコメントは消す（残すと機械レビューが「省略」として NG にする）
 2. 骨子の空欄を充填する:
    - **概要**・**機能詳細**（`SPEC-<num>-NN` 見出し。条件→結果の形。
      各項目に **Confidence（🟢確認済/🟡推測/🔴仮定）と根拠 `file:lines`** を必須で付ける）
@@ -58,10 +62,11 @@ func-id 省略時は `ledger next` の提案に従う。
    🟢なのに根拠なし、プレースホルダ残存（＝記入の省略）、必須節欠落、原本ハッシュ不一致、
    hazard の検討漏れ・EP-ID の捏造・ポリシー未決定のまま仕様化
 5. **人へレビュー依頼**（単発モードのみ）: 変更点サマリ＋🟡🔴一覧＋open ISSUE を提示
-   （人はブラウザの承認ウィジェットからも直接承認/修正依頼できる。その場合はこの手順を
-   待たず `/review-action` 側で完結する）
-6. 人のOKが出たら status: reviewed に更新 → `ledger wbs`
-   （ブラウザ経由で承認された場合はこの更新は済んでいるので不要）
+   （人は CLI `review_actions.py approve/request-changes` で直接返してもよい。
+   その場合は反映まで CLI 側で完結する）
+6. 人のOKが出たら `review_actions.py approve spec <func-id> --by <名前>` 相当で
+   status: reviewed に反映（機械レビューの再検証込み）→ `ledger wbs`
+   （CLI で承認済みの場合この更新は不要）
 
 ## 「例外・数値特異点」節の記入義務
 
@@ -77,9 +82,10 @@ Fortran は 0割でも Inf を作って走り続けるが、**Python は例外�
   python <LR>/scripts/hazards.py match --root .   # → docs/exception-queue.md
   ```
   キューを人に見せ、決定（`detect_only` / `guard_raise` / `guard_value` /
-  `legacy_preserve` / `caller_guarantees`）を聞いて
-  `hazards.py add-policy --kind <k> --decision <語彙> --by <名前>` で登録してから書く。
-  **AIが勝手に決めない**
+  `legacy_preserve` / `caller_guarantees`）を聞き、**人が**
+  `hazards.py add-policy --kind <k> --decision <語彙> --by <名前>` を実行して
+  登録してから書く（exception-policy.md は人だけが書くファイル。AI はコマンド例の
+  提示まで）。**AIが勝手に決めない**
 - 「仕様記述」は決定を新実装の言葉にしたもの。`guard_raise` なら送出する例外と条件、
   `guard_value` なら代替値、`caller_guarantees` なら保証の根拠（SPEC-ID・上流の関数）
 - ②はこの節から境界ケース（0・0近傍・負値・添字の下限上限）を導出する
@@ -125,7 +131,8 @@ Fortran は 0割でも Inf を作って走り続けるが、**Python は例外�
    python <LR>/scripts/render_site.py --root .
    ```
    **人へ一斉レビュー依頼**: 件数・🟢🟡🔴の合計・起票した ISSUE 数を報告し、
-   ブラウザの「① 仕様書 一斉レビュー」表（WBS の要対応からもリンクされる）へ誘導する。
+   「① 仕様書 一斉レビュー」表（閲覧サイト。WBS の要対応からもリンクされる）へ誘導する。
+   返答はチャット（「全部OK」「F-xxxx は修正: 〜」）・review-feedback.md 記入・CLI のどれでもよい。
    なお全件を待たず、**溜まった draft を人が随時レビューして reviewed 化してよい**
    （レビュー済みは次の report から自動で消える）
 6. 人の回答を反映:

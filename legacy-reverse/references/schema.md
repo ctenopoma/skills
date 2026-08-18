@@ -15,15 +15,16 @@
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
     wbs/                # 200関数超で自動生成されるファイル別明細ページ（手編集禁止）
     spec-review.md      # ①draft の一斉レビュー表（review_checks.py report が自動生成。手編集禁止）
-    review-feedback.md  # ブラウザの承認ウィジェットからの修正依頼（人が著者。AIが起動時に読み applied 化）
-    variables.qmd       # 変数辞書＋承認ウィジェット（variables.py page が自動生成。手編集禁止）
+    review-feedback.md  # 修正依頼（人が著者: 直接記入 or review_actions.py request-changes。AIが起動時に読み applied 化）
+    variables.qmd       # 変数辞書ページ（variables.py page が自動生成。手編集禁止。承認は variables.py approve/revise）
     dict-conflicts.md   # 辞書と reviewed 仕様書の矛盾候補（variables.py conflicts が自動生成。手編集禁止）
     exception-policy.md # 例外ポリシー登録簿 EP-xxx（人が承認する規約。hazards.py add-policy が追記）
     exception-queue.md  # 未決定 hazard の質問キュー（hazards.py match が自動生成。手編集禁止）
     _site/              # HTML出力（render_site.py が作り直す。git 管理外）
     _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
-    conventions.md      # プロジェクト規約（⓪で確定）
-    domain-knowledge.md
+    templates/          # 仕様書の項目立て・書き方テンプレ（人が著者。ledger init-templates でシード配置）
+    conventions.md      # プロジェクト規約（⓪で人が記入・確定。人だけが書く）
+    domain-knowledge.md # 業務知識・ISSUE回答の蓄積（人だけが書く。AIは転記文の提案まで）
     specs/F-xxxx.md
     test-specs/F-xxxx.md
     test-results/F-xxxx_YYYYMMDD-HHMM.md
@@ -132,7 +133,7 @@
 ## data/variables.json（変数辞書）
 
 `variables.py build` だけが生成・マージする。手編集禁止（語義の変更は
-`variables.py revise` / 辞書ページの承認ウィジェット経由）。設計の正は
+`variables.py revise` 経由）。設計の正は
 [graph-dict-design.md](graph-dict-design.md) の「P2. 変数辞書」。
 
 ```json
@@ -235,10 +236,10 @@ variables.json は編集しない。`variables.py verify-interp` が機械検証
 | `flows` | `["月次バッチ"]` | 所属フロー名（骨子の新規生成時のみ記載。文脈付与だけで機械判定には使わない） |
 
 承認時は `reviewed-by`/`reviewed-date`（①）、`approved-by`/`approved-date`（②）を記録する
-（誰が・いつ）。チャット承認・ブラウザ承認（`/review-action`）のどちらでも同じフィールドに書く。
-draft / generated の間、render_site.py はそのページに承認ウィジェット（機械レビュー結果＋
-承認・修正依頼ボタン）を埋め込む。詳細は workflow.md「人の承認ゲート」。
+（誰が・いつ）。チャット承認・CLI 承認（`review_actions.py approve`）のどちらでも同じ
+フィールドに書く。draft / generated の間、render_site.py はそのページに閲覧専用の
+案内パネル（機械レビュー結果＋返答方法）を焼き込む。詳細は workflow.md「人の承認ゲート」。
 
 変数辞書の承認は成果物フロントマターではなく data/variables.json の
-`status` / `approved_by` / `approved_date` に記録する（`variables.py approve / revise`、
-またはブラウザの `POST /dict-action`。どちらも同じライブラリ関数を通る）。
+`status` / `approved_by` / `approved_date` に記録する（`variables.py approve / revise`。
+チャット経由でも同じライブラリ関数を通る）。

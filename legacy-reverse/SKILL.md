@@ -18,8 +18,9 @@ user-invocable: true
 
 ## 呼ばれたらすること
 
-1. **人の直接入力のスキャン**（workflow.md「人の直接入力」参照）: open ISSUE の回答欄に
-   記入があれば先に反映する。conventions.md / domain-knowledge.md の手編集にも気づいたら反映確認
+1. **人の直接入力のスキャン**（workflow.md「人の直接入力」参照）: open ISSUE の回答欄・
+   docs/review-feedback.md の pending に記入があれば先に反映する。
+   conventions.md / domain-knowledge.md の手編集（人だけが書くファイル）にも気づいたら反映確認
 2. 対象プロジェクトに `data/functions.json` があるか確認
    - **ない** → 未セットアップ。下記「セットアップ」を案内し、`/legacy-0-analyze` を勧める
    - **ある** → `ledger status --summary` と `ledger next --all --limit 10` を実行し、
@@ -30,15 +31,19 @@ user-invocable: true
      `hazards.py status` に未決定が残っていたら例外ポリシーの決定へ誘導する
 3. open ISSUE がある場合は必ず最初に列挙する（人の判断待ちが最優先）
 4. ⛔ blocked の関数は「ISSUE裁定 → 反映 → `ledger unblock <func-id>` → 再トリガ」の手順を添える
-5. 人から「これ覚えておいて」系の業務知識を聞いたら domain-knowledge.md へ
-   DK-ID付きで追記（出典: 直接指示）し、HTML を再レンダリングする
+5. 人から「これ覚えておいて」系の業務知識を聞いたら、DK-ID・出典（直接指示 YYYY-MM-DD）
+   付きの**転記文を提案**し、人が domain-knowledge.md に貼る（人だけが書くファイル。
+   AI は書き込まない）。貼られたら HTML を再レンダリングする
 
 ## セットアップ（新規プロジェクト）
 
 1. schema.md のプロジェクト構成でディレクトリを作る
 2. hook を登録: `<LR>/hooks/settings-example.json` の内容を対象プロジェクトの
    `.claude/settings.json` にマージ（④⑤中の tests/ 編集をブロックする安全装置）
-3. `/legacy-0-analyze` へ
+3. `ledger init-templates` で仕様書テンプレのシードを `docs/templates/` にコピーし、
+   **項目立て・書き方をプロジェクトに合わせて人が編集**するよう案内する
+   （固変分離。編集不要ならそのままでよい。固定契約は workflow.md「固定と可変」）
+4. `/legacy-0-analyze` へ
 
 ## 各フェーズと担当skill
 

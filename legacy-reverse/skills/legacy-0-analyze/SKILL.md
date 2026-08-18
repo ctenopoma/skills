@@ -18,8 +18,11 @@ user-invocable: true
 - conventions.md の中身: 型対応表（例: `PIC 9(9)V99`→`Decimal`、`REAL*8`→`float`）、
   命名規則、モック方針、**後戻り高コスト項目**（丸め・⑤の許容誤差／単位・スケール／
   日付規則／文字コード／既知バグの扱い既定。②の期待値の前提になるため、後から覆ると
-  ②以降が全て作り直しになる）。テンプレ `assets/templates/conventions.md` を埋めて
-  **docs/conventions.md として確定させ、人のOKをもらう**
+  ②以降が全て作り直しになる）。
+  **conventions.md は人だけが書くファイル**（workflow.md「ファイルの作成者区分」）。
+  AI がやるのは、テンプレ `assets/templates/conventions.md` を docs/conventions.md へ
+  コピーして枠を用意し、決めるべき項目の質問リストと記入例をチャットに提示するまで。
+  **記入・確定は人**が行い、記入後に AI が読み合わせて矛盾・抜けを指摘する
 
 ### 2. 解析（機械抽出が正。LLMは意味づけのみ）
 
@@ -110,7 +113,9 @@ python <LR>/scripts/hazards.py match  --root .   # 突合 → docs/exception-que
 2. **kind ごとの既定をどうするか人に聞く**。AIが決めない。語彙は
    `detect_only` / `guard_raise` / `guard_value`（値も聞く）/ `legacy_preserve` /
    `caller_guarantees`（根拠も聞く）
-3. 回答を登録する（EP-ID 自動採番。登録すると自動で再突合される）:
+3. **人が**登録コマンドを実行する（exception-policy.md は人だけが書くファイル。
+   AI は exception-queue.md に出ているコマンド例を示すまで。EP-ID 自動採番。
+   登録すると自動で再突合される）:
    ```bash
    python <LR>/scripts/hazards.py add-policy --kind div_by_var --decision guard_raise \
           --by <承認者> --note "..." --root .
@@ -137,13 +142,15 @@ python <LR>/scripts/variables.py build --root .
 ### 3.9. ドメイン知識の先行投入（略語・区分値。人に聞く）
 
 辞書の解釈を始める前に、人が知っている語彙を `docs/domain-knowledge.md` の
-「語彙・略語集」「区分値・番兵値」へ先行投入する
-（テンプレ `assets/templates/domain-knowledge.md`。出典:「⓪ヒアリング YYYY-MM-DD」）:
+「語彙・略語集」「区分値・番兵値」へ先行投入する。
+**domain-knowledge.md は人だけが書くファイル**——AI はテンプレ
+（`assets/templates/domain-knowledge.md`）のコピーで枠を用意し、記入候補を提示するまで:
 
 1. build の出力・変数名一覧から頻出トークン（例: `ZAN`・`KBN`・`RITU`）を人に見せ、
    「読める略語はあるか」を聞く。**わかるものだけでよい**（網羅は求めない）
 2. 区分値・番兵値（KBN=9 はエラー、999999=上限なし等）で自明なものがあれば聞く
-3. 表に追記して `render_site.py` でHTML更新
+3. 回答を表形式の**転記文として提示**（出典:「⓪ヒアリング YYYY-MM-DD」付き）し、
+   **人が表に貼って保存**したら AI が `render_site.py` でHTML更新
 
 `verify-interp` の rank B 判定は domain-knowledge.md の語との一致で決まるため、
 ここで投入した語彙は辞書解釈を一括承認候補（rank B）へ押し上げ、
@@ -153,9 +160,14 @@ rank C/D の1件ずつ確認と ISSUE の往復を減らす。
 ### 4. 生成
 
 ```bash
-ledger skeletons   # docs/specs/ に骨子（フロントマター＋IO表は⓪時点で充填済み）
-ledger wbs         # docs/index.qmd
+ledger init-templates   # 仕様書テンプレのシードを docs/templates/ へコピー（初回のみ）
+ledger skeletons        # docs/specs/ に骨子（フロントマター＋IO表は⓪時点で充填済み）
+ledger wbs              # docs/index.qmd
 ```
+
+- **docs/templates/（spec.md・test-spec.md）は人だけが書くファイル**。仕様書の項目立てと
+  書き方ガイドをプロジェクトに合わせて人が編集する（固定契約は workflow.md「固定と可変」。
+  編集後は `review_checks.py template --root .` で契約チェック）。編集不要ならそのままでよい
 
 - `assets/templates/_quarto.yml` と `assets/templates/wbs.css` を docs/ にコピーし、
   _quarto.yml のプロジェクト名を埋めて、初回の
@@ -188,6 +200,8 @@ open ISSUE・推奨着手順の先頭5件を報告し、**`/legacy-0-dict`（辞
 
 ## 禁止
 
+- **conventions.md / domain-knowledge.md / exception-policy.md / docs/templates/ に
+  AI が書き込むこと**（テンプレの初期コピーを除く。提案文の提示まで）
 - functions.json に確信のない情報を書くこと（不明は ISSUE に出す。推測で埋めない）
 - WBS・骨子の手書き修正（必ず functions.json を直して再生成）
 - `graph.py dead` の結果を人に確認せず exclude すること
