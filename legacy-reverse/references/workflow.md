@@ -352,9 +352,12 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 - 追加: `ledger add NAME [--file legacy/x.f --lines 10-50 --calls F-0001,...]`
   → manual フラグ付きで採番。inputs/outputs/desc/signature を充填してから
   `ledger skeletons` → `ledger wbs`。以後は通常の①〜⑤対象
-- 対象外: `ledger exclude F-xxxx --reason "..."` → ①〜⑥・WBS・next から外れ、
+- 対象外: `ledger exclude F-xxxx [F-yyyy ...] --reason "..."` → ①〜⑥・WBS・next から外れ、
   WBS の「対象外の関数」に理由つきで残る。既存成果物は消さない。
-  呼び出し元が対象内に残る場合は警告が出る（必要なら ISSUE で裁定）
+  呼び出し元が対象内に残る場合は警告が出る（必要なら ISSUE で裁定）。
+  **使われていない関数の一括除外は `ledger exclude --dead`**（`graph.py dead` と同じ
+  「エントリから到達不能」の集合を、一覧表示のうえまとめて対象外にする。
+  除外は人がこのコマンドを実行することで確定する＝自動除外はしない、の原則のまま）
 - 復帰: `ledger include F-xxxx`
 
 ## ISSUE 運用

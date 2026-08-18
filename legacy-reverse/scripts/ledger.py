@@ -20,8 +20,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   flow add <name> --entry F-xxxx[,F-yyyy...] [--desc ...]
                              フロー（作業スコープ）を追加。flow rm <name|id> / flow list
   add <name> [--file ...]    関数を後追い追加（人の指示。manual フラグ付きで採番）
-  exclude <func-id> [--reason ...] / include <func-id>
-                             移植対象から外す／復帰させる（物理削除はしない）
+  exclude <func-id>... [--dead] [--reason ...] / include <func-id>
+                             移植対象から外す／復帰させる（物理削除はしない。複数指定可。
+                             --dead でエントリから到達不能な関数を一括除外）
   freeze-tests <func-id>     テストコードのハッシュを ledger.json に記録（③完了時）
   block <func-id> <issue-id> / unblock <func-id>
   phase-start <n> <func-id> / phase-end
@@ -1097,26 +1098,62 @@ def cmd_exclude(p: Project, args) -> None:
 
     functions.json から物理削除はしない——extract の再実行で別 func_id として
     復活し、成果物との紐付けが切れるため。フラグで対象外にする。
+
+    複数指定と `--dead`（エントリから到達不能な関数を一括除外）に対応する。
+    `graph.py dead` はあくまで列挙のみ——除外は人がこのコマンドを実行することで
+    確定する（--dead も人の明示操作。除外前に対象の一覧を表示する）。
     """
-    f = p.func(args.func_id)
-    if f.get("excluded"):
-        sys.exit(f"error: {args.func_id} は既に対象外")
-    f["excluded"] = True
-    if args.reason:
-        f["excluded_reason"] = args.reason
+    fids = list(dict.fromkeys(args.func_ids))          # 重複指定を除いて順序維持
+    reason = args.reason
+    if args.dead:
+        g = graph.graph_from_data(p.functions)
+        entries, desc = graph.default_entries(p.functions, g)
+        reached = graph.reachable(g, entries)
+        by_id = {f["func_id"]: f for f in p.functions.get("functions", [])}
+        dead = sorted(fid for fid in g
+                      if fid not in reached and not by_id.get(fid, {}).get("excluded"))
+        if not dead and not fids:
+            print(f"dead はありません（エントリ: {', '.join(entries)}〈{desc}〉。"
+                  "全関数が到達可能か、既に対象外）")
+            return
+        print(f"dead {len(dead)} 件（エントリ: {', '.join(entries)}〈{desc}〉から到達不能）:")
+        for fid in dead:
+            print(f"  {fid} {by_id[fid]['legacy'].get('name', '')}")
+        fids += [fid for fid in dead if fid not in fids]
+        if not reason:
+            reason = f"エントリ（{', '.join(entries)}）から到達不能（dead）"
+    if not fids:
+        sys.exit("error: func-id を指定する（または --dead）")
+
+    done = []
+    for fid in fids:
+        f = p.func(fid)
+        if f.get("excluded"):
+            print(f"skip: {fid} は既に対象外")
+            continue
+        f["excluded"] = True
+        if reason:
+            f["excluded_reason"] = reason
+        done.append(fid)
+        print(f"excluded: {fid} {f['legacy'].get('name', '')}（理由: {reason or '未記載'}）")
+        arts = [rp for rp in (f"docs/specs/{fid}.md", f"docs/test-specs/{fid}.md",
+                              f.get("test_file") or "", f["new"].get("module", ""))
+                if rp and (p.root / rp).exists()]
+        if arts:
+            print("  note: 既存の成果物は残るが①〜⑥・WBSの対象から外れる: " + ", ".join(arts))
+    if not done:
+        return
     save_json(p.data / "functions.json", p.functions)
-    fid = args.func_id
-    print(f"excluded: {fid} {f['legacy'].get('name', '')}（理由: {args.reason or '未記載'}）")
-    arts = [rp for rp in (f"docs/specs/{fid}.md", f"docs/test-specs/{fid}.md",
-                          f.get("test_file") or "", f["new"].get("module", ""))
-            if rp and (p.root / rp).exists()]
-    if arts:
-        print("note: 既存の成果物は残るが①〜⑥・WBSの対象から外れる: " + ", ".join(arts))
-    callers = [g["func_id"] for g in p.funcs() if fid in g.get("calls", [])]
-    if callers:
-        print("warn: 対象内の関数がこの関数を呼んでいる: " + ", ".join(callers)
-              + " → 呼び出し側の仕様・実装の扱いを確認（判断が要るなら ISSUE 起票）")
-    print("next: ledger wbs で反映（「対象外の関数」の表に載る）")
+    # 呼び出し元の警告は、今回の除外をすべて反映した後の「対象内」だけで判定する
+    # （dead 同士の呼び合いを警告しないため）
+    excluded_now = set(done)
+    for fid in done:
+        callers = [g["func_id"] for g in p.funcs()
+                   if fid in g.get("calls", []) and g["func_id"] not in excluded_now]
+        if callers:
+            print(f"warn: 対象内の関数が {fid} を呼んでいる: " + ", ".join(callers)
+                  + " → 呼び出し側の仕様・実装の扱いを確認（判断が要るなら ISSUE 起票）")
+    print(f"next: ledger wbs で反映（{len(done)} 件が「対象外の関数」の表に載る）")
 
 
 def cmd_include(p: Project, args) -> None:
@@ -1286,8 +1323,12 @@ def main() -> None:
     s.add_argument("--module", help="新実装の配置先（既定: src/<package>/<file名>.py）")
     s.add_argument("--new-name", dest="new_name", help="新関数名（既定: name の snake_case）")
     s.add_argument("--calls", help="呼び出す func-id をカンマ区切り（例: F-0001,F-0002）")
-    s = sub.add_parser("exclude", help="関数を移植対象から外す（物理削除はしない）")
-    s.add_argument("func_id"); s.add_argument("--reason", default="", help="対象外の理由（WBSに載る）")
+    s = sub.add_parser("exclude", help="関数を移植対象から外す（物理削除はしない。複数指定・--dead 可）")
+    s.add_argument("func_ids", nargs="*", metavar="func_id",
+                   help="関数ID（複数可。--dead と併用もできる）")
+    s.add_argument("--dead", action="store_true",
+                   help="エントリから到達不能な関数（graph.py dead と同じ集合）を一括で対象外にする")
+    s.add_argument("--reason", default="", help="対象外の理由（WBSに載る。--dead の既定は「到達不能」）")
     s = sub.add_parser("include", help="対象外にした関数を復帰させる")
     s.add_argument("func_id")
     s = sub.add_parser("freeze-tests"); s.add_argument("func_id")

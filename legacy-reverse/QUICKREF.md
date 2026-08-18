@@ -56,7 +56,8 @@ ledger wbs                                  # WBS再生成（200関数超は自�
 ledger next-issue                           # 次の ISSUE 番号
 ledger unblock F-xxxx                       # 裁定反映後のブロック解除
 ledger add NAME [--file legacy/x.f ...]     # 関数の後追い追加（→ skeletons → wbs）
-ledger exclude F-xxxx --reason "..."        # 移植対象から外す（物理削除はしない）
+ledger exclude F-xxxx --reason "..."        # 移植対象から外す（物理削除はしない。複数指定可）
+ledger exclude --dead                       # 到達不能な関数を一覧表示して一括除外
 ledger include F-xxxx                       # 対象外からの復帰
 ledger flow add 月次バッチ --entry F-0000    # 作業スコープ（フロー）を定義
 ledger flow list / ledger flow rm 月次バッチ # 一覧（到達関数数つき）／削除

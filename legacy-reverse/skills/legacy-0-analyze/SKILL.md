@@ -78,8 +78,9 @@ python <LR>/scripts/graph.py --root . dead      # どのエントリからも到
 - `summary` の到達率が極端に低い／エントリが想定と違うときは、抽出漏れか
   メインルーチンの誤判定を疑う（`unresolved_calls` と併せて確認する）
 - `dead` は**exclude 候補の列挙にすぎない**。自動除外はしない。
-  1件ずつ人に「これは移植対象外でよいか」を確認し、OK のものだけ
-  `ledger exclude F-xxxx --reason "..."` にする
+  一覧を人に見せて「移植対象外でよいか」を確認し、OK なら
+  `ledger exclude F-xxxx --reason "..."`（個別）か
+  `ledger exclude --dead`（到達不能の一括除外。実行前に対象一覧が出る）にする
 - 循環があれば `graph.py cycles`（WBS の警告と同じもの）で内訳を見る
 
 ### 3.6. フロー定義のヒアリング（任意。該当するときだけ）
