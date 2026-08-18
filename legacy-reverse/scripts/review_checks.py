@@ -167,6 +167,12 @@ def _hazards_mod():
     return hazards
 
 
+def _ledger_mod():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import ledger
+    return ledger
+
+
 def _cached_by_stat(path: Path, build):
     """レンダ時は全 draft ページから呼ばれるので、stat が変わるまで結果を使い回す。"""
     sig = None
@@ -179,6 +185,46 @@ def _cached_by_stat(path: Path, build):
     val = build()
     _POLICY_CACHE[str(path)] = (sig, val)
     return val
+
+
+# --- テンプレ由来の必須節（固変分離） ---------------------------------------
+#
+# 項目立て（節構成）はプロジェクト所有の docs/templates/*.md（無ければ同梱シード）が正。
+# 必須節はテンプレの「# 見出し」から導出する。見出し行末に <!-- LR:OPTIONAL --> が
+# 付いた節（例: 処理フロー）は任意節として必須から外す。
+# 固定契約（機械が検証するアンカー: SPEC-ID・hazard 節・トレーサビリティ等）が
+# テンプレから欠けている場合は「テンプレ不正」として全対象の問題に載せる。
+
+def _template_required(rootp: Path, kind: str) -> dict:
+    """{"heads": [必須節…], "problems": [テンプレ不正…], "path": str}。stat キャッシュ付き。"""
+    L = _ledger_mod()
+    tpath = L.template_path(rootp, kind)
+
+    def build():
+        if not tpath.exists():
+            return {"heads": [], "problems": [f"テンプレが無い: {tpath}"], "path": str(tpath)}
+        body = L.template_body(tpath)
+        problems = []
+        if kind == "spec":
+            problems += [f"テンプレ不正（{tpath.name}）: {x}"
+                         for x in L.spec_template_problems(body)]
+        else:
+            problems += [f"テンプレ不正（{tpath.name}）: 契約見出しがない: {h}"
+                         for h in L.TESTSPEC_CONTRACT_HEADS
+                         if not re.search(rf"(?m)^{re.escape(h)}\s*$", body)]
+        marked = body.replace("<!-- LR:OPTIONAL -->", "@@LR_OPT@@")
+        marked = re.sub(r"(?s)<!--.*?-->", "", marked)      # コメント内の見出しを拾わない
+        heads = []
+        for line in marked.splitlines():
+            m = re.match(r"^(# [^#\s][^\n]*?)\s*$", line)
+            if not m:
+                continue
+            if "@@LR_OPT@@" in m.group(1):
+                continue                                     # 任意節（不要なら削除できる）
+            heads.append(m.group(1).strip())
+        return {"heads": heads, "problems": problems, "path": str(tpath)}
+
+    return _cached_by_stat(tpath, build)
 
 
 def _policy_eps(rootp: Path) -> set:
@@ -332,9 +378,11 @@ def check_spec(root: str, func_id: str) -> dict:
     if PLACEHOLDER.search(text) and res["status"] != "skeleton":
         res["problems"].append("骨子プレースホルダ（<!-- ①で充填 -->）が残っている＝記入の省略")
 
-    for head in ("# 概要", "# インタフェース", "# 機能詳細", "# 副作用・例外", "# 未確定事項"):
+    tinfo = _template_required(rootp, "spec")
+    res["problems"] += tinfo["problems"]                 # テンプレ不正（人がテンプレを直す）
+    for head in tinfo["heads"]:
         if head not in text:
-            res["problems"].append(f"必須節がない: {head}")
+            res["problems"].append(f"必須節がない: {head}（項目立ての正: {tinfo['path']}）")
     m = re.search(r"(?ms)^# 副作用・例外\s*$(.*?)(?=^# |\Z)", text)
     if m and not re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S).strip():
         res["problems"].append("「副作用・例外」が空欄（なければ「なし」と明記する規則）")
@@ -379,6 +427,12 @@ def check_testspec(root: str, func_id: str) -> dict:
     if "```{mermaid}" in text:
         res["problems"].append("```{mermaid} が混入（render_site が落ちる）")
     res["problems"] += check_mermaid_blocks(text)
+
+    tinfo = _template_required(rootp, "testspec")
+    res["problems"] += tinfo["problems"]
+    for head in tinfo["heads"]:
+        if head not in text:
+            res["problems"].append(f"必須節がない: {head}（項目立ての正: {tinfo['path']}）")
 
     # ①側の SPEC 項目と Confidence
     spec_conf = {}
@@ -460,9 +514,9 @@ def make_report(root: str) -> dict:
     """①draft 仕様書の一斉レビュー表 docs/spec-review.md を生成する。
 
     バッチ実行（複数関数を連続で draft 化）の後、人がまとめてレビューするための一覧。
-    「人がいま動ける行」を上に並べ（承認できる → ISSUEあり → AI修正待ち）、
-    各行に承認・修正依頼ボタンを置いて、この表だけでレビューが完結するようにする
-    （POST先は仕様書ページの承認ウィジェットと同じ /review-action。serve_site.py 配信時のみ有効）。
+    「人がいま動ける行」を上に並べる（承認できる → ISSUEあり → AI修正待ち）。
+    表は**閲覧専用**——承認・修正依頼はチャット（「全部OK」「F-xxxx は修正: 〜」）、
+    review_actions.py（CLI）、または review-feedback.md への記入で行う。
     """
     rootp = Path(root).resolve()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -497,8 +551,8 @@ def make_report(root: str) -> dict:
             overview = first[:60] + ("…" if len(first) > 60 else "")
         c = r["confidence"]
         conf = " ".join(f"{c[k]}{k}" for k in ("🟢", "🟡", "🔴") if c[k]) or "—"
-        # #review-<fid> は render_site.py が仕様書ページに埋め込む承認ウィジェットの位置
-        # （機械レビュー結果の全文と、承認/修正依頼ボタンがそこにある）
+        # #review-<fid> は render_site.py が仕様書ページに埋め込む案内パネルの位置
+        # （機械レビュー結果の全文と、返答方法の案内がそこにある）
         review_link = f"specs/{fid}.html#review-{fid}"
         mech = (f"[✅]({review_link})" if r["ok"]
                else f"[❌ {len(r['problems'])}件]({review_link})")
@@ -506,13 +560,7 @@ def make_report(root: str) -> dict:
         iss = " ".join(f"[{i}](issues/{i}.md)" for i in iss_ids) or "—"
         name = f["new"].get("name", fid).replace("|", "\\|")
         if r["ok"]:
-            # 承認は lr-widgets.js の lrReview.approve をそのまま使う（サーバ側で
-            # 機械レビューを再検証してから承認する既存経路。メッセージ表示先の
-            # id="review-msg-<fid>" も同じ規約）。修正依頼はこのページの srRequest（prompt入力）
-            act = (f'<button class="sr-approve" '
-                   f'onclick="lrReview.approve(\'{fid}\',\'spec\')">承認</button> '
-                   f'<button class="sr-req" onclick="srRequest(\'{fid}\')">修正依頼…</button>'
-                   f'<span id="review-msg-{fid}" class="sr-msg"></span>')
+            act = '<span class="sr-can">承認できる</span>'
         else:
             act = '<span class="sr-wait">AI修正待ち</span>'
         # 並び順: 人がいま動ける行が先（0=承認できる, 1=承認できるがISSUEあり, 2=AI修正待ち）
@@ -530,9 +578,11 @@ def make_report(root: str) -> dict:
         lines += [
             f"レビュー待ち（draft）: **{len(rows)} 件**。概要と Confidence を見て、"
             "そのまま承認するか、関数名リンクで仕様書全文を確認してください。", "",
-            "承認・修正依頼は各行のボタンで完結します（チャットで「全部OK」／"
-            "「F-xxxx は修正: 〜」でも可）。❌ は AI が自己修正するまで承認できません。", "",
-            "| 関数 | 概要 | Confidence | 機械レビュー | 未確定(ISSUE) | 操作 |",
+            "返答はチャット（「全部OK」／「F-xxxx は修正: 〜」）、CLI"
+            "（`review_actions.py approve spec F-xxxx --by 名前`）、"
+            "または docs/review-feedback.md への記入で（すべて同格）。"
+            "❌ は AI が自己修正するまで承認できません。", "",
+            "| 関数 | 概要 | Confidence | 機械レビュー | 未確定(ISSUE) | 状態 |",
             "|------|------|:---:|:---:|------|------|"] + [r for _, r in rows]
         lines += ["", "```{=html}", SPEC_REVIEW_PAGE_JS, "```"]
     else:
@@ -545,10 +595,9 @@ def make_report(root: str) -> dict:
 
 
 # 一斉レビュー表のページ内JS（Quarto の ```{=html} ブロックとして焼き込む）。
-# フィルタチップ・検索・件数表示を表の直前に注入し、修正依頼の prompt 入力を提供する。
-# 承認ボタン本体は lr-widgets.js の lrReview.approve（仕様書ページと同じ実装）。
+# フィルタチップ・検索・件数表示を表の直前に注入する**表示専用**のJS
+# （サーバへの書き込みは行わない。承認はチャット / CLI / ファイル記入で）。
 SPEC_REVIEW_PAGE_JS = """\
-<script src="/lr-widgets.js"></script>
 <style>
 /* 列幅の固定（Quarto既定は内容比の自動配分で、概要列が関数名列を潰す）。
    余り幅はすべて概要列(2)に寄せ、関数名(1)は折り返さない */
@@ -562,10 +611,7 @@ SPEC_REVIEW_PAGE_JS = """\
 #sr-table td{overflow-wrap:break-word;vertical-align:top}
 #sr-table td:nth-child(1){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #sr-table td:nth-child(3),#sr-table td:nth-child(4){white-space:nowrap}
-.sr-approve{background:#4f46e5;color:#fff;border:0;border-radius:6px;padding:3px 12px;
-            cursor:pointer;font-weight:600}
-.sr-req{background:transparent;border:1px solid #4f46e5;color:#4f46e5;border-radius:6px;
-        padding:3px 10px;cursor:pointer;margin-left:6px}
+.sr-can{color:#166534;font-weight:600;font-size:.9em}
 .sr-wait{color:#9ca3af;font-size:.85em}
 .sr-msg{display:block;font-size:.8em;color:#166534}
 .sr-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
@@ -578,26 +624,6 @@ SPEC_REVIEW_PAGE_JS = """\
 </style>
 <script>
 (function(){
-  function jsonPost(url, body){
-    return fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
-                       body: JSON.stringify(body || {})}).then(function(r){ return r.json(); });
-  }
-  window.srRequest = function(fid){
-    var c = prompt(fid + " への修正依頼（例: 端数処理の丸め規則が本文に無い）");
-    if(!c || !c.trim()) return;
-    var name = localStorage.getItem("lr_approver");
-    if(!name){
-      name = prompt("承認者名を入力してください（次回から省略されます）") || "unknown";
-      localStorage.setItem("lr_approver", name);
-    }
-    var el = document.getElementById("review-msg-" + fid);
-    if(el) el.textContent = "送信中…";
-    jsonPost("/review-action", {action:"request_changes", kind:"spec", func_id:fid,
-                                approver:name, comment:c.trim()})
-      .then(function(d){ if(el) el.textContent = d.message || (d.ok ? "送信しました" : "失敗"); })
-      .catch(function(){ if(el) el.textContent =
-        "通信エラー（serve_site.py で配信していますか？）"; });
-  };
   function setup(){
     var table = null;
     document.querySelectorAll("table").forEach(function(t){
@@ -612,7 +638,7 @@ SPEC_REVIEW_PAGE_JS = """\
     wrap.appendChild(table);
     var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"));
     rows.forEach(function(tr){
-      tr.dataset.app = tr.querySelector(".sr-approve") ? "1" : "";
+      tr.dataset.app = tr.querySelector(".sr-can") ? "1" : "";
       tr.dataset.iss = /ISSUE-/.test(tr.textContent) ? "1" : "";
     });
     var nApp = rows.filter(function(t){ return t.dataset.app === "1"; }).length;
@@ -676,11 +702,31 @@ def _print_result(r: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["spec", "testspec", "all", "report"])
+    ap.add_argument("cmd", choices=["spec", "testspec", "all", "report", "template"])
     ap.add_argument("func_id", nargs="?")
     ap.add_argument("--root", default=".")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
+
+    if args.cmd == "template":
+        # プロジェクトテンプレ（docs/templates/）の固定契約チェック。
+        # 人がテンプレを編集したあと、骨子生成の前に確認する用
+        rootp = Path(args.root).resolve()
+        ng = 0
+        out = {}
+        for kind in ("spec", "testspec"):
+            info = _template_required(rootp, kind)
+            out[kind] = info
+            ng += len(info["problems"])
+            if not args.json:
+                mark = "OK" if not info["problems"] else "NG"
+                print(f"[{mark}] {kind}: {info['path']}")
+                for pr in info["problems"]:
+                    print(f"  NG: {pr}")
+                print(f"  必須節: {' / '.join(info['heads']) or '（なし）'}")
+        if args.json:
+            print(json.dumps(out, ensure_ascii=False, indent=1))
+        sys.exit(0 if ng == 0 else 1)
 
     if args.cmd == "report":
         res = make_report(args.root)

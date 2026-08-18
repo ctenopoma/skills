@@ -207,21 +207,12 @@ details summary{cursor:pointer;font-size:.8rem;color:#9ca3af}
   最終更新: <span id="upd">--</span></div>
 
 <div class="panel" style="margin:14px 0">
-  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <span style="font-weight:600">連続実行</span>
-    <select id="bmax">
-      <option value="0">全部</option>
-      <option value="1">お試しに1件だけ</option>
-      <option value="10">10件まで</option>
-      <option value="50">50件まで</option>
-      <option value="100">100件まで</option>
-    </select>
-    <button class="btn primary" onclick="batchStart()">開始</button>
-    <button class="btn stop" onclick="batchStop()">停止</button>
-    <span id="bmsg" class="muted"></span>
-  </div>
-  <div class="muted" style="margin-top:4px">残タスクを実行順に自動で回します（承認・裁定待ちはスキップして進み、
-    このページで承認・裁定すると次の走査で拾われます）。⭐で順番に割り込めます</div>
+  <div style="font-weight:600">このページは表示専用です（実行・承認の操作は持ちません）</div>
+  <div class="muted" style="margin-top:4px">
+    連続実行はターミナルから: <code>python &lt;LR&gt;/scripts/pipeline.py run --root .</code>
+    （停止は Ctrl+C／⭐割り込みは <code>pipeline.py priority F-xxxx</code>）。
+    承認・裁定はチャット・ファイル記入・CLI（<code>review_actions.py</code>）で行い、
+    方法は各仕様書ページの案内パネルに出ます。</div>
 </div>
 
 <div class="panel" id="nowcard" style="display:none;margin:12px 0;
@@ -232,7 +223,6 @@ details summary{cursor:pointer;font-size:.8rem;color:#9ca3af}
     <div class="muted" id="nowela"></div>
   </div>
   <a class="btn" id="nowlog" target="_blank" href="#">応答ログ（前回まで）</a>
-  <button class="btn" id="nowskip" onclick="skipCurrent()">この件をスキップ</button>
 </div>
 
 <div class="bar"><div id="barok" style="width:0%"></div></div>
@@ -274,17 +264,6 @@ const CHIP_ORDER = ["spec","testspec","testcode","impl","test"];
 let running = false, currentFid = null, medianSec = null, chipK = "", tickN = 0;
 let queueItems = [];          // 直近の /batch-queue 結果（実行中カードの名前引きにも使う）
 
-function approver(){
-  let n = localStorage.getItem("lr_approver");
-  if(!n){ n = prompt("承認者名を入力してください（次回から省略されます）") || "unknown";
-          localStorage.setItem("lr_approver", n); }
-  return n;
-}
-function jsonPost(url, body){
-  return fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
-                     body: JSON.stringify(body || {})}).then(r => r.json());
-}
-
 // ---- ステータス（2.5秒ポーリング） ----
 async function tick(){
   let d;
@@ -300,7 +279,7 @@ async function tick(){
   renderNow(d);
   if(d.state === "not_running"){
     document.getElementById("counts").textContent =
-      "パイプラインはまだ実行されていません（「開始」で連続実行、またはWBSの各ページから単発実行）";
+      "パイプラインはまだ実行されていません（ターミナルで pipeline.py run / spec / dict を実行）";
   } else {
     const total = d.total_targets||0, done = d.done||0, failed = d.failed||0;
     document.getElementById("barok").style.width = total ? (100*(done+failed)/total)+"%" : "0%";
@@ -330,7 +309,6 @@ function renderNow(d){
       "⏸ レートリミット/利用枠の回復待ち（" + esc(d.wait_until||"") + " に再開予定）";
     document.getElementById("nowbar").style.width = "0%";
     document.getElementById("nowela").textContent = "";
-    document.getElementById("nowskip").style.display = "none";
     return;
   }
   if(d.state !== "running" || !d.current){ card.style.display = "none"; return; }
@@ -351,12 +329,6 @@ function renderNow(d){
     `経過 ${Math.floor(el/60)}分${el%60}秒` + (medianSec ? `（中央値 ${Math.round(med)}s）` : "") +
     (el > med*2 ? "・長引いています" : "");
   document.getElementById("nowlog").href = "/agent-logs/" + esc(fid) + ".txt";
-  document.getElementById("nowskip").style.display = "";
-}
-function skipCurrent(){
-  jsonPost("/run-skip", {}).then(d => {
-    document.getElementById("bmsg").textContent = d.message || "";
-  }).catch(()=>{});
 }
 
 // ---- 残タスク（表示時・検索時・操作後だけ取得。ポーリングには載せない） ----
@@ -397,7 +369,7 @@ function renderQueue(d, q){
   document.getElementById("qfoot").textContent = searching
     ? `${d.hits}件ヒット` + (d.hits > shown.length ? `（先頭${shown.length}件を表示）` : "")
     : `実行順で先頭${Math.min(9, queueItems.length)}件を表示中（検索・絞り込みで全件から探せます）` +
-      "。⭐すると、いまの1件が終わり次第先頭に割り込みます";
+      "。割り込みは pipeline.py priority F-xxxx";
 }
 function rowHtml(it){
   const isNow = !!it.now || (running && it.func_id === currentFid);
@@ -407,10 +379,8 @@ function rowHtml(it){
   if(it.auto){
     const ph = PHASES[it.kind] || ["?", it.kind];
     label = ph[1] + (it.kind === "test" ? "の実行" : "の作成");
-    act = isNow
-      ? `<span class="tag now">実行中</span>`
-      : `<button class="btn pri${it.starred?" on":""}" onclick="toggleStar('${esc(it.func_id)}',${!it.starred})">
-           ${it.starred ? "⭐ 優先中" : "⭐ 優先"}</button>`;
+    act = isNow ? `<span class="tag now">実行中</span>`
+                : (it.starred ? `<span class="tag wait">⭐ 優先中</span>` : "");
     var mark = ph[0];
   } else {
     const h = HUMANS[it.kind] || ["?", it.kind, "wait"];
@@ -418,14 +388,10 @@ function rowHtml(it){
     label = h[1];
     tag = ` <span class="tag ${h[2]}">人待ち</span>`;
     if(it.kind === "adjudicate"){
-      act = `<a class="btn" href="/issues/${esc(it.issue||"")}.html" target="_blank">${esc(it.issue||"ISSUE")}</a>
-             <button class="btn ap" onclick="adjudicate('${esc(it.func_id)}','${esc(it.issue||"")}')">裁定…</button>`;
+      act = `<a class="btn" href="/issues/${esc(it.issue||"")}.html" target="_blank">${esc(it.issue||"ISSUE")}</a>`;
     } else {
       const openHref = it.kind === "approve-testspec" ? `/test-specs/${esc(it.func_id)}.html` : specHref;
-      const k = it.kind === "approve-testspec" ? "testspec" : "spec";
-      act = `<a class="btn" href="${openHref}" target="_blank">開く</a>
-             <button class="btn ap" onclick="approve('${esc(it.func_id)}','${k}')">承認</button>
-             <button class="btn rj" onclick="requestChanges('${esc(it.func_id)}','${k}')">修正依頼</button>`;
+      act = `<a class="btn" href="${openHref}" target="_blank">開く（返答方法はページ先頭の案内）</a>`;
     }
   }
   return `<div class="row"${isNow ? ' style="background:#dcfce722"' : ""}>
@@ -436,29 +402,6 @@ function rowHtml(it){
     ${act}</div>`;
 }
 function setChip(k){ chipK = k; loadQueue(); }
-function qmsg(m){ document.getElementById("qfoot").textContent = m; }
-function toggleStar(fid, on){
-  jsonPost("/batch-priority", {func_id: fid, on: on})
-    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
-}
-function approve(fid, kind){
-  jsonPost("/review-action", {action:"approve", kind:kind, func_id:fid, approver:approver()})
-    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
-}
-function requestChanges(fid, kind){
-  const c = prompt(fid + " への修正依頼（例: 端数処理の丸め規則が本文に無い）");
-  if(!c || !c.trim()) return;
-  jsonPost("/review-action", {action:"request_changes", kind:kind, func_id:fid,
-                              approver:approver(), comment:c.trim()})
-    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
-}
-function adjudicate(fid, issueId){
-  const c = prompt(fid + " の裁定（" + issueId + " の質問を確認のうえ回答を書く）");
-  if(!c || !c.trim()) return;
-  jsonPost("/review-action", {action:"adjudicate", func_id:fid, issue_id:issueId,
-                              approver:approver(), comment:c.trim()})
-    .then(d => { qmsg(d.message||""); loadQueue(); }).catch(()=>{});
-}
 
 // ---- 結果 ----
 // 中身が変わった時だけ再描画する（2.5秒ごとの丸ごと差し替えは、人が開いた
@@ -498,39 +441,14 @@ function renderResults(recent){
       ? `<div class="ngdetail"><b>${esc(r.kind||"")}（${problems.length}件）</b>` +
         `<ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`
       : (r.why ? `<div class="ngdetail">${esc(r.why)}</div>` : "");
-    const retry = r.phase
-      ? (running
-         ? `<button class="btn pri" onclick="toggleStar('${esc(r.func_id)}',true)">⭐ 優先して再実行</button>`
-         : `<button class="btn" onclick="rerun('${esc(r.func_id)}','${esc(r.phase)}')">再実行</button>`)
-      : "";
     return `<div class="resrow">${head}${ngbox}
       <div class="actions">
         <a class="btn" href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答ログ</a>
-        ${retry}
         <details${openIds.has(rid) ? " open" : ""} data-rid="${esc(rid)}">
           <summary>応答の末尾</summary><pre>${esc(r.tail || "(応答記録なし)")}</pre></details>
       </div></div>`;
   }).join("");
 }
-function rerun(fid, kind){
-  document.getElementById("rmsg").textContent = "開始しています…";
-  jsonPost("/run-phase", {kind:kind, func_id:fid})
-    .then(d => { document.getElementById("rmsg").textContent = d.message || ""; tick(); })
-    .catch(e => { document.getElementById("rmsg").textContent = "通信エラー: " + e; });
-}
-
-// ---- 開始/停止 ----
-function batchPost(url, body){
-  const msg = document.getElementById("bmsg");
-  jsonPost(url, body)
-    .then(d => { msg.textContent = d.message || (d.ok ? "OK" : "失敗"); tick(); })
-    .catch(e => { msg.textContent = "通信エラー: " + e
-                  + "（serve_site.py で配信していますか？）"; });
-}
-function batchStart(){
-  batchPost("/run-batch", {max_funcs: +document.getElementById("bmax").value || 0});
-}
-function batchStop(){ batchPost("/run-cancel", {}); }
 
 // ---- 初期化 ----
 let qtimer = null;
@@ -605,7 +523,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_bytes(body, "application/json; charset=utf-8")
             return
         if self.path.startswith("/batch-queue"):
-            # 残タスク一覧（実行順・検索つき）。走査コストがあるのでポーリング対象にしない
+            # 残タスク一覧（実行順・検索つき・**表示専用**）。走査コストがあるので
+            # ポーリング対象にしない
             if FROZEN or not self.state_root:
                 self._send_json(200, {"ok": False,
                                       "message": "配布版（EXE）では残タスク一覧を表示できません"})
@@ -613,10 +532,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             from urllib.parse import parse_qs
             qs = parse_qs(urlsplit(self.path).query)
             try:
-                import browser_run
-                res = browser_run.batch_queue(str(self.state_root),
-                                              q=(qs.get("q") or [""])[0],
-                                              chip=(qs.get("chip") or [""])[0])
+                import pipeline
+                res = pipeline.batch_queue(str(self.state_root),
+                                           q=(qs.get("q") or [""])[0],
+                                           chip=(qs.get("chip") or [""])[0])
             except SystemExit as e:
                 res = {"ok": False, "message": f"データ異常: {e}"}
             except Exception as e:               # noqa: BLE001 — 一覧の失敗で配信を止めない
@@ -634,160 +553,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    WRITE_ROUTES = ("/review-action", "/dict-action", "/run-phase", "/run-check", "/run-cancel",
-                    "/run-batch", "/run-analyze", "/run-skip", "/batch-priority")
-    LOCAL_NAMES = ("127.0.0.1", "localhost", "::1")
-
-    def _cross_site_reason(self) -> str | None:
-        """DNSリバインディング・クロスサイトのフォームPOST対策。問題があれば理由を返す。
-
-        接続元 127.0.0.1 の確認だけでは、(a) 攻撃者ドメインのDNSを 127.0.0.1 に
-        切り替えて同一オリジンで fetch させる、(b) text/plain フォームで preflight
-        なしに JSON を送り込む、の2経路が残る。Host と Origin のホスト名が
-        ローカルホストであることまで確認して両方を塞ぐ。
-        """
-        host = self.headers.get("Host") or ""
-        try:
-            hostname = urlsplit("//" + host).hostname
-        except ValueError:
-            hostname = None
-        if hostname not in self.LOCAL_NAMES:
-            return f"不正な Host ヘッダ（{host or 'なし'}）"
-        origin = self.headers.get("Origin")
-        if origin:
-            try:
-                oh = urlsplit(origin).hostname
-            except ValueError:
-                oh = None
-            if oh not in self.LOCAL_NAMES:
-                return f"クロスサイトの呼び出し（Origin: {origin}）"
-        return None
-
-    def do_POST(self) -> None:
-        # 仕様書ページに埋め込まれたウィジェット（review_actions / browser_run）が叩く。
-        # 書き込み・実行系なので、配信ホストに関わらずローカルホストからの呼び出しのみ受け付ける
-        # （--host 0.0.0.0 で LAN 公開していても、リモートから成果物を書き換え・実行させない）。
-        if self.path not in self.WRITE_ROUTES:
-            self.send_error(404)
-            return
-        if self.client_address[0] not in ("127.0.0.1", "::1"):
-            self._send_json(403, {"ok": False, "message": "ローカルホストからのみ実行できます"})
-            return
-        reason = self._cross_site_reason()
-        if reason:
-            self._send_json(403, {"ok": False, "message": reason})
-            return
-        if FROZEN:
-            self._send_json(403, {"ok": False,
-                                  "message": "配布版（EXE）はスナップショットのため操作できません。"
-                                             "生成元のプロジェクトを serve_site.py で開いてください"})
-            return
-        if not self.state_root:
-            self._send_json(400, {"ok": False, "message": "プロジェクトルートが特定できません"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            payload = json.loads(self.rfile.read(length) or b"{}")
-        except (ValueError, OSError):
-            self._send_json(400, {"ok": False, "message": "不正なリクエスト"})
-            return
-
-        try:
-            if self.path == "/review-action":
-                res = self._handle_review_action(payload)
-            elif self.path == "/dict-action":
-                res = self._handle_dict_action(payload)
-            elif self.path == "/run-check":
-                res = self._handle_run_check(payload)
-            elif self.path == "/run-cancel":
-                res = self._handle_run_cancel(payload)
-            elif self.path == "/run-batch":
-                res = self._handle_run_batch(payload)
-            elif self.path == "/run-skip":
-                res = self._handle_run_skip(payload)
-            elif self.path == "/batch-priority":
-                res = self._handle_batch_priority(payload)
-            elif self.path == "/run-analyze":
-                res = self._handle_run_analyze(payload)
-            else:
-                res = self._handle_run_phase(payload)
-        except SystemExit as e:                      # 壊れた正データ（load_json 等）の明示停止
-            res = {"ok": False, "message": f"データ異常: {e}"}
-        except Exception as e:                       # noqa: BLE001 — 500 で終わらせず理由を返す
-            res = {"ok": False, "message": f"内部エラー: {e}"}
-        self._send_json(200 if res.get("ok") else 422, res)
-
-    def _handle_review_action(self, payload: dict) -> dict:
-        import review_actions
-        action = payload.get("action")
-        if action == "approve":
-            return review_actions.approve(str(self.state_root), payload.get("kind", ""),
-                                          payload.get("func_id", ""),
-                                          payload.get("approver") or "unknown")
-        if action == "request_changes":
-            return review_actions.request_changes(
-                str(self.state_root), payload.get("kind", ""), payload.get("func_id", ""),
-                payload.get("approver") or "unknown", payload.get("comment") or "")
-        if action == "adjudicate":
-            return review_actions.adjudicate(
-                str(self.state_root), payload.get("func_id", ""), payload.get("issue_id", ""),
-                payload.get("approver") or "unknown", payload.get("comment") or "")
-        return {"ok": False, "message": f"不明な action: {action}"}
-
-    def _handle_dict_action(self, payload: dict) -> dict:
-        # 変数辞書ページ（docs/variables.qmd）の承認ウィジェット。
-        # 承認可否（rank D・desc 未確定の拒否）はサーバ側で再判定する
-        # ——クライアントの表示を信用しない点は /review-action と同じ原則
-        import review_actions
-        return review_actions.dict_action(
-            str(self.state_root), payload.get("action", ""),
-            payload.get("approver") or "unknown",
-            var_ids=payload.get("var_ids"),
-            var_id=payload.get("var_id") or "",
-            desc=payload.get("desc") or "",
-            unit=payload.get("unit"))
-
-    def _handle_run_phase(self, payload: dict) -> dict:
-        # 試作: ①〜⑤（spec/testspec/testcode/impl/test）対応。増やす場合は
-        # browser_run.py の KINDS に追記する
-        import browser_run
-        return browser_run.start(str(self.state_root), payload.get("func_id", ""),
-                                 payload.get("kind", "spec"))
-
-    def _handle_run_check(self, payload: dict) -> dict:
-        # ⑥完了検証。func_id 不要（全関数横断）・LLM不使用で同期的に終わるので
-        # /run-phase とは別ルートにしている
-        import browser_run
-        return browser_run.run_check(str(self.state_root))
-
-    def _handle_run_cancel(self, payload: dict) -> dict:
-        # 実行中のブラウザ単発/連続実行（このプロセスのバックグラウンドスレッド）を中止する
-        import browser_run
-        return browser_run.cancel(str(self.state_root))
-
-    def _handle_run_batch(self, payload: dict) -> dict:
-        # 連続実行（①〜⑤の機械実行を承認・裁定待ち以外で回し続ける）
-        import browser_run
-        return browser_run.batch_start(str(self.state_root),
-                                       payload.get("max_funcs") or 0,
-                                       payload.get("budget_usd") or 0)
-
-    def _handle_run_skip(self, payload: dict) -> dict:
-        # 連続実行の「いまの1件」だけスキップ（バッチは続行）
-        import browser_run
-        return browser_run.skip_current(str(self.state_root))
-
-    def _handle_batch_priority(self, payload: dict) -> dict:
-        # ⭐優先のON/OFF。次の走査で実行順の先頭に割り込む（失敗スキップも解除）
-        import browser_run
-        return browser_run.prioritize(str(self.state_root),
-                                      payload.get("func_id", ""),
-                                      bool(payload.get("on", True)))
-
-    def _handle_run_analyze(self, payload: dict) -> dict:
-        # ⑦分析（定量評価 → 施策候補の提案。適用はしない）
-        import browser_run
-        return browser_run.analyze_start(str(self.state_root))
+    # 書き込み・実行系の POST ルートは持たない（サイトは**閲覧専用**）。
+    # 実行は pipeline.py（CLI）、承認・裁定はチャット / ファイル記入 /
+    # review_actions.py（CLI）で行う。
 
     def end_headers(self) -> None:
         # 再レンダリング後にリロードだけで最新が出るように、一切キャッシュさせない
@@ -873,12 +641,6 @@ def main() -> None:
     ap.add_argument("--render", action="store_true", help="配信前に render_site.py で作り直す")
     ap.add_argument("--watch", action="store_true", help="docs/ を監視して自動再レンダリング（--render を含む）")
     ap.add_argument("--no-open", dest="open", action="store_false", help="ブラウザを自動で開かない")
-    ap.add_argument("--no-skip-permissions", dest="skip_permissions", action="store_false",
-                    help="ブラウザからの実行に --dangerously-skip-permissions を付けない"
-                         "（settings.json の permissions.allow で許可を管理する運用向け）")
-    ap.add_argument("--skip-permissions", dest="skip_permissions", action="store_true",
-                    help=argparse.SUPPRESS)   # 旧オプション。現在は既定で有効
-    ap.set_defaults(skip_permissions=True)
     ap.add_argument("--verbose", action="store_true", help="全リクエストをログに出す")
     args = ap.parse_args()
 
@@ -905,12 +667,6 @@ def main() -> None:
 
     Handler.verbose = args.verbose
     Handler.state_root = root      # /pipeline.html 用のライブ状態（.legacy-reverse/）の読み元
-    if not FROZEN:
-        import browser_run
-        browser_run.SKIP_PERMISSIONS = args.skip_permissions
-        if args.skip_permissions:
-            print("note: ブラウザからの実行は許可確認なしで走ります"
-                  "（外すには --no-skip-permissions。実行できるのはこのマシンの人だけ）")
     httpd = bind_server(args.host, port, functools.partial(Handler, directory=str(site)))
     actual = httpd.server_address[1]
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{actual}/"
@@ -937,12 +693,6 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n停止しました")
     finally:
-        if not FROZEN:
-            try:
-                import browser_run
-                browser_run.shutdown()   # 実行中のブラウザ単発を中止し、後片付けを待つ
-            except ImportError:          # EXE 等で同梱されていない場合（実行も不可能）は不要
-                pass
         httpd.server_close()
 
 

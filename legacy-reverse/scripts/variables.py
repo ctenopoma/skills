@@ -8,7 +8,7 @@
 - **機械が正、AIは意味づけ**。ノードの列挙・クラスタリング・根拠収集・ルーブリック判定・
   伝搬はすべてこのスクリプトが決定的に行う。LLM の仕事は data/interpretations.json に
   「desc / unit / 引用した ev_id」を書くことだけで、範囲逸脱は verify-interp が弾く
-- **人の承認ゲート**。語義の確定は人（approve / revise、またはブラウザの辞書ウィジェット）
+- **人の承認ゲート**。語義の確定は人（チャット、または approve / revise の CLI）
 - **再 build は常にマージ**。var_id 不変・承認維持（evidence_hash と occurrence 集合で判定）
 
 サブコマンド:
@@ -1212,7 +1212,7 @@ def cmd_page(root: Path, args) -> None:
            "<!--",
            "本書は data/variables.json から variables.py page が自動生成する。手編集禁止。",
            "並び順: 出現関数数 降順 × rank 昇順（C/D が先＝人の確認が必要なものが上）。",
-           "各行の var_id には #dict-V-xxxx のアンカーがある（承認ウィジェットの埋め込み先）。",
+           "各行の var_id には #dict-V-xxxx のアンカーがある（案内・リンクの着地点）。",
            "-->", "",
            f"変数 {len(variables)}件（承認済み {len(approved)} / 確認待ち {len(queue)} / "
            f"一括承認候補 {len(batch)}）", ""]

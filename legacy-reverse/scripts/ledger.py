@@ -8,6 +8,8 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
 サブコマンド:
   wbs                        docs/index.qmd を再生成
   skeletons [--force]        functions.json から docs/specs/ の骨子を生成
+                             （項目立ては docs/templates/spec.md が正。無ければ同梱シード）
+  init-templates             テンプレのシードを docs/templates/ にコピー（以後は人が編集）
   hash <path>                sha256 先頭8桁を表示
   verify <func-id>           ハッシュ連鎖（①→②、③）を検証
   status [<func-id>]         フェーズ状況を表示（機械可読 JSON も可: --json）
@@ -159,7 +161,7 @@ class Project:
         """dict-gate: その関数の①着手を止めている「未承認の変数」の var_id 一覧。
 
         空リスト＝ゲートに掛からない。設計 P2「伝搬とゲート」の判定はここが唯一の実装で、
-        `ledger next` と browser_run._decide_kind（ブラウザの実行ボタン）が共有する。
+        `ledger next` と pipeline._decide_kind（連続実行の対象選定）が共有する。
 
         免除:
           - 変数辞書が無いプロジェクト（従来どおりの挙動）
@@ -366,7 +368,7 @@ def _func_row(i: int, f: dict, s: dict, pre: str = "") -> str:
     name = f["new"].get("name", fid)
     deps = ", ".join(f.get("calls", [])) or "なし"
     # draft / generated（＝承認待ち）は render_site.py が仕様書ページに埋め込む
-    # 承認ウィジェットへ直接ジャンプさせる（#review-<fid>）。ブラウザから完結できるように
+    # 案内パネル（機械レビュー結果と返答方法）へ直接ジャンプさせる（#review-<fid>）
     spec_href = f"{pre}specs/{fid}.md" + ("#review-" + fid if s["spec"] == "draft" else "")
     ts_href = (f"{pre}test-specs/{fid}.md"
               + ("#review-" + fid if s["test_spec"] == "generated" else ""))
@@ -664,9 +666,78 @@ def _sync_dict_hash(p: Project, path: Path, fid: str) -> int:
     return 1
 
 
+# ---------- 仕様書テンプレート（固変分離） ----------
+#
+# **項目立て（節構成）と書き方ガイドはプロジェクトが所有する**（人が著者）:
+#   docs/templates/spec.md      … ①仕様書の骨子テンプレ（cmd_skeletons が使う）
+#   docs/templates/test-spec.md … ②テスト仕様書の書式（skill と review_checks が使う）
+# 無いプロジェクトは skill 同梱のシード（assets/templates/）にフォールバックする。
+# `ledger init-templates` がシードを docs/templates/ へコピーする（人がそこを編集する）。
+#
+# ワークフロー側の**固定契約**（機械が生成・検証するアンカー）だけは変えられない:
+#   - 置換マーカー: LR:IO-TABLES（IO表）・LR:CALLS-TABLE（呼出表）・LR:HAZARD-TABLE（hazard表）
+#   - 契約見出し: 機能詳細（SPEC-ID＋Confidence＋根拠）・副作用・例外／例外・数値特異点・未確定事項
+# それ以外の節は追加・改名・削除が自由（review_checks の必須節はテンプレの見出しから導出される）。
+
+ASSETS_TEMPLATES = Path(__file__).resolve().parent.parent / "assets" / "templates"
+TEMPLATE_NAMES = {"spec": "spec.md", "testspec": "test-spec.md"}
+SPEC_TEMPLATE_MARKERS = ("<!-- LR:IO-TABLES -->", "<!-- LR:CALLS-TABLE -->",
+                         "<!-- LR:HAZARD-TABLE -->")
+SPEC_CONTRACT_HEADS = ("# 機能詳細", "# 副作用・例外", "## 例外・数値特異点", "# 未確定事項")
+TESTSPEC_CONTRACT_HEADS = ("# トレーサビリティマトリクス",)
+
+
+def template_path(root, kind: str) -> Path:
+    """プロジェクト所有のテンプレ（docs/templates/）。無ければ同梱シード。"""
+    name = TEMPLATE_NAMES[kind]
+    proj = Path(root) / "docs" / "templates" / name
+    return proj if proj.exists() else ASSETS_TEMPLATES / name
+
+
+def template_body(tpath: Path) -> str:
+    """テンプレ本文（フロントマターを除く）。フロントマターは機械が生成する契約部分
+    なので、テンプレ側のものは人向けの参考表示としてだけ残し、骨子には写さない。"""
+    text = tpath.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == "---")
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "---")
+        return "\n".join(lines[end + 1:]).lstrip("\n")
+    except StopIteration:
+        return text
+
+
+def spec_template_problems(body: str) -> list:
+    """①テンプレが固定契約を満たしているかの検証（不足の一覧を返す）。"""
+    problems = [f"置換マーカーがない: {m}" for m in SPEC_TEMPLATE_MARKERS if m not in body]
+    problems += [f"契約見出しがない: {h}" for h in SPEC_CONTRACT_HEADS
+                 if not re.search(rf"(?m)^{re.escape(h)}\s*$", body)]
+    return problems
+
+
+def cmd_init_templates(p: Project, args) -> None:
+    """シードを docs/templates/ にコピーする（既存は上書きしない。以後は人が編集）。"""
+    tdir = p.docs / "templates"
+    tdir.mkdir(parents=True, exist_ok=True)
+    for name in TEMPLATE_NAMES.values():
+        dst = tdir / name
+        if dst.exists():
+            print(f"skip: {dst}（既存。編集して使う）")
+            continue
+        shutil.copy2(ASSETS_TEMPLATES / name, dst)
+        print(f"copied: {dst}（項目立て・書き方ガイドはこのファイルを人が編集する）")
+
+
 def cmd_skeletons(p: Project, args) -> None:
     tdir = p.docs / "specs"
     tdir.mkdir(parents=True, exist_ok=True)
+    tpath = template_path(p.root, "spec")
+    tmpl = template_body(tpath)
+    bad = spec_template_problems(tmpl)
+    if bad:
+        sys.exit(f"error: 仕様書テンプレ（{tpath}）が固定契約を満たしていない:\n  - "
+                 + "\n  - ".join(bad)
+                 + "\n  マーカーと契約見出しの説明は references/workflow.md「固定契約」を参照")
     made = synced = 0
 
     # フロー所属（func_id -> [フロー名, ...]）。骨子の新規生成時のみフロントマターに載せる
@@ -723,47 +794,47 @@ def cmd_skeletons(p: Project, args) -> None:
         if fl_names:
             # json.dumps で YAML フローシーケンスとしても妥当な形（引用符・エスケープ込み）にする
             body.append("flows: " + json.dumps(fl_names, ensure_ascii=False))
-        body += [
-            "---",
-            "", "# 概要", "", "<!-- ①で充填 -->", "",
-            "# 処理フロー", "",
-            "<!-- 分岐が3本以上ある場合のみ①が ```mermaid の flowchart を書く"
-            "（```{mermaid} は render を落とす）。不要なら節ごと削除 -->", "",
-            "# インタフェース", "", "## 入力", "",
-            "| # | 名前 | レガシー型 | 新型 | 説明 | Confidence |",
-            "|---|------|-----------|------|------|:---:|",
-        ]
-        body += [f"| {i+1} | {it.get('name','')} | {it.get('legacy_type','')} | "
-                 f"{it.get('new_type','')} | {it.get('desc','')} | 🟢 |"
-                 for i, it in enumerate(f.get("inputs", []))] or ["| | | | | | |"]
-        body += ["", "## 出力", "",
-                 "| 名前 | レガシー型 | 新型 | 説明 | Confidence |",
-                 "|------|-----------|------|------|:---:|"]
-        body += rows(f.get("outputs", []), ["name", "legacy_type", "new_type", "desc"])
-        body += ["", "## グローバル状態", "",
-                 "| 名前 | 読み/書き | 説明 | Confidence |", "|------|:---:|------|:---:|"]
-        body += rows(f.get("globals", []), ["name", "access", "desc"])
-        body += ["", "## 参照外部ファイル", "",
-                 "| ファイル | 読み/書き | 用途 | Confidence |", "|---------|:---:|------|:---:|"]
-        body += rows(f.get("external_files", []), ["path", "access", "desc"])
-        body += ["", "## 呼び出しサブルーチン", "", "| 名前 | func-id | 用途 |", "|------|---------|------|"]
-        for c in f.get("calls", []):
-            body.append(f"| | {c} | |")
-        if not f.get("calls"):
-            body.append("| （なし） | | |")
-        body += ["", "# 機能詳細", "",
-                 f"<!-- ①で充填。見出しIDは SPEC-{num}-01 形式、各項目に Confidence と根拠(file:lines)必須 -->",
-                 "", "# 副作用・例外", "", "<!-- ①で充填。なければ「なし」と明記 -->", "",
-                 "## 例外・数値特異点", "",
-                 "<!-- ①で充填。data/functions.json の hazards 全件を1行ずつ書く（hazard が無ければ「該当なし」）。"
-                 "適用EP は docs/exception-policy.md に実在する EP-ID のみ。未決定のまま書くと機械レビューNG -->", "",
-                 "| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
-                 "|--------|------|------|--------|----------|"]
-        body += [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:{h.get('line', '')} | | |"
-                 for h in f.get("hazards", [])] or ["| 該当なし | | | | |"]
-        body += ["",
-                 "# 未確定事項", "", "| ISSUE | 内容 | 状態 |", "|-------|------|------|", ""]
-        out.write_text("\n".join(body), encoding="utf-8")
+        body += ["---", ""]
+
+        # --- 機械生成ブロック（テンプレの LR: マーカーを置換する） ---
+        io_lines = ["## 入力", "",
+                    "| # | 名前 | レガシー型 | 新型 | 説明 | Confidence |",
+                    "|---|------|-----------|------|------|:---:|"]
+        io_lines += [f"| {i+1} | {it.get('name','')} | {it.get('legacy_type','')} | "
+                     f"{it.get('new_type','')} | {it.get('desc','')} | 🟢 |"
+                     for i, it in enumerate(f.get("inputs", []))] or ["| | | | | | |"]
+        io_lines += ["", "## 出力", "",
+                     "| 名前 | レガシー型 | 新型 | 説明 | Confidence |",
+                     "|------|-----------|------|------|:---:|"]
+        io_lines += rows(f.get("outputs", []), ["name", "legacy_type", "new_type", "desc"])
+        io_lines += ["", "## グローバル状態", "",
+                     "| 名前 | 読み/書き | 説明 | Confidence |", "|------|:---:|------|:---:|"]
+        io_lines += rows(f.get("globals", []), ["name", "access", "desc"])
+        io_lines += ["", "## 参照外部ファイル", "",
+                     "| ファイル | 読み/書き | 用途 | Confidence |", "|---------|:---:|------|:---:|"]
+        io_lines += rows(f.get("external_files", []), ["path", "access", "desc"])
+
+        calls_lines = ["## 呼び出しサブルーチン", "",
+                       "| 名前 | func-id | 用途 |", "|------|---------|------|"]
+        calls_lines += [f"| | {c} | |" for c in f.get("calls", [])] or ["| （なし） | | |"]
+
+        haz_lines = ["| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
+                     "|--------|------|------|--------|----------|"]
+        haz_lines += [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:{h.get('line', '')} | | |"
+                      for h in f.get("hazards", [])] or ["| 該当なし | | | | |"]
+
+        # テンプレ本文（プロジェクト所有）にプレースホルダと機械ブロックを差し込む。
+        # LR:TEMPLATE-NOTE コメント（テンプレ自身の説明書き）は骨子には写さない
+        text = re.sub(r"(?s)<!--\s*LR:TEMPLATE-NOTE.*?-->\s*", "", tmpl)
+        for key, val in (("{{func_id}}", fid), ("{{func_num}}", num),
+                         ("{{func_num_lower}}", num.lower()),
+                         ("{{new_name}}", f["new"].get("name", fid)),
+                         ("{{legacy_file}}", f["legacy"].get("file", ""))):
+            text = text.replace(key, val)
+        text = text.replace("<!-- LR:IO-TABLES -->", "\n".join(io_lines))
+        text = text.replace("<!-- LR:CALLS-TABLE -->", "\n".join(calls_lines))
+        text = text.replace("<!-- LR:HAZARD-TABLE -->", "\n".join(haz_lines))
+        out.write_text("\n".join(body) + "\n" + text.rstrip("\n") + "\n", encoding="utf-8")
         made += 1
     print(f"skeletons: {made} 件生成（既存はスキップ、--force で上書き）"
           + (f" / dict-hash 更新 {synced} 件（①未着手の骨子のみ）" if synced else ""))
@@ -1191,6 +1262,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("wbs")
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
+    sub.add_parser("init-templates", help="仕様書テンプレのシードを docs/templates/ にコピー（以後は人が編集）")
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
@@ -1230,7 +1302,8 @@ def main() -> None:
     if args.cmd == "flow":
         {"add": cmd_flow_add, "rm": cmd_flow_rm, "list": cmd_flow_list}[args.flow_cmd](p, args)
         return
-    {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "hash": cmd_hash, "verify": cmd_verify,
+    {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "init-templates": cmd_init_templates,
+     "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,
      "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,

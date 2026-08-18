@@ -14,7 +14,7 @@ scripts/selftest/fixture_vars/ を毎回テンポラリにコピーし、variabl
   (d) dict-hash: 骨子への記録と、承認後に desc を変えたときの dict_stale 検出
       （verify のメッセージと exit / WBS の ⚠ 表示）
   (e) 旧骨子（dict-hash 行が無い spec）は stale 扱いにしない
-  (f) browser_run._decide_kind のゲート（ledger 側の共通実装を参照していること）
+  (f) pipeline._decide_kind のゲート（ledger 側の共通実装を参照していること）
   (g) pipeline.py dict の対象選定・チャンク分割・プロンプト組み立て・--model 付与、
       および run_one の model 引数（未指定なら従来と同一のコマンドライン）
 """
@@ -37,7 +37,6 @@ VARIABLES_PY = SCRIPTS_DIR / "variables.py"
 sys.path.insert(0, str(SCRIPTS_DIR))
 import ledger        # noqa: E402
 import pipeline      # noqa: E402
-import browser_run   # noqa: E402
 
 _TMPDIRS = []
 
@@ -339,33 +338,33 @@ def test_old_spec_without_dict_hash_is_not_stale():
     print("OK  (e) 旧骨子（dict-hash 無し）は stale 扱いにしない")
 
 
-# ---------- (f) browser_run._decide_kind のゲート ----------
+# ---------- (f) pipeline._decide_kind のゲート ----------
 
 def test_decide_kind_gate():
     root = make_project()
     assert run_ledger(root, "skeletons")[0] == 0
-    browser_run._PROJECT_CACHE.clear()
+    pipeline._PROJECT_CACHE.clear()
 
-    assert browser_run._decide_kind(root, "F-0003") is None, "未承認の変数が残る間は①を出さない"
+    assert pipeline._decide_kind(root, "F-0003") is None, "未承認の変数が残る間は①を出さない"
     for vid in vars_of(root, "F-0003"):
         approve(root, vid, f"{vid} の意味")
-    browser_run._PROJECT_CACHE.clear()
-    assert browser_run._decide_kind(root, "F-0003") == "spec"
+    pipeline._PROJECT_CACHE.clear()
+    assert pipeline._decide_kind(root, "F-0003") == "spec"
 
     # 判定は ledger 側の共通実装（Project.dict_gate_blockers）に委ねている
     orig = ledger.Project.dict_gate_blockers
     try:
         ledger.Project.dict_gate_blockers = lambda self, fid, spec_status=None: ["V-9999"]
-        browser_run._PROJECT_CACHE.clear()
-        assert browser_run._decide_kind(root, "F-0003") is None
+        pipeline._PROJECT_CACHE.clear()
+        assert pipeline._decide_kind(root, "F-0003") is None
     finally:
         ledger.Project.dict_gate_blockers = orig
-        browser_run._PROJECT_CACHE.clear()
+        pipeline._PROJECT_CACHE.clear()
 
-    # draft は免除（承認ウィジェット側の担当なので None のままだが、
+    # draft は免除（人の承認待ちなので None のままだが、
     # 再実行モードでは①が出る＝ゲートに掛かっていない）
     set_spec_status(root, "F-0000", "draft")
-    browser_run._PROJECT_CACHE.clear()
+    pipeline._PROJECT_CACHE.clear()
     p = ledger.Project(root)
     assert p.dict_gate_blockers("F-0000") == []
     print("OK  (f) _decide_kind の dict-gate（ledger 共通実装を参照）")
@@ -374,9 +373,9 @@ def test_decide_kind_gate():
 def test_decide_kind_without_dict():
     root = make_project(with_dict=False)
     assert run_ledger(root, "skeletons")[0] == 0
-    browser_run._PROJECT_CACHE.clear()
+    pipeline._PROJECT_CACHE.clear()
     for fid in ("F-0000", "F-0002", "F-0003"):
-        assert browser_run._decide_kind(root, fid) == "spec", fid
+        assert pipeline._decide_kind(root, fid) == "spec", fid
     print("OK  (f) 辞書が無いプロジェクトの _decide_kind は従来どおり")
 
 
