@@ -56,7 +56,7 @@ date: 2026-08-09
     wbs/                # 200 関数超で自動生成されるファイル別明細(手編集禁止)
     spec-review.md      # ① draft の一斉レビュー表(自動生成。手編集禁止)
     review-feedback.md  # ブラウザからの修正依頼(サーバが追記・skill が applied 化)
-    variables.qmd       # ⓪ 変数辞書 + 承認ウィジェット(variables.py page が生成。手編集禁止)
+    variables.qmd       # ⓪ 変数辞書ページ(variables.py page が生成。手編集禁止。承認は variables.py approve/revise)
     dict-conflicts.md   # 辞書と reviewed 仕様書の矛盾候補(variables.py conflicts。手編集禁止)
     exception-policy.md # 例外ポリシー登録簿 EP-xxx(人が承認する規約。add-policy が追記)
     exception-queue.md  # 未決定 hazard の質問キュー(hazards.py match が生成。手編集禁止)
@@ -209,7 +209,7 @@ date: 2026-08-09
 # data/variables.json(変数辞書)
 
 `variables.py build` だけが生成・マージする**唯一の派生台帳**。手編集禁止
-(語義の変更は `variables.py revise` か辞書ページの承認ウィジェット経由)。
+(語義の変更は `variables.py revise` 経由)。
 
 ```{#lst-data-variables .json lst-cap="変数辞書 variables.json のスキーマ"}
 {
@@ -347,7 +347,7 @@ variables.json は編集しない。`variables.py verify-interp` が機械検証
 ```{#lst-data-status .json lst-cap="ライブ進捗 pipeline-status.json のスキーマ"}
 {
   "state": "running",
-  "mode": "連続実行(ブラウザ)",
+  "mode": "連続実行(CLI)",
   "pid": 12345,
   "total_targets": 62, "done": 34, "failed": 5,
   "cost_usd": 11.83,
@@ -376,7 +376,7 @@ variables.json は編集しない。`variables.py verify-interp` が機械検証
 # .legacy-reverse/batch-priority.json
 
 画面の「⭐優先」と CLI `pipeline.py priority` が書く割り込み指示
-(どちらも `browser_run.prioritize` 経由)。スクリプト専用。
+(どちらも `pipeline.prioritize` 経由)。スクリプト専用。
 
 ```{#lst-data-priority .json lst-cap="⭐優先の割り込み指示 batch-priority.json のスキーマ"}
 { "order": ["F-0033", "F-0021"], "retry": ["F-0021"] }

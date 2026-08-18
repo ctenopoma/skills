@@ -33,7 +33,8 @@ date: 2026-08-09
 
 | 対象 | 理由 |
 |------|------|
-| serve_site.py / browser_run.py / review_actions.py | 常駐プロセスであり、かつ**人の操作の入口**(実行・承認・裁定の API)。LLM に渡すツールではない |
+| serve_site.py | 常駐プロセス(閲覧サーバ)。LLM に渡すツールではない |
+| review_actions.py の CLI | **人の操作の入口**(承認・修正依頼・裁定)。人が端末で実行する前提で、LLM ツールとしては同等機能の approve 系ツールを別途持つ |
 | hooks/guard_tests.py・guard_json.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
 : MCP 化から意図的に除外したスクリプトと理由 {#tbl-mcp-excluded}
 
@@ -105,7 +106,7 @@ date: 2026-08-09
 | `dict_verify_interp` | root, ids? | dict | data/interpretations.json を機械検証して variables.json にマージ。対象 var_id との完全一致(欠落・余剰は全件差し戻し)・ev_id の実在(捏造検知)・desc が空でないこと。**rank は LLM の申告でなくここが根拠種別から決める**(D = 引用なしはマージせず人のキューに残る) |
 | `dict_approve` | root, by, ids?, var_id?, desc?, unit? | dict | 語義を承認する(**人の OK を得てから呼ぶ**)。`ids` でそのまま承認、`var_id`+`desc` で「修正して承認」。**承認 1 回でクラスタの全出現に効く**。desc が空・「不明」のままは承認できない |
 | `dict_propagate` | root | dict | 承認済みの語義を functions.json の inputs/outputs/globals の desc へ機械転記(`"<意味>(<単位>) [V-0001]"`)。**①はこの `[V-xxxx]` を書き換えない**(辞書が正) |
-| `dict_page` | root | dict | docs/variables.qmd を生成(自動生成・手編集禁止)。並び順は影響度降順 × rank 昇順。未承認があれば render_site.py が承認ウィジェットを埋め込み、ナビバーに「変数辞書」が自動追加される |
+| `dict_page` | root | dict | docs/variables.qmd を生成(自動生成・手編集禁止)。並び順は影響度降順 × rank 昇順。未承認があれば render_site.py が承認方法の案内(閲覧専用)を焼き込み、ナビバーに「変数辞書」が自動追加される |
 | `dict_conflicts` | root | dict | 辞書と **reviewed 済み仕様書**の矛盾候補を docs/dict-conflicts.md に出す。reviewed は自動修正しないので、人が判断するための一覧 |
 : 変数辞書を操作する MCP ツール {#tbl-mcp-dict}
 

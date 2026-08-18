@@ -75,13 +75,13 @@
   <strong>AIが書く、機械（スクリプト）が検証する、あなたが決める</strong>——という分担です。</p>
   <table>
     <tr><th>あなたの仕事</th><th>具体的には</th><th>登場する場面</th></tr>
-    <tr><td>1. トリガを引く</td><td>フェーズを起動する（コマンドを打つ、またはボタンを押す）</td><td>各フェーズの最初</td></tr>
+    <tr><td>1. トリガを引く</td><td>フェーズを起動する（チャットのコマンド、または pipeline.py）</td><td>各フェーズの最初</td></tr>
     <tr><td>2. 質問に答える</td><td>AIからの質問（ISSUE。仮説＋Yes/No形式）に回答する</td><td>随時</td></tr>
     <tr><td>3. 承認する</td><td>⓪.5の変数辞書・①の仕様書・②のテスト仕様に OK を出す</td><td>⓪.5・①・②</td></tr>
     <tr><td>4. 裁定する</td><td>⑤でテストが落ちたとき、原因の種類を決める</td><td>⑤で fail のとき</td></tr>
   </table>
   <div class="point">あなたのOKなしに仕様は確定しません。逆に、機械の検証を通っていないものが
-  あなたのところへ届くこともありません（NG付きの成果物は承認ボタン自体が押せない作りです）。</div>
+  あなたのところへ届くこともありません（NG付きの成果物はどの入口からも承認できない作りです）。</div>
   <p class="note"><strong>基本の運転モデル:</strong> フェーズごとに <strong>Python の無人バッチで
   全件を流し、溜まったものをまとめて承認する</strong>、の繰り返しです（①を全件→まとめて承認→
   ②を全件→…）。1件ずつ進めるのは、最初に流れを掴むお試しのときだけ。</p>
@@ -89,20 +89,21 @@
 
 <!-- 4 -->
 <section class="slide">
-  <h2>操作の入口は2つ — ターミナルとブラウザ</h2>
-  <p>操作はどちらからでもできます。<strong>同じ操作にターミナルとブラウザの両方の入口</strong>があり、
-  中で実行されるものは同じです。好きな方だけ使っても、混ぜても構いません。</p>
+  <h2>操作はチャットと CLI、ブラウザは「見る」専用</h2>
+  <p>HTML の進捗サイトは<strong>閲覧専用</strong>です。実行・承認はチャットか CLI で行い、
+  画面には状態と「どう返答するか」の案内が出ます。返答チャネルは3つで、どれでも同じです。</p>
   <table>
-    <tr><th>やること</th><th>ターミナル</th><th>ブラウザ（進捗サイト）</th></tr>
-    <tr><td>フェーズを起動</td><td><code>/legacy-1-spec F-0001</code> 等のコマンド</td><td>仕様書ページの「①を実行する」ボタン</td></tr>
-    <tr><td>まとめて無人実行</td><td><code>pipeline.py run / spec / dict</code></td><td>バッチ状況ページの「連続実行」</td></tr>
-    <tr><td>実行順の割り込み</td><td><code>pipeline.py priority F-xxxx</code></td><td>残タスクの「⭐優先」ボタン</td></tr>
-    <tr><td>承認</td><td>チャットで「OK」／<code>variables.py approve</code></td><td>承認ウィジェット・一斉レビュー表</td></tr>
-    <tr><td>質問への回答・裁定</td><td>チャットで答える／ISSUEファイルに記入</td><td>裁定ウィジェット</td></tr>
+    <tr><th>やること</th><th>チャット</th><th>CLI / ファイル記入</th></tr>
+    <tr><td>フェーズを起動</td><td><code>/legacy-1-spec F-0001</code> 等のコマンド</td><td>—</td></tr>
+    <tr><td>まとめて無人実行</td><td>—</td><td><code>pipeline.py run / spec / dict</code></td></tr>
+    <tr><td>実行順の割り込み</td><td>—</td><td><code>pipeline.py priority F-xxxx</code></td></tr>
+    <tr><td>承認・修正依頼</td><td>「F-0012 OK」「修正: 〜」</td><td><code>review_actions.py approve / request-changes</code>・review-feedback.md に記入</td></tr>
+    <tr><td>質問への回答・裁定</td><td>チャットで答える</td><td>ISSUEファイルの回答欄に記入・<code>review_actions.py adjudicate</code></td></tr>
+    <tr><td>変数辞書の承認</td><td>「V-0001 を承認」</td><td><code>variables.py approve / revise</code></td></tr>
   </table>
   <p class="note">このガイドでは基本を<strong>「Python の無人バッチで流して、ブラウザで
-  まとめて確認・承認する」</strong>という流れで説明します。ブラウザ画面（進捗サイト）の開き方は
-  ⓪が終わったところで出てきます。</p>
+  まとめて確認し、チャット / CLI で承認する」</strong>という流れで説明します。
+  進捗サイトの開き方は⓪が終わったところで出てきます。</p>
 </section>
 
 <!-- 5 -->
@@ -110,7 +111,7 @@
   <h2>セットアップ① — 用意するものと skill の配置</h2>
   <table>
     <tr><th>必要なもの</th><th>確認コマンド</th></tr>
-    <tr><td><strong>Claude Code の CLI が PATH に</strong></td><td><code>claude --version</code>（ボタン実行も無人バッチも裏でこれを呼ぶ）</td></tr>
+    <tr><td><strong>Claude Code の CLI が PATH に</strong></td><td><code>claude --version</code>（無人バッチは裏でこれを呼ぶ）</td></tr>
     <tr><td>Python 3.10 以上</td><td><code>python --version</code></td></tr>
     <tr><td>移植先プロジェクトが git 管理下</td><td><code>git status</code></td></tr>
   </table>
@@ -265,8 +266,8 @@ ledger flow list                        # 定義の確認</code></pre>
     <tr><td>❌</td><td>機械レビューNG</td><td>AIの自己修正を待つ（❌のままでは承認できない）</td></tr>
   </table>
   <p class="note">URL はプロジェクトごとに固定なのでブックマークできる。自分のPCの中だけで配信され、
-  外には出ない。各関数の仕様書ページには<strong>そのとき可能な操作のボタンが1つだけ</strong>出る
-  （「①を実行する」→ 承認ウィジェット → 「②を実行する」…と状態に応じて切り替わる）。</p>
+  外には出ない。人の対応が要るページには<strong>案内パネル</strong>（機械レビュー結果と
+  返答方法）が本文の先頭に出る——何待ちか・どうすればよいかはページを見れば分かる。</p>
 </section>
 
 <!-- 9 -->
@@ -353,7 +354,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
       「AI修正待ち」。判断が要らないものから片付けられる</li>
     <li><strong>各行の「承認」「修正依頼…」でその場で完結</strong>。
       関数名リンクから全文を読んでから決めてもよい</li>
-    <li>❌の行は「AI修正待ち」と出るだけでボタンが出ない
+    <li>❌の行は「AI修正待ち」と出る（AIの自己修正を待つ）
       （＝<strong>機械NGのものは人が承認できない</strong>）</li>
   </ul>
   <p class="note">チャットで「<code>全部OK</code>」「<code>F-0003 は修正: 端数処理が書かれていない</code>」
@@ -424,7 +425,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   <ol class="steps">
     <li>仕様書ページ（またはバッチ画面の「人待ち」）に出ている質問に<strong>回答を書いて送る</strong>
       （記録・再開準備まで自動）</li>
-    <li>そのあと出る「⑤を実行する」ボタンで再テスト
+    <li>そのあと <code>/legacy-5-test F-xxxx</code>（または <code>pipeline.py run</code>）で再テスト
       （チャットなら回答 →「アンブロックして」→ <code>/legacy-5-test F-0001</code>）</li>
   </ol>
   <div class="warn">⛔ はあなたの回答待ちで完全に止まっている状態。見かけたら最優先で裁定する。
@@ -450,26 +451,26 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
 python &lt;LR&gt;/scripts/pipeline.py run --root . --max-funcs 20  # 今日は20件だけ
 python &lt;LR&gt;/scripts/pipeline.py priority F-0012           # この関数を次に割り込ませる（実行中でも効く）
 python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込みの一覧（--off / --clear で解除）</code></pre>
-  <p class="note"><strong>ブラウザ派の同等品</strong>: ナビバー「バッチ状況」→「連続実行」。
-  ⭐優先・スキップ・承認・裁定まで同じ画面で完結する（中身は CLI と同一）。次ページ参照。</p>
+  <p class="note">実行中の様子はナビバー「バッチ状況」（<code>/pipeline.html</code>）で
+  ライブに見える（表示専用）。次ページ参照。</p>
 </section>
 
 <!-- 18 -->
 <section class="slide">
-  <h2>バッチ実行状況ページ — 連続実行の運転席</h2>
-  <p>ナビバーの「バッチ状況」（<code>/pipeline.html</code>）。CLI で回していても
-  ブラウザから回していても、<strong>同じ画面に出ます</strong>（2.5秒ごとに自動更新）。</p>
+  <h2>バッチ実行状況ページ — 進捗のライブ表示（見るだけ）</h2>
+  <p>ナビバーの「バッチ状況」（<code>/pipeline.html</code>）。無人実行の進捗が
+  <strong>2.5秒ごとに自動更新</strong>で見えます（表示専用。操作はターミナルから）。</p>
   <img class="shot" src="../assets/manual/batch.png" alt="バッチ実行状況ページ" style="max-height:44vh">
   <table>
-    <tr><th>場所</th><th>できること</th></tr>
-    <tr><td>上段「連続実行」</td><td>件数を選んで<strong>開始</strong>（ブラウザから回す場合）</td></tr>
-    <tr><td>実行中カード</td><td>いま何をしているか。バーが黄・赤なら<strong>長引いている</strong>合図。<strong>この件だけスキップ</strong>もできる</td></tr>
-    <tr><td>残タスク（左）</td><td><strong>実行順</strong>に並ぶ。検索して<strong>⭐優先</strong>で次に割り込む（CLI: <code>pipeline.py priority</code>）</td></tr>
-    <tr><td>「人待ち」タブ</td><td>承認待ち・裁定待ちが集まる。<strong>ここから直接 承認・修正依頼・裁定</strong>できる</td></tr>
-    <tr><td>結果（右）</td><td>失敗の理由が開いた状態で読める。応答ログ・再実行もこの行から</td></tr>
+    <tr><th>場所</th><th>見えるもの</th></tr>
+    <tr><td>実行中カード</td><td>いま何をしているか。バーが黄・赤なら<strong>長引いている</strong>合図</td></tr>
+    <tr><td>指標カード</td><td>成功率・中央値/件・残り見込み（ETA）・累計コスト</td></tr>
+    <tr><td>残タスク（左）</td><td><strong>実行順</strong>に並ぶ。検索・工程チップで絞り込み（割り込みは CLI: <code>pipeline.py priority</code>）</td></tr>
+    <tr><td>「人待ち」タブ</td><td>承認待ち・裁定待ちが集まる。「開く」で該当ページへ（返答方法はページ先頭の案内）</td></tr>
+    <tr><td>結果（右）</td><td>失敗の理由が開いた状態で読める。応答ログもこの行から</td></tr>
   </table>
   <div class="point">連続実行は承認待ちを飛ばして進むので、<strong>「人待ち」があなたのボトルネック</strong>。
-  回しながらこの画面で承認していけば、止まらずに進む。</div>
+  回しながら承認（チャット / CLI）を返していけば、止まらずに進む。</div>
 </section>
 
 <!-- 19 -->
@@ -481,8 +482,9 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   <ul>
     <li><strong>答え方は3通り、どれでも同じ</strong>:
       チャットで答える / ISSUE ファイルの「回答（人が記入）」欄に書く /
-      画面の裁定ウィジェットに書く</li>
-    <li>回答はドメイン知識集（domain-knowledge.md）に転記され、<strong>同じ質問は二度と来ない</strong></li>
+      <code>review_actions.py adjudicate</code>（⑤裁定）</li>
+    <li>残すべき回答は AI が転記文を提案するので、あなたがドメイン知識集
+      （domain-knowledge.md）に貼れば<strong>同じ質問は二度と来ない</strong></li>
     <li>未回答の ISSUE は WBS の最上部に出続ける。急がなくてよいが、
       ⛔ が付いた関数はあなたの回答待ちで止まっている</li>
   </ul>
@@ -492,7 +494,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
 <section class="slide">
   <h2>⑥ 完了検証 / ⑦ 分析・改善 — 全関数が終わったら</h2>
   <p><strong>⑥</strong> <code>/legacy-6-check</code> — 全関数の①〜⑤・未回答ISSUEゼロ・実装率100%を
-  機械で総点検します（LLM不使用・数十秒。WBSトップのボタンからも実行可）。</p>
+  機械で総点検します（LLM不使用・数十秒。時期が来ると WBS トップに実行方法の案内が出ます）。</p>
   <ul>
     <li><strong>fail</strong>: 「どの関数の何が足りないか」の作業リストが出る →
       該当フェーズのコマンドで埋めて再実行</li>
@@ -526,9 +528,9 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   <table style="margin-top:10px">
     <tr><th>いつでも</th><th>操作</th></tr>
     <tr><td>迷ったら・再開するとき</td><td><code>/legacy-reverse</code>（状況と次の一手を教えてくれる）</td></tr>
-    <tr><td>1件ずつ試したいとき</td><td><code>/legacy-1-spec F-0001</code> 等のフェーズコマンド＋関数ID（またはブラウザのボタン）</td></tr>
+    <tr><td>1件ずつ試したいとき</td><td><code>/legacy-1-spec F-0001</code> 等のフェーズコマンド＋関数ID</td></tr>
     <tr><td>順番に割り込む</td><td><code>pipeline.py priority F-xxxx</code>（または画面の⭐）</td></tr>
-    <tr><td>質問（ISSUE）が来たら</td><td>Yes/No で答える（チャット / 回答欄 / 画面のウィジェット）</td></tr>
+    <tr><td>質問（ISSUE）が来たら</td><td>Yes/No で答える（チャット / 回答欄 / CLI）</td></tr>
     <tr><td>画面を開く</td><td><code>python &lt;LR&gt;/scripts/serve_site.py --root .</code></td></tr>
   </table>
   <p class="note"><code>&lt;LR&gt;</code> = <code>&lt;project&gt;/.claude/skills/legacy-reverse</code>。

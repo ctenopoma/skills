@@ -10,6 +10,7 @@
 |------|---------|
 | [slides/index.html](slides/index.html) | 初めて使う人（セットアップ→⑦を手順どおりに進めるチュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Skills とスクリプトの構成・区分け（層／固定と可変／作成者区分／操作の入口） |
 | [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
 | [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、合本 PDF は同梱の `pdf/`。再生成は `make_pdf.py`。章別に分けたいときは `--chapters`） |
@@ -36,13 +37,12 @@ legacy-reverse/
     graph.py               # ⓪ コールグラフの導出層（reachable/callers/between/dead/cycles/summary。依存ゼロ）
     variables.py           # ⓪ 変数辞書エンジン（クラスタリング/根拠収集/検証/承認/伝搬）
     hazards.py             # ⓪ 例外ポリシー（0割等の検知結果 × EP登録簿の突合・質問キュー）
-    pipeline.py            # 無人バッチドライバ + 実行ループ本体（1関数=1 headlessプロセス。dict は変数チャンク単位）
-    ledger.py              # 台帳: WBS生成/骨子生成/ハッシュ連鎖/blocked管理/⑥検証/フロー/dict-gate
-    review_checks.py       # ①②の機械レビュー・一斉レビュー表（ハルシネーション検知）
-    serve_site.py          # ローカル配信 + 実行・承認 API（バッチ実行状況ページを内蔵）
-    browser_run.py         # ブラウザからの単発/連続実行・残タスク走査・⭐優先
-    review_actions.py      # ①②の承認・修正依頼、⑤の裁定（サーバ側で機械レビューを再検証）
-    render_site.py         # docs/ → HTMLサイト（差分レンダ・ウィジェット焼き込み）
+    pipeline.py            # 無人バッチドライバ + 対象選定（1関数=1 headlessプロセス。dict は変数チャンク単位。⭐優先）
+    ledger.py              # 台帳: WBS生成/骨子生成（テンプレ駆動）/ハッシュ連鎖/blocked管理/⑥検証/フロー/dict-gate
+    review_checks.py       # ①②の機械レビュー・一斉レビュー表・テンプレ契約チェック（ハルシネーション検知）
+    serve_site.py          # ローカル配信（GETのみ・閲覧専用。バッチ進捗の表示ページを内蔵）
+    review_actions.py      # ①②の承認・修正依頼、⑤の裁定の CLI（機械レビューを再検証してから反映）
+    render_site.py         # docs/ → HTMLサイト（差分レンダ・案内パネル焼き込み）
     tc_report_plugin.py    # pytest プラグイン（TCマーカー別の結果収集）
     collect_results.py     # ②と突合して結果報告書を自動生成（実装率・attempt・自動block）
     check_stubs.py         # ④のスタブ検出（空実装/NotImplementedError/TODO）
@@ -55,7 +55,7 @@ legacy-reverse/
     schema.md              # プロジェクト構成・functions.json/ledger.json/variables.json スキーマ・status遷移
     workflow.md            # 共通規則（情報遮断・ハッシュ連鎖・ISSUE・承認・辞書/フロー/例外・ループ）
     graph-dict-design.md   # グラフ層・変数辞書・フロー・例外ポリシーの設計の正
-  assets/templates/        # 各成果物のテンプレート（フロントマターが台帳の正データ)
+  assets/templates/        # 各成果物のテンプレートの**シード**（spec/test-spec は対象PJの docs/templates/ にコピーして人が編集）
   examples/                # 架空の COBOL 関数 CALC-TAX (F-0123) の記入例一式
 ```
 
@@ -66,7 +66,9 @@ legacy-reverse/
 3. `hooks/settings-example.json` を対象プロジェクトの `.claude/settings.json` にマージ
 4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を絶対パスで登録（推奨。元リポジトリを参照するので残しておく）
 5. Quarto を入れる（HTML サイト生成に必要。`quarto --version` が通ればよい）
-6. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
+6. `ledger init-templates` で仕様書テンプレを `docs/templates/` に配置し、項目立て・書き方を
+   プロジェクトに合わせて人が編集する（編集不要ならそのままでよい）
+7. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
 
 合本PDF まで出す場合のみ、`quarto-typst-pdf/` も `.claude/skills/` に置く
 （`pdf_book.py` が `legacy-reverse` の隣として qtpdf.py を探すため。HTML だけなら不要）。
@@ -97,6 +99,12 @@ legacy-reverse/
 - ④⑤中の tests/ 編集は hook で拒否。テスト側の疑義は ISSUE→人承認→②③再生成
 - 仕様の各項目に Confidence（🟢🟡🔴）とレガシー行番号の根拠を必須付与（cc-rsg 流儀）
 - ISSUE は全体通し番号・「仮説＋Yes/Noの問い」形式。人の回答は domain-knowledge.md に蓄積して再質問を防ぐ
+  （domain-knowledge.md / conventions.md / exception-policy.md / docs/templates/ は
+  **人だけが書くファイル**。AI は提案文の提示まで）
+- **HTML サイトは閲覧専用**。実行は CLI（pipeline.py）とチャット、承認・裁定は
+  チャット / ファイル記入 / CLI（review_actions.py）の3チャネル（すべて同格）
+- **固変分離**: ワークフローは skill 共有（固定）、仕様書の項目立て・書き方は
+  対象プロジェクトの docs/templates/（可変・人が著者）
 - ⑦（legacy-7-analyze）: profile_run.py で計測→ NumPy/アルゴリズム/Rust(PyO3)化をエージェントが基準に沿って
   判断・提案→人の承認→**挙動保存で適用**（③テスト全pass維持が絶対条件。挙動変更は ISSUE→①②経由）。
   保守性は radon/ruff、セキュリティは bandit/pip-audit。中心文書は docs/analysis.md（OPT-/REF-/SEC- 施策台帳）

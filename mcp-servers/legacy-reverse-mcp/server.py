@@ -282,8 +282,8 @@ def dict_page(root: str = ".") -> dict:
     """docs/variables.qmd（変数辞書ページ）を生成する。自動生成・手編集禁止。
 
     並び順は影響度（出現関数数）降順 × rank 昇順。未承認があれば render_site.py が
-    承認ウィジェット（A/B の一括承認・C/D の修正して承認）を埋め込み、
-    ナビバーに「変数辞書」が自動で追加される。
+    承認方法の案内（閲覧専用）を焼き込み、ナビバーに「変数辞書」が自動で追加される。
+    承認は dict_approve / dict_revise（または variables.py CLI）。
     """
     return _script("variables.py", "page", "--root", root)
 

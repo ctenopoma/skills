@@ -87,8 +87,8 @@ python <LR>/scripts/variables.py propagate --root .        # 承認した語義�
 python <LR>/scripts/variables.py conflicts --root .        # reviewed 仕様書との矛盾候補
 ```
 
-ブラウザなら `/variables.html` で一括承認（rank A/B）・1件ずつ修正して承認（rank C/D）。
-承認後の propagate → 骨子 → サイト更新まで自動で走る。
+承認はチャット（「V-0001,V-0002 を承認」）か上の CLI。辞書ページ `/variables.html` は
+閲覧用（未承認が残る間は承認方法の案内が出る）。承認後は propagate → 骨子 → サイト更新。
 
 ## 例外ポリシー（0割・SQRT/LOG・変数添字）
 
@@ -155,30 +155,40 @@ ledger wbs && python <LR>/scripts/render_site.py --root .   # quarto render docs
 python <LR>/scripts/render_site.py --root . --full          # 節目に1回（検索索引も更新）
 ```
 
-## 画面を開く・ブラウザから操作する
+## 画面を開く（閲覧専用）・操作は CLI かチャット
 
 ```bash
 python <LR>/scripts/serve_site.py --root .          # 配信＋ブラウザを開く（URLはプロジェクト固定）
 python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知して自動再レンダ
-python <LR>/scripts/serve_site.py --root . --no-skip-permissions  # 共有環境: 許可を allow で管理
 ```
 
-ブラウザからの実行には**既定で** --dangerously-skip-permissions が付く（127.0.0.1 限定）。
-「応答はあるのにファイル未更新・全件NG」が出たら旧版の serve_site.py を疑う（skill を再コピー）。
+**HTML は見せるだけ**（実行・承認のボタンは無い）。人の対応が要るページには
+「何待ちか・どう返答するか」の案内パネルが出る。返答は3チャネル（すべて同格）:
+チャット（「F-0012 OK」「修正: 〜」）／ファイル記入（ISSUE 回答欄・review-feedback.md）／CLI。
 
-**`python -m http.server` で開かないこと。** 承認・実行・裁定のボタンは
-`serve_site.py` 経由でしか動きません（素の配信だと押しても無反応になります）。
-
-| 画面 | URL | できること |
+| 画面 | URL | 見えるもの |
 |------|-----|-----------|
-| WBS | `/` | 進捗・要対応（⚠辞書stale もここ）・フロー別進捗。⑥⑦の実行ボタン |
-| **変数辞書** | `/variables.html` | **rank A/B の一括承認・C/D の修正して承認**（未承認があるときだけ出る） |
-| 仕様書 | `/specs/F-xxxx.html` | ①〜⑤の実行ボタン／承認・修正依頼／⑤の裁定 |
-| 一斉レビュー | `/spec-review.html` | draft をまとめて承認・修正依頼（行内ボタン） |
-| **バッチ状況** | `/pipeline.html` | **連続実行の開始/停止・残タスクの⭐優先・人待ちの承認/裁定・失敗の再実行** |
+| WBS | `/` | 進捗・要対応（⚠辞書stale もここ）・フロー別進捗。⑥⑦の時期が来たら実行方法の案内 |
+| 変数辞書 | `/variables.html` | 語義と根拠の一覧（未承認が残る間は承認方法の案内） |
+| 仕様書 | `/specs/F-xxxx.html` | 本文＋機械レビュー結果＋承認待ち/裁定待ちの案内パネル |
+| 一斉レビュー | `/spec-review.html` | draft の一覧（承認できる/AI修正待ちの状態・検索・フィルタ） |
+| バッチ状況 | `/pipeline.html` | 連続実行のライブ進捗・残タスク（実行順・人待ち）・失敗の内訳と応答ログ |
 | マニュアル | `/manual.html` | 操作マニュアル（本書の詳説版。EXE 配布にも同梱） |
 
-連続実行（①〜⑤を工程横断で自動）は `/pipeline.html` から。CLI なら `pipeline.py run`（同じ走査・⭐優先も反映）。`pipeline.py spec` は①専用。
+## 承認・修正依頼・裁定（CLI）
+
+```bash
+python <LR>/scripts/review_actions.py approve spec F-0012 --by 名前 --root .
+python <LR>/scripts/review_actions.py approve testspec F-0012 --by 名前 --root .
+python <LR>/scripts/review_actions.py request-changes spec F-0012 --by 名前 --comment "…" --root .
+python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by 名前 --comment "…" --root .
+```
+
+どの入口でも承認直前に機械レビューを再検証（NG が残る成果物は承認不可）。
+反映後は WBS・一斉レビュー表・サイトの再生成まで自動。
+
+連続実行（①〜⑤を工程横断で自動）は `pipeline.py run`。`pipeline.py spec` は①専用、
+⭐割り込みは `pipeline.py priority F-xxxx`（実行中でも効く）。
 
 ## MCP ツール対応（登録済み環境ではこちらが呼ばれる）
 

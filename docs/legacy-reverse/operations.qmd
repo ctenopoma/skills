@@ -16,15 +16,14 @@ date: 2026-08-09
 |--------|-----------|---------|------|---------------|
 | 対話 | 1 件ずつ | 1 関数 × 1 工程 | `/legacy-N-xxx F-xxxx` | 1 件ずつチャットで |
 | 会話バッチ | 〜数十件 | ①を N 件 | 「仕様書をまとめて 10 件進めて」 | 一斉レビュー表でまとめて |
-| ブラウザ単発 | 1 件ずつ | 1 関数 × 1 工程 | 仕様書ページのボタン | その場のウィジェットで |
-| **ブラウザ連続実行** | 数十〜数百件 | **①〜⑤を工程横断で自動** | バッチ実行状況ページ | 同じ画面の「人待ち」から |
+| **連続実行(`pipeline.py run`)** | 数十〜数百件 | **①〜⑤を工程横断で自動** | CLI | チャット / ファイル記入 / CLI(進捗は /pipeline.html で閲覧) |
 | **無人バッチ(CLI)** | 数百〜2000 件 | run は**①〜⑤**・spec は①のみ | `pipeline.py run` / `spec`(夜間実行) | 翌朝、一斉レビュー表で |
 : 運転モード 5 経路と、どこまで自動で進むか {#tbl-ops-modes}
 
 - どのモードでも**承認が人であることは変わらない**。粒度と自動化範囲の違いだけ
-- ブラウザ連続実行と CLI 無人バッチは同じ実行枠を共有するので、**二重に走らせても
+- 複数のバッチ(別端末の spec / run / dict)は同じ実行枠を共有するので、**二重に走らせても
   片方が待たされるだけ**で壊れない
-- `pipeline.py run` はブラウザ連続実行と**同じ走査**(browser_run の `_scan_targets`)を
+- `pipeline.py run` は**共通の走査**(pipeline の `_scan_targets`)を
   CLI から回すもの。⭐優先・失敗スキップの扱いも同じ。`spec` は「①を全件先に流す」用
 - ⓪の変数辞書だけは別枠で、`pipeline.py dict` が**変数のチャンク**を単位に回す
   (①〜⑤とロック・進捗表示は共有。既定モデルは sonnet)
@@ -139,7 +138,7 @@ ledger next --flow 月次バッチ [--no-dict-gate]
 - MCP 登録済み環境では同名相当のツール(`graph_query` / `dict_*` / `hazard_*` / `flow_*`)で呼ぶ
   ([MCP サーバ仕様](mcp-server.qmd))。実体は同一
 - `graph.py dead` は**列挙するだけ**。除外は必ず人の判断で `ledger exclude`
-- 語義の修正は `variables.py revise` か辞書ページのウィジェットで行う。
+- 語義の修正は `variables.py revise` で行う。
   **data/variables.json の手編集はしない**
 
 # 日常運用
@@ -188,14 +187,15 @@ python <LR>/scripts/serve_site.py --root .
 | 経路 | 流れ |
 |------|------|
 | チャット | skill が承認用サマリ(変更点・Confidence 内訳・未回答質問)を提示 → 人が OK / 修正指示 / 保留 → skill がフロントマターを更新 |
-| ブラウザ | 仕様書ページの承認ウィジェット、または一斉レビュー表の行内ボタン → **サーバが機械レビューを再実行してから**フロントマターを更新 → WBS・一斉レビュー表・サイトを再生成 |
+| CLI | `review_actions.py approve / request-changes / adjudicate` → **承認直前に機械レビューを再実行してから**フロントマターを更新 → WBS・一斉レビュー表・サイトを再生成 |
+| ファイル記入 | ISSUE 回答欄・review-feedback.md に人が書く → 次の skill 起動時スキャンが反映 |
 : 承認の 2 経路と、それぞれの流れ {#tbl-ops-approve}
 
 ⓪拡張の 2 つは記録先が違うので別枠にする。
 
 | 対象 | 経路 | 記録先 |
 |------|------|-------|
-| 変数の語義 | 辞書ページのウィジェット / `variables.py approve`・`revise` | data/variables.json の `status` / `approved_by` / `approved_date`(成果物フロントマターではない) |
+| 変数の語義 | `variables.py approve`・`revise`(チャット経由でも同じ関数) | data/variables.json の `status` / `approved_by` / `approved_date`(成果物フロントマターではない) |
 | 例外ポリシー | docs/exception-queue.md を見て人が決める → `hazards.py add-policy` | docs/exception-policy.md の EP-xxx 行(承認者・日付つき) |
 : ⓪拡張の承認と、その記録先 {#tbl-ops-approve-ext}
 
@@ -255,11 +255,10 @@ python <LR>/scripts/serve_site.py --root .
 | CLI `pipeline.py dict` | **⓪辞書の解釈** | `--max-vars`(単位は**変数**) | `--budget-usd` | ①の前に語義を全件付ける |
 | CLI `pipeline.py spec` | ①のみ | `--max-funcs` | `--budget-usd` | 夜間に①を全件流す |
 | CLI `pipeline.py run` | **①〜⑤**(`--only` で工程限定可) | `--max-funcs` | `--budget-usd` | サーバを立てずに工程横断で回す |
-| ブラウザ「連続実行」 | **①〜⑤** | プルダウン(全部 / 1 / 10 / 50 / 100) | **UI からは指定しない** | 承認しながら関数を完成まで進める |
 : 無人実行の 4 入口と、向く場面の違い {#tbl-ops-batch-entry}
 
 4 入口とも実行の実体(`run_one`)と実行枠ロックを共有するので、同時には走らない。
-`run` の対象選定はブラウザ連続実行と同一(`browser_run._scan_targets`)で、
+`run` の対象選定は `pipeline._scan_targets` で、
 ⭐優先・batch-priority.json もそのまま反映される。⭐優先の設定自体も
 ブラウザ(⭐ボタン)と CLI(`pipeline.py priority`)の両方から行える。
 ブラウザ側でコスト上限を外したのは、件数指定で足りる上に、コストは画面の指標カードで
@@ -283,7 +282,7 @@ python <LR>/scripts/pipeline.py priority                       # ⭐一覧(--off
 `--flow <名前|FL-01>` は **spec / run / dict の 3 つで共通**。
 `ledger flow add` で定義したフローの到達集合に対象を絞る(「このフローだけ今日やる」)。
 `run --only <kind,…>` は走査結果を指定工程に限定する(spec / testspec / testcode /
-impl / test)。`priority` はブラウザの⭐ボタンと同じ `browser_run.prioritize` を呼ぶ
+impl / test)。`priority` は `pipeline.prioritize` を呼ぶ
 CLI で、**実行スロットのロックを取らない**ため実行中のバッチに端末から割り込める
 (次の再走査で反映。失敗スキップ済みの関数も拾い直す)。
 
@@ -307,7 +306,7 @@ python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500] [--m
 
 ## 工程ごとのモデル指定
 
-kind ごとに既定モデルを持てる(`browser_run.KINDS` の `model` キー。
+kind ごとに既定モデルを持てる(`pipeline.KINDS` の `model` キー。
 省略時は `--model` を付けない = 従来の既定モデル)。
 
 | kind | 既定モデル | 理由 |
@@ -484,7 +483,7 @@ python <LR>/scripts/pdf_book.py test-results --root . --output pdf/テスト結�
 | docs/specs/(仕様書) | △ | 編集可。ハッシュ連鎖が下流を stale にして再確認が走る(設計どおり) |
 | docs/review-feedback.md | △ | ブラウザが追記し skill が applied 化する。人が直接足してもよいが書式を守る |
 | WBS(index.qmd)・test-results/・completion-check.md・spec-review.md・quant.md・perf.md | ❌ | 自動生成。次の再生成で消える |
-| docs/variables.qmd・dict-conflicts.md・exception-queue.md | ❌ | 自動生成。語義の修正は `variables.py revise` か辞書ページのウィジェットで |
+| docs/variables.qmd・dict-conflicts.md・exception-queue.md | ❌ | 自動生成。語義の修正は `variables.py revise` で |
 | data/functions.json | △ | 正データ。編集するなら**JSON を壊さないこと**(壊れると全スクリプトが停止する。hook が AI の編集は検査する) |
 | data/variables.json・hazard-map.json | ❌ | スクリプト専用 |
 | data/ledger.json | ❌ | スクリプト専用 |

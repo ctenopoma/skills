@@ -14,11 +14,11 @@ date: 2026-08-09
 |---|---|---|---|---|---|
 | ⓪ 解析 | `/legacy-0-analyze` | — | legacy/ 全部 | functions.json(call_sites・hazards・flows 込み)・骨子・WBS・規約 | 抽出器の完全性突合 |
 | ⓪ 辞書 | `/legacy-0-dict` | 変数辞書ページ(承認) | 機械が集めた根拠バンドルのみ | data/variables.json・docs/variables.qmd | 全変数 approved(= dict-gate が開く) |
-| ① 仕様書 | `/legacy-1-spec F-xxxx` | 仕様書ページ / 連続実行 | legacy/ 該当関数+DK | docs/specs/*.md | status: reviewed(人 OK) |
-| ② テスト仕様 | `/legacy-2-testspec F-xxxx` | 仕様書ページ / 連続実行 | ①(reviewed)+規約 | docs/test-specs/*.md | status: approved かつ spec-hash 一致 |
-| ③ テストコード | `/legacy-3-testcode F-xxxx` | 仕様書ページ / 連続実行 | ②(approved)+規約 | tests/ | ledger の freeze ハッシュ一致 |
-| ④ 実装 | `/legacy-4-impl F-xxxx` | 仕様書ページ / 連続実行 | ①(reviewed)+規約 | src/ | モジュール存在かつスタブ検知ゼロ |
-| ⑤ テスト | `/legacy-5-test F-xxxx` | 仕様書ページ / 連続実行 | 実行結果+①② | docs/test-results/ | result: pass(実装率 100%・失敗 0) |
+| ① 仕様書 | `/legacy-1-spec F-xxxx` | 連続実行(`pipeline.py run`) | legacy/ 該当関数+DK | docs/specs/*.md | status: reviewed(人 OK) |
+| ② テスト仕様 | `/legacy-2-testspec F-xxxx` | 連続実行(`pipeline.py run`) | ①(reviewed)+規約 | docs/test-specs/*.md | status: approved かつ spec-hash 一致 |
+| ③ テストコード | `/legacy-3-testcode F-xxxx` | 連続実行(`pipeline.py run`) | ②(approved)+規約 | tests/ | ledger の freeze ハッシュ一致 |
+| ④ 実装 | `/legacy-4-impl F-xxxx` | 連続実行(`pipeline.py run`) | ①(reviewed)+規約 | src/ | モジュール存在かつスタブ検知ゼロ |
+| ⑤ テスト | `/legacy-5-test F-xxxx` | 連続実行(`pipeline.py run`) | 実行結果+①② | docs/test-results/ | result: pass(実装率 100%・失敗 0) |
 | ⑥ 完了検証 | `/legacy-6-check` | WBS トップ(全⑤完了後) | 全成果物 | completion-check.md | ledger check + review all が exit 0 |
 | ⑦ 分析・改善 | `/legacy-7-analyze` | WBS トップ(⑥pass 後) | src/・docs/・計測 | analysis.md・施策票 | テスト全 pass 維持(挙動保存) |
 : ⓪〜⑦の起動方法と入出力および完了判定 {#tbl-pipe-phases}
@@ -143,7 +143,7 @@ flowchart TB
   「承認できる → ISSUE あり → AI 修正待ち」の順に並び、**行内のボタンで承認・修正依頼が
   完結する**([画面設計](screens.qmd))
 - **全件(数百〜2000 件)は無人ドライバ pipeline.py** で回す([運用設計](operations.qmd#無人バッチ実行pipelinepy)参照)。
-  ブラウザの連続実行でも同じことができ、そちらは①以降の工程も続けて進む
+  `pipeline.py run` なら①以降の工程も続けて進む
 - draft の書き直しは自由。reviewed の書き直しは②が stale になるため人の了承を先に取る
 - **spec-gap 改訂**: ④が詰まって起票された ISSUE への対応も①の担当
   (レガシー確認・根拠付きで仕様を更新 → ハッシュ伝搬で下流に再生成が波及)

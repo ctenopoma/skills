@@ -64,8 +64,9 @@ graph TB
 「機械が集めた根拠バンドルだけを読んで desc を書く」ことに限定される（**機械が正、AIは意味づけ**。
 範囲逸脱は `verify-interp` が全件差し戻しで弾く）。語義の確定と例外ポリシーの決定は人
 （**人の承認ゲート**）。そして「先に辞書」は文書での指示ではなく `dict-gate` という
-機械的な対象選定で強制する（**強制は仕組みで**。`ledger next` とブラウザの実行ボタンが
-同じ `dict_gate_blockers` を共有し、既に draft/reviewed の関数だけ免除する）。
+機械的な対象選定で強制する（**強制は仕組みで**。`ledger next` と連続実行の対象選定
+（pipeline._decide_kind）が同じ `dict_gate_blockers` を共有し、既に draft/reviewed の
+関数だけ免除する）。
 辞書の状態は data/variables.json とフロントマターの `dict-hash` に持ち、
 別の進捗DBを作らない（**状態はすべてファイル**）。
 
@@ -154,8 +155,10 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | scripts/graph.py | functions.json → コールグラフの導出層（reachable/callers/between/dead/cycles/summary） | **依存ゼロ・LLM不使用・保存なし**（毎回構築）。ledger/variables/pipeline がライブラリとして import する。dead は列挙のみで自動 exclude はしない |
 | scripts/variables.py | 変数辞書（build/verify-interp/list-targets/approve/revise/propagate/page/conflicts） | Union-Find のクラスタリングと根拠収集は機械。LLM が書けるのは interpretations.json だけ。rank は検証側がルーブリックで決める。再 build は evidence_hash と occurrence 集合で承認を維持 |
 | scripts/hazards.py | 例外ポリシーの突合（match/add-policy/status） | 検知は⓪、決定は人（EP-xxx 登録簿）、突合は機械の3分割。適用範囲は 全体既定→関数→個別 で個別が勝つ。review_checks.py が import する |
-| scripts/ledger.py | 台帳・状態判定・WBS・骨子・検証・⑥check・flow・dict-gate | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有）。200関数超で WBS を自動分割。dict-gate/dict-hash は data/variables.json が無ければ完全に無効（後方互換） |
-| scripts/review_checks.py | ①②の機械レビュー | LLM不使用。書式はテンプレ（assets/templates）に依存 |
+| scripts/ledger.py | 台帳・状態判定・WBS・骨子（テンプレ駆動）・検証・⑥check・flow・dict-gate・init-templates | 状態判定 `status_of()` が唯一の判定ロジック（WBS/next/check が共有）。200関数超で WBS を自動分割。dict-gate/dict-hash は data/variables.json が無ければ完全に無効（後方互換） |
+| scripts/review_checks.py | ①②の機械レビュー・一斉レビュー表・テンプレ契約チェック | LLM不使用。必須節は**プロジェクト所有のテンプレ**（docs/templates/。無ければ同梱シード）の見出しから導出。固定契約の欠落は「テンプレ不正」として検知 |
+| scripts/review_actions.py | ①②の承認・修正依頼と⑤裁定（CLI） | どの入口（チャット/CLI）でも承認直前に機械レビューを再検証。反映後は WBS・レビュー表・サイトまで自動更新 |
+| scripts/serve_site.py | 閲覧サーバ（GET のみ） | HTML は**閲覧専用**。/pipeline.html はバッチ進捗の表示専用ビュー（操作は CLI） |
 | scripts/render_site.py | docs/ → HTML サイト | Quarto が Mermaid を .qmd でしか描けないため影コピー(_sitework)方式。未生成ページはプレースホルダで**⓪時点でもリンク切れゼロ** |
 | scripts/pipeline.py | 無人バッチドライバ（spec / run / dict） | **1関数=1 headless Claude プロセス**（毎回まっさらなコンテキスト＝トークン上限に依存しない）。完了は LLM の申告でなくファイル状態で契約検証。中断安全・コスト集計・連続失敗停止。`dict` だけ単位が「変数のチャンク」で検証は verify-interp の exit code、既定モデルは sonnet |
 | scripts/collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号（0 pass / 1 fail / 2 blocked / 3 mismatch）。attempt 上限3で自動 block |
@@ -179,7 +182,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | 新レガシー言語（C# 等） | extract_fortran.py / extract_c.py と同じ出力契約（functions.json スキーマ＋ extract-report）で抽出器を追加し、MCP ツールに登録。既存の抽出結果とマージされ、実行順は問わない。call_sites / hazards も同じキーで出せば辞書・例外ポリシーがそのまま効く |
 | 新しい hazard 検出器 | extract_fortran.py の `HAZARD_DETECTORS`（kind → 走査関数のテーブル）に1行足す。EP 登録簿・質問キュー・①②の機械レビューは kind 非依存なので変更不要 |
 | 辞書の根拠の種類 | variables.py の `EV_KINDS` / `EV_LIMITS` に追加し、rank A 相当なら `RANK_A_KINDS` に入れる。LLM 側のプロンプトは「強い根拠/弱い根拠」の区別しか持たない |
-| 工程ごとのモデル階層 | `browser_run.KINDS` の各エントリに `model` を足す（省略時は既定モデル）。CLI の `pipeline.py --model` は全 kind を一括上書き |
+| 工程ごとのモデル階層 | `pipeline.KINDS` の各エントリに `model` を足す（省略時は既定モデル）。CLI の `pipeline.py --model` は全 kind を一括上書き |
 | 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格（対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ）にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント（①と legacy だけを読む）をドライバ段に挿入 |
 
@@ -190,6 +193,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | [slides/index.html](slides/index.html) | 初見の操作者（⓪→⑦チュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き） |
 | [MANUAL.md](MANUAL.md) / MANUAL.pdf | 操作者（背景と操作の意味） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 構成と区分け（層・固変・作成者区分・操作の入口）の正 |
 | 本書 DESIGN.md | skill の開発者・保守者 |
 | [references/workflow.md](references/workflow.md) | 全フェーズ skill（規則の正） |
 | [references/schema.md](references/schema.md) | スクリプト開発者（データの正） |
