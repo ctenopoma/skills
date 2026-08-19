@@ -21,6 +21,13 @@
 | [legacy-reverse/MANUAL.md](legacy-reverse/MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者(背景と操作の意味・トラブル対処)。HTML は画像込みの**単一ファイル**なのでそのまま配れる |
 | [docs/legacy-reverse/pdf/](docs/legacy-reverse/pdf/) | 設計者・保守者・運用管理者(設計・仕様書。全8章の合本 PDF) |
 
+skill を直したら（文書とスクリプトの食い違いを機械検知。詳細は [CLAUDE.md](CLAUDE.md)）:
+
+```bash
+python legacy-reverse/scripts/check_skill.py     # exit 0 になるまで直す
+python -m pytest legacy-reverse/scripts/selftest -q
+```
+
 ドキュメントの再生成:
 
 ```bash

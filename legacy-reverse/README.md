@@ -10,7 +10,7 @@
 |------|---------|
 | [slides/index.html](slides/index.html) | 初めて使う人（セットアップ→⑦を手順どおりに進めるチュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Skills とスクリプトの構成・区分け（層／固定と可変／作成者区分／操作の入口） |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Skills とスクリプトの構成・区分け（層／固定と可変／作成者区分／操作の入口／skill 自体の保守） |
 | [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
 | [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、合本 PDF は同梱の `pdf/`。再生成は `make_pdf.py`。章別に分けたいときは `--chapters`） |
@@ -40,6 +40,7 @@ legacy-reverse/
     pipeline.py            # 無人バッチドライバ + 対象選定（1関数=1 headlessプロセス。dict は変数チャンク単位。⭐優先）
     ledger.py              # 台帳: WBS生成/骨子生成（テンプレ駆動）/ハッシュ連鎖/blocked管理/⑥検証/フロー/dict-gate
     review_checks.py       # ①②の機械レビュー・一斉レビュー表・テンプレ契約チェック（ハルシネーション検知）
+    check_skill.py         # skill 自身の整合性チェック（文書とスクリプトのドリフト検知。保守用）
     serve_site.py          # ローカル配信（GETのみ・閲覧専用。バッチ進捗の表示ページを内蔵）
     review_actions.py      # ①②の承認・修正依頼、⑤の裁定の CLI（機械レビューを再検証してから反映）
     render_site.py         # docs/ → HTMLサイト（差分レンダ・案内パネル焼き込み）

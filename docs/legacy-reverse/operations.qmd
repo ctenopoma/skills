@@ -328,10 +328,8 @@ CLI の `--model <id>` は**全 kind を一括上書き**する。
      スクリプト実行)を `.claude/settings.json` の permissions.allow で許可しておくか、
      信頼できる閉じた環境に限り `--skip-permissions`
      (= `--dangerously-skip-permissions`)を明示する。
-     **ブラウザ実行は既定で `--dangerously-skip-permissions` が付く**(ボタン押下は
-     人の明示操作・サーバは 127.0.0.1 限定のため)。allow で管理したい環境は
-     `serve_site.py --no-skip-permissions` で外す。付いていないのに allow が不足すると
-     「応答はあるがファイル未更新・全件同一理由で NG」になる
+     許可が足りないと「応答はあるがファイル未更新・全件同一理由で NG」になる
+     (無人実行は許可ダイアログに答えられないため)
 2. **対象と実行内容を確認する(dry-run)**
    ```{#lst-ops-dryrun .bash lst-cap="実行前に対象とコマンドを確認する"}
    python <LR>/scripts/pipeline.py spec --root . --dry-run

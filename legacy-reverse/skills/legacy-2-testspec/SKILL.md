@@ -18,8 +18,10 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
    ないか確認（人が修正依頼を記入している場合がある。直接記入でも
    `review_actions.py request-changes` 経由でも同じ形式）。
    あれば内容を反映してから「状態: applied」に書き換える
-1. **プロジェクトの `docs/templates/test-spec.md`（人が著者。無ければ skill 同梱シード）**の
-   形式で `docs/test-specs/<func-id>.md` を生成:
+1. **プロジェクトの `docs/templates/test-spec.md`（人が著者。無ければ skill 同梱シード）を
+   読み**、その形式で `docs/test-specs/<func-id>.md` を生成する
+   （再生成・改訂で呼ばれたときも毎回読み直す。人が記入ガイドを更新していることがある。
+   **テンプレ自体は書き換えない**——直したいときは人に提案する）:
    - フロントマターの `spec-hash` に `ledger hash docs/specs/<func-id>.md` の値を記録
    - **観点**: 同値分割・境界値・異常系・グローバル状態・外部ファイルI/O・副作用。
      期待結果は戻り値だけでなく事後のグローバル状態・ファイル書き込みまで書く
@@ -37,7 +39,8 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
    hazard 境界ケースの漏れ。
    NG ゼロにしてから次へ（⚠未確定は承認依頼時点では残ってよい。approved 時にゼロ）
 4. **人へ承認依頼**: ケース一覧（分類・根拠の内訳）＋要回答の質問一覧を提示
-   （人は CLI `review_actions.py approve/request-changes testspec …` で直接返してもよい。
+   （人は CLI `review_actions.py approve testspec <func-id> --by <名前>` や
+   `request-changes` で直接返してもよい。
    その場合は反映まで CLI 側で完結する）
 5. 人が質問に回答したら期待値を確定（根拠を「人間確認済み」に）。ドメイン知識として
    残すべき回答は転記文を提案し、**人が domain-knowledge.md に貼る**（AI は書き込まない）
