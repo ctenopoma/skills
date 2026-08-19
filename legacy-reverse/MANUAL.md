@@ -150,7 +150,16 @@ AI の文章と混ぜないためで、ここが混ざると「誰が決めた�
 | 0割など例外の扱いの決定 | `docs/exception-policy.md`（`hazards.py add-policy`） | ①②（機械レビューが突合） |
 | この関数のこの箇所だけ直して | チャット or `docs/review-feedback.md` | その1件 |
 
-置き場所は `ledger init-templates` で雛形が配置されます（既存は上書きしません）。
+これらは**⓪の最初に `ledger init-templates` が雛形をまとめて作ります**（既存は上書きしません）。
+どのファイルにも空欄と「何を書くか」の記入ガイドがコメントで入っているので、白紙から
+書き始める必要はありません。書けているかは `ledger authored` で一覧できます。
+
+```
+✗ 未作成   まだファイルが無い（init-templates で作る）
+・ 未記入   雛形のまま（異常ではない。prompts なら「個別指示なし」の意味）
+▲ 記入途中 {{…}} のプレースホルダが残っている
+✏ 記入あり 人が書いた
+```
 
 ## 4.2 conventions.md — 規約
 
@@ -196,8 +205,8 @@ docstring 規約 / 禁止事項
 **重点** / **用語・表記の約束** / **繰り返さないでほしい指摘** / **手本にする成果物**
 
 ```bash
-ledger init-templates    # 雛形を配置（初回。既存は上書きしない）
-ledger prompts           # どの工程に書いたか・まだ雛形のままかを一覧
+ledger init-templates    # 雛形を配置（⓪の最初。既存は上書きしない）
+ledger authored          # 人が書くファイルの記入状況を一覧
 ```
 
 - **雛形のまま（案内コメントだけ）なら「個別指示なし」**として扱われます。
@@ -217,7 +226,7 @@ ledger prompts           # どの工程に書いたか・まだ雛形のまま�
   採否はあなたが決めます
 - 直した内容は**次にその工程を動かした関数から**効きます。既に完成した成果物は
   自動では書き換わりません（作り直すと反映されます）
-- 何をどこに書いたかは、`ledger prompts` と `git diff` で追えます。
+- 何をどこに書いたかは、`ledger authored` と `git diff` で追えます。
   可変ファイルはすべてプロジェクトの git 管理下に置いてください
 
 # 5. skill 側を触る人へ
@@ -309,7 +318,7 @@ python <LR>/scripts/build_viewer.py --root .   # レビューアへ配る単体E
    cp -r legacy-reverse/skills/* <project>/.claude/skills/
    ```
 3. `hooks/settings-example.json` を `<project>/.claude/settings.json` にマージする（安全装置）
-4. `ledger init-templates` で `docs/templates/` と `docs/prompts/` の雛形を置く
+4. `ledger init-templates` で人が書くファイル一式の雛形を置く（⓪の中でも実行されます）
 5. `/legacy-reverse` で状態を確認し、`/legacy-0-analyze` から始める
 
 MCP サーバ（`mcp-servers/legacy-reverse-mcp`）の登録は任意です。登録すると

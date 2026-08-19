@@ -9,9 +9,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   wbs                        docs/index.qmd を再生成
   skeletons [--force]        functions.json から docs/specs/ の骨子を生成
                              （項目立ては docs/templates/spec.md が正。無ければ同梱シード）
-  init-templates             テンプレ（docs/templates/）と工程別プロンプト（docs/prompts/）の
-                             シードをコピー（以後は人が編集）
-  prompts [--json]           工程別プロンプト調整の有無と記入状況を表示
+  init-templates             人が書くファイル一式の雛形を配置（規約・業務知識・例外ポリシー・
+                             仕様書テンプレ・工程別プロンプト。既存は上書きしない）
+  authored [--json]          人が書くファイルの記入状況を一覧
   hash <path>                sha256 先頭8桁を表示
   verify <func-id>           ハッシュ連鎖（①→②、③）を検証
   status [<func-id>]         フェーズ状況を表示（機械可読 JSON も可: --json）
@@ -695,6 +695,13 @@ TEMPLATE_NAMES = {"spec": "spec.md", "testspec": "test-spec.md"}
 # プロジェクトに無いときは「個別指示なし」が正しい（雛形の文言を指示として
 # 読ませない）。`ledger init-templates` がシードを docs/prompts/ へ配置する。
 PROMPT_PHASES = ("1-spec", "2-testspec", "3-testcode", "4-impl")
+
+# ---------- 人が書くファイル一式 ----------
+#
+# 「人だけが書く」ファイルは、⓪の最初に `ledger init-templates` で
+# **空欄＋記入ガイド付きの雛形**として置く。人が白紙から書き始めずに済ませるのが目的で、
+# 中身を AI が書くわけではない（作成者区分は workflow.md が正）。既存は上書きしない。
+AUTHORED_DOCS = ("conventions.md", "domain-knowledge.md", "exception-policy.md")
 SPEC_TEMPLATE_MARKERS = ("<!-- LR:IO-TABLES -->", "<!-- LR:CALLS-TABLE -->",
                          "<!-- LR:HAZARD-TABLE -->")
 SPEC_CONTRACT_HEADS = ("# 機能詳細", "# 副作用・例外", "## 例外・数値特異点", "# 未確定事項")
@@ -748,54 +755,118 @@ def prompt_is_seed(path: Path) -> bool:
                 if l.strip() and not l.lstrip().startswith("#")]
 
 
-def cmd_init_templates(p: Project, args) -> None:
-    """シードを docs/templates/ と docs/prompts/ にコピーする。
+def authored_files(root) -> list:
+    """人が書くファイルの (区分, 出力先, シード, 説明) 一覧。
 
-    既存は上書きしない（以後は人が編集する資産のため）。
+    `init-templates`（配置）と `authored`（記入状況）が同じ定義を共有する
+    ——一方だけが知っているファイル、という取りこぼしを作らないため。
     """
-    tdir = p.docs / "templates"
-    tdir.mkdir(parents=True, exist_ok=True)
-    for name in TEMPLATE_NAMES.values():
-        dst = tdir / name
+    root = Path(root)
+    docs = root / "docs"
+    out = [
+        ("規約", docs / "conventions.md", ASSETS_TEMPLATES / "conventions.md",
+         "型対応・丸め・単位・日付・命名・docstring（①〜④が読む）"),
+        ("業務知識", docs / "domain-knowledge.md", ASSETS_TEMPLATES / "domain-knowledge.md",
+         "語彙・略語・区分値・ISSUE 回答の蓄積（⓪①②が読む）"),
+        ("例外ポリシー", docs / "exception-policy.md", ASSETS_TEMPLATES / "exception-policy.md",
+         "0割等の扱いの決定 EP-xxx（hazards.py add-policy が追記）"),
+    ]
+    out += [("仕様書テンプレ", docs / "templates" / name, ASSETS_TEMPLATES / name,
+             f"{'①' if kind == 'spec' else '②'}の項目立て（節構成＋記入ガイド）")
+            for kind, name in TEMPLATE_NAMES.items()]
+    out += [("工程別プロンプト", docs / "prompts" / f"{ph}.md",
+             ASSETS_TEMPLATES / "prompts" / f"{ph}.md",
+             f"{ph} への個別指示（重点・繰り返さない指摘・手本）")
+            for ph in PROMPT_PHASES]
+    return out
+
+
+def authored_state(dst: Path, seed: Path, fill=None) -> str:
+    """未作成 / 未記入 / 記入途中 / 記入あり のいずれかを返す。
+
+    「雛形のまま」を機械的に見分けるための判定。シードと同一・見出しとコメントだけ、を
+    未記入とし、人が書き始めたあとにプレースホルダ（{{…}}）が残っていれば記入途中とする。
+    `fill` には配置時と同じプレースホルダ補完を渡す——補完済みで配置したファイルを
+    「もう人が触った」と誤判定しないため。
+    """
+    if not dst.exists():
+        return "未作成"
+    text = dst.read_text(encoding="utf-8-sig")
+    if seed.exists():
+        seed_text = seed.read_text(encoding="utf-8-sig")
+        if text in (seed_text, fill(seed_text) if fill else seed_text):
+            return "未記入"
+    if "{{" in text:
+        return "記入途中"
+    body = re.sub(r"(?s)<!--.*?-->", "", text)
+    if not [l for l in body.splitlines() if l.strip() and not l.lstrip().startswith("#")]:
+        return "未記入"
+    return "記入あり"
+
+
+def _fill_project_placeholders(text: str, p: Project) -> str:
+    """分かっている値だけプレースホルダを埋める（不明なものは残して人に見せる）。"""
+    proj = p.functions.get("project") or {}
+    known = {"legacy_lang": proj.get("legacy_lang", ""),
+             "new_lang": proj.get("new_lang", ""),
+             "package": proj.get("package", ""),
+             "test_framework": "pytest"}
+    for key, value in known.items():
+        if value:
+            text = text.replace("{{" + key + "}}", str(value))
+    return text
+
+
+def cmd_init_templates(p: Project, args) -> None:
+    """人が書くファイルの雛形を一式そろえる（既存は上書きしない）。
+
+    ⓪の最初に実行する。人はここで作られた「空欄＋記入ガイド」を埋めるだけでよく、
+    白紙から書き始めたり、置き場所を調べたりしなくて済む。
+    """
+    made = kept = 0
+    for label, dst, seed, _desc in authored_files(p.root):
+        rel = dst.relative_to(p.root).as_posix()
         if dst.exists():
-            print(f"skip: {dst}（既存。編集して使う）")
+            print(f"skip   : {rel}（既存。そのまま編集して使う）")
+            kept += 1
             continue
-        shutil.copy2(ASSETS_TEMPLATES / name, dst)
-        print(f"copied: {dst}（項目立て・書き方ガイドはこのファイルを人が編集する）")
-
-    pdir = p.docs / "prompts"
-    pdir.mkdir(parents=True, exist_ok=True)
-    for phase in PROMPT_PHASES:
-        dst = pdir / f"{phase}.md"
-        if dst.exists():
-            print(f"skip: {dst}（既存。編集して使う）")
+        if not seed.exists():
+            print(f"warn   : シードが無い {seed}")
             continue
-        shutil.copy2(ASSETS_TEMPLATES / "prompts" / f"{phase}.md", dst)
-        print(f"copied: {dst}（工程{phase}のプロジェクト個別指示。人が編集する）")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(_fill_project_placeholders(
+            seed.read_text(encoding="utf-8-sig"), p), encoding="utf-8")
+        print(f"created: {rel}  ← {label}")
+        made += 1
+    print(f"\n{made} 件を作成、{kept} 件は既存のまま。**中身を書くのは人**"
+          "（AI は読むだけ・提案まで）。\n"
+          "各ファイルの冒頭と各節に「何を書くか」のガイドがコメントで入っている。\n"
+          "記入状況は `ledger authored` で確認できる。")
 
 
-def cmd_prompts(p: Project, args) -> None:
-    """工程別プロンプト調整（docs/prompts/）の有無と記入状況を表示する。"""
+def cmd_authored(p: Project, args) -> None:
+    """人が書くファイルの記入状況を一覧する。"""
     rows = []
-    for phase in PROMPT_PHASES:
-        path = prompt_path(p.root, phase)
-        if path is None:
-            rows.append({"phase": phase, "path": str(p.docs / "prompts" / f"{phase}.md"),
-                         "exists": False, "written": False, "state": "なし（個別指示なし）"})
-        else:
-            seed = prompt_is_seed(path)
-            rows.append({"phase": phase, "path": str(path), "exists": True,
-                         "written": not seed,
-                         "state": "未記入（雛形のまま＝個別指示なし）" if seed else "記入あり"})
+    fill = lambda text: _fill_project_placeholders(text, p)   # noqa: E731
+    for label, dst, seed, desc in authored_files(p.root):
+        rows.append({"kind": label, "path": dst.relative_to(p.root).as_posix(),
+                     "state": authored_state(dst, seed, fill), "desc": desc})
     if args.json:
-        print(json.dumps({"prompts": rows}, ensure_ascii=False, indent=1))
+        print(json.dumps({"authored": rows}, ensure_ascii=False, indent=1))
         return
-    print("工程別プロンプト調整（docs/prompts/。人が著者・AIは読むだけ）:")
+    marks = {"未作成": "✗", "未記入": "・", "記入途中": "▲", "記入あり": "✏"}
+    print("人が書くファイル（AI は読むだけ・書き込まない）:")
     for r in rows:
-        mark = "✏" if r["written"] else "・"
-        print(f"  {mark} {r['phase']:<11} {r['state']}")
-    if not any(r["exists"] for r in rows):
-        print("  → `ledger init-templates` で雛形を配置できる")
+        print(f"  {marks.get(r['state'], '?')} {r['state']:<5} {r['path']:<34} {r['desc']}")
+    todo = [r for r in rows if r["state"] == "未作成"]
+    half = [r for r in rows if r["state"] == "記入途中"]
+    if todo:
+        print(f"\n未作成が {len(todo)} 件 → `ledger init-templates` で雛形を配置する")
+    if half:
+        print(f"記入途中（{{{{…}}}} が残っている）が {len(half)} 件: "
+              + ", ".join(r["path"] for r in half))
+    print("\n注: 「未記入」は雛形のままという意味で、異常ではない"
+          "（prompts は個別指示なし、規約は既定のままの扱い）。")
 
 
 def cmd_skeletons(p: Project, args) -> None:
@@ -1368,8 +1439,8 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("wbs")
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
-    sub.add_parser("init-templates", help="テンプレと工程別プロンプトのシードを docs/templates/・docs/prompts/ にコピー（以後は人が編集）")
-    s = sub.add_parser("prompts", help="工程別プロンプト調整（docs/prompts/）の有無と記入状況を表示")
+    sub.add_parser("init-templates", help="人が書くファイル（規約・業務知識・例外ポリシー・仕様書テンプレ・工程別プロンプト）の雛形を一式配置（既存は上書きしない）")
+    s = sub.add_parser("authored", help="人が書くファイルの記入状況を一覧（未作成/未記入/記入途中/記入あり）")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
@@ -1415,7 +1486,7 @@ def main() -> None:
         {"add": cmd_flow_add, "rm": cmd_flow_rm, "list": cmd_flow_list}[args.flow_cmd](p, args)
         return
     {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "init-templates": cmd_init_templates,
-     "prompts": cmd_prompts,
+     "authored": cmd_authored,
      "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,

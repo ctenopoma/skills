@@ -11,20 +11,43 @@ user-invocable: true
 
 ## 手順
 
-### 1. ヒアリング（勝手に決めない）
+### 1. 人が書くファイルの雛形を置く（最初に1回）
+
+**ヒアリングより先に、人が書き込む先を作る。** 白紙から書かせない・置き場所を
+探させないため、空欄と記入ガイド付きの雛形を機械的に一式配置する:
+
+```bash
+ledger init-templates   # 既存は上書きしない（何度実行しても安全）
+ledger authored         # 何がまだ未記入かを確認する
+```
+
+作られるもの（**どれも人だけが書くファイル**。AI は読む・提案するだけ）:
+
+| ファイル | 中身 | 書く時期 |
+|---|---|---|
+| `docs/conventions.md` | 規約（型対応・丸め・単位・日付・命名・docstring） | この⓪で（手順2） |
+| `docs/domain-knowledge.md` | 語彙・略語・区分値・ISSUE 回答の蓄積 | ⓪で先行投入（手順3.9）、以後随時 |
+| `docs/exception-policy.md` | 例外の決定 EP-xxx | ⓪の手順3.7（`hazards.py add-policy` が追記） |
+| `docs/templates/spec.md`・`test-spec.md` | ①②の項目立て（節構成＋記入ガイド） | ①を始める前（不要ならそのまま） |
+| `docs/prompts/1-spec` `2-testspec` `3-testcode` `4-impl`.md | 工程ごとの個別指示（重点・繰り返さない指摘・手本） | いつでも（次の実行から効く） |
+
+雛形の各節には「何を書くか」がコメントで入っている。**AI はそれを質問の台本として使い、
+人の回答をその場に書き込むのではなく、記入する内容を提示して人に貼ってもらう。**
+
+### 2. ヒアリング（勝手に決めない）
+
+雛形の空欄を上から埋めていく形で聞く。
 
 - レガシーコードの場所と言語（機械抽出できるのは Fortran / C・C++。その他は AI と人で列挙）
 - 新パッケージ名・src 配置
-- conventions.md の中身: 型対応表（例: `PIC 9(9)V99`→`Decimal`、`REAL*8`→`float`）、
+- `docs/conventions.md` の中身: 型対応表（例: `PIC 9(9)V99`→`Decimal`、`REAL*8`→`float`）、
   命名規則、モック方針、**後戻り高コスト項目**（丸め・⑤の許容誤差／単位・スケール／
   日付規則／文字コード／既知バグの扱い既定。②の期待値の前提になるため、後から覆ると
   ②以降が全て作り直しになる）。
-  **conventions.md は人だけが書くファイル**（workflow.md「ファイルの作成者区分」）。
-  AI がやるのは、テンプレ `assets/templates/conventions.md` を docs/conventions.md へ
-  コピーして枠を用意し、決めるべき項目の質問リストと記入例をチャットに提示するまで。
   **記入・確定は人**が行い、記入後に AI が読み合わせて矛盾・抜けを指摘する
+  （`ledger authored` が「記入途中（`{{…}}` が残っている）」を教える）
 
-### 2. 解析（機械抽出が正。LLMは意味づけのみ）
+### 3. 解析（機械抽出が正。LLMは意味づけのみ）
 
 抽出する情報は schema.md の functions.json スキーマが正。関数ごとに:
 入力 / 出力 / グローバル状態（読み書き別）/ 参照外部ファイル / 呼び出しサブルーチン。
@@ -59,14 +82,14 @@ user-invocable: true
   抽出方法を設計したらスクリプト化して scripts/ に足すこと）
 - その他の言語: 同じ抽出項目を満たす方法をその場で設計する（grep→LLM読解の併用）
 
-### 3. 完全性チェック
+### 4. 完全性チェック
 
 Fortran は extract_fortran.py が内蔵（状態機械パースと素朴カウントの2系統突合。
 `completeness_mismatches` が空なら OK）。それ以外の言語は関数定義の機械カウント
 （grep 等）と functions.json の件数を突合する。
 不一致は原因を特定。判断がつかないものは ISSUE 起票（`ledger next-issue` で採番）。
 
-### 3.5. グラフの確認（抽出直後・LLMは数えない）
+### 4.5. グラフの確認（抽出直後・LLMは数えない）
 
 ```bash
 python <LR>/scripts/graph.py --root . summary   # ノード/エッジ数・エントリ・到達率・dead件数
@@ -83,7 +106,7 @@ python <LR>/scripts/graph.py --root . dead      # どのエントリからも到
   `ledger exclude --dead`（到達不能の一括除外。実行前に対象一覧が出る）にする
 - 循環があれば `graph.py cycles`（WBS の警告と同じもの）で内訳を見る
 
-### 3.6. フロー定義のヒアリング（任意。該当するときだけ）
+### 4.6. フロー定義のヒアリング（任意。該当するときだけ）
 
 **次のどちらかに当てはまるときだけ**、人に「作業スコープを分けますか」と聞く:
 
@@ -99,7 +122,7 @@ ledger flow list
 `ledger next --flow <名前>` / `pipeline.py spec|run|dict --flow <名前>` で対象を絞れる。
 **当てはまらないなら定義しない**（未定義時は F-0000 を既定エントリとする従来動作）。
 
-### 3.7. 例外ポリシーの初期決定（hazards。人に聞く）
+### 4.7. 例外ポリシーの初期決定（hazards。人に聞く）
 
 ⓪の抽出は数値特異点（0割・SQRT/LOG の定義域・変数添字）を機械検知して
 functions.json の `hazards` に記録している。**Fortran は 0割でも走り続けるが Python は
@@ -126,7 +149,7 @@ python <LR>/scripts/hazards.py match  --root .   # 突合 → docs/exception-que
 4. `status` の未決定が 0 になるのが⓪の完了条件のひとつ
    （残ったまま①へ進むと `review_checks.py spec` が NG にする）
 
-### 3.8. 変数辞書の初期構築
+### 4.8. 変数辞書の初期構築
 
 ```bash
 python <LR>/scripts/variables.py build --root .
@@ -140,7 +163,7 @@ python <LR>/scripts/variables.py build --root .
 既定では変数の語義が未承認の関数は①に進めない（dict-gate）ので、
 ⓪の次は①ではなく辞書、という順になる。
 
-### 3.9. ドメイン知識の先行投入（略語・区分値。人に聞く）
+### 4.9. ドメイン知識の先行投入（略語・区分値。人に聞く）
 
 辞書の解釈を始める前に、人が知っている語彙を `docs/domain-knowledge.md` の
 「語彙・略語集」「区分値・番兵値」へ先行投入する。
@@ -158,16 +181,15 @@ python <LR>/scripts/variables.py build --root .
 rank C/D の1件ずつ確認と ISSUE の往復を減らす。
 **人がわからない語を推測で埋めないこと**（それは辞書フェーズの根拠ベース解釈が受け持つ）。
 
-### 4. 生成
+### 5. 生成
 
 ```bash
-ledger init-templates   # 仕様書テンプレのシードを docs/templates/ へコピー（初回のみ）
 ledger skeletons        # docs/specs/ に骨子（フロントマター＋IO表は⓪時点で充填済み）
 ledger wbs              # docs/index.qmd
 ```
 
-- **docs/templates/（spec.md・test-spec.md）は人だけが書くファイル**。仕様書の項目立てと
-  書き方ガイドをプロジェクトに合わせて人が編集する（固定契約は workflow.md「固定と可変」。
+- 骨子は `docs/templates/spec.md` の本文から作られる。**①を始める前に、人がこのテンプレを
+  見て項目立てを調整できる**（手順1で配置済み。固定契約は workflow.md「固定と可変」。
   編集後は `review_checks.py template --root .` で契約チェック）。編集不要ならそのままでよい
 
 - `assets/templates/_quarto.yml` と `assets/templates/wbs.css` を docs/ にコピーし、
@@ -180,7 +202,7 @@ ledger wbs              # docs/index.qmd
 新関数のシグネチャ（functions.json の new.signature）は型対応表に従って⓪で決める。
 これが③④の共通契約になる。
 
-### 5. 人の調整（⓪以降いつでも）
+### 6. 人の調整（⓪以降いつでも）
 
 関数リストは人がいつでも調整できる。**どちらも functions.json の手書き編集や
 エントリの物理削除では行わない**（再抽出で別IDとして復活し、成果物との紐付けが切れる）:
@@ -193,7 +215,7 @@ ledger wbs              # docs/index.qmd
   復帰は `ledger include F-xxxx`。呼び出し元が残っている場合は警告が出るので、
   仕様への影響を確認し、判断が要るなら ISSUE に出す
 
-### 6. 報告
+### 7. 報告
 
 関数数・コールグラフの循環有無・dead 件数・hazard の決定済み/未決定・変数辞書の件数・
 open ISSUE・推奨着手順の先頭5件を報告し、**`/legacy-0-dict`（辞書フェーズ）へ誘導する**。

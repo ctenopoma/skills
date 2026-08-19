@@ -176,8 +176,14 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
 <section class="slide">
   <h2>セットアップ③ — あなたが書く MD を用意する</h2>
   <p><strong>「どう進めるか」（工程・チェック・禁止事項）は全プロジェクト共通で固定です。</strong>
-  一方<strong>「このプロジェクトでどう書くか」は、あなたが MD に書いて決めます</strong>。まず雛形を置きます。</p>
-  <pre><code>python &lt;LR&gt;/scripts/ledger.py --root . init-templates</code></pre>
+  一方<strong>「このプロジェクトでどう書くか」は、あなたが MD に書いて決めます</strong>。
+  その置き場所は<strong>⓪の最初に自動で作られます</strong>（<code>/legacy-0-analyze</code> が
+  下のコマンドを実行します。手で打つ必要はありません）。</p>
+  <pre><code>python &lt;LR&gt;/scripts/ledger.py --root . init-templates   # 雛形を一式配置（既存は上書きしない）
+python &lt;LR&gt;/scripts/ledger.py --root . authored         # どこがまだ未記入かを一覧</code></pre>
+  <p class="note"><strong>白紙は作られません</strong>——どのファイルにも空欄と「何を書くか」の
+  記入ガイドがコメントで入っています。AI はそのガイドを質問の台本として使い、あなたの回答を
+  <strong>記入文として提示</strong>します（貼って確定するのはあなた）。</p>
   <table>
     <tr><th>置き場所</th><th>書くこと</th><th>いつ書くか</th></tr>
     <tr><td><code>docs/conventions.md</code></td>
@@ -203,7 +209,8 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
   </ul></div>
   <p class="note">AI はこれらのファイルを<strong>書き換えません</strong>（直したほうがよい時は提案文を出すだけ）。
   あなたの決めたことと AI の文章が混ざらないようにするためです。
-  記入状況は <code>python &lt;LR&gt;/scripts/ledger.py --root . prompts</code> で確認できます。</p>
+  <code>authored</code> は <b>✗未作成 / ・未記入（雛形のまま）/ ▲記入途中（<code>{{…}}</code>が残り）/ ✏記入あり</b>
+  を表示します。</p>
 </section>
 
 <!-- 8 -->

@@ -21,7 +21,7 @@ graph TB
     RS[render_site.py<br>HTML生成] --- SS[serve_site.py<br>閲覧サーバ GETのみ]
   end
   HK[hooks<br>④⑤中の tests/ 編集拒否]
-  TP[assets/templates<br>テンプレ＋工程別プロンプトのシード] -->|init-templates でコピー| PJT[(対象PJの docs/templates/<br>docs/prompts/<br>人が編集)]
+  TP[assets/templates<br>人が書くファイルのシード] -->|init-templates で配置| PJT[(対象PJの conventions/domain-knowledge<br>templates/ prompts/<br>人が編集)]
   MCP[legacy-reverse-mcp] --> scripts
   skill -->|呼ぶ| scripts
   scripts -->|読み書き| DATA[(functions.json / ledger.json / variables.json<br>docs/ 成果物)]
@@ -64,7 +64,7 @@ MCP サーバ（mcp-servers/legacy-reverse-mcp）は scripts を型付きツー�
 | | 固定（skill が持つ・共有） | 可変（対象プロジェクトが持つ・人が作る） |
 |---|---|---|
 | 実体 | 工程（⓪〜⑦）・情報遮断・ハッシュ連鎖・品質ゲート・ISSUE/承認規則（references/workflow.md）、scripts、skills の手順 | **項目立て**: `docs/templates/spec.md`・`test-spec.md` ／ **規約**: conventions.md ／ **工程別プロンプト調整**: `docs/prompts/{1-spec,2-testspec,3-testcode,4-impl}.md` ／ 業務知識 domain-knowledge.md、例外の決定 exception-policy.md、フロー定義 |
-| 変え方 | skill リポジトリの改版 | 各プロジェクトで人が編集（`ledger init-templates` がシードを配置。記入状況は `ledger prompts`） |
+| 変え方 | skill リポジトリの改版 | 各プロジェクトで人が編集（⓪の最初に `ledger init-templates` が雛形を一式配置。記入状況は `ledger authored`） |
 | 境界 | **固定契約**: テンプレの置換マーカー（LR:IO-TABLES 等）・契約見出し（機能詳細 / 例外・数値特異点 / トレーサビリティ…）・フロントマターのキー。`review_checks.py template` が機械検証 | 契約以外の節は追加・改名・削除が自由。必須節はテンプレの見出しから自動導出。**優先順位は 固定契約 ＞ skill の手順 ＞ PJ 個別指示**（契約を覆す指示には従わず人へ報告） |
 
 ## 4. ファイルの作成者区分

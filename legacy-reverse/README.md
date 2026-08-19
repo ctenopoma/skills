@@ -67,7 +67,8 @@ legacy-reverse/
 3. `hooks/settings-example.json` を対象プロジェクトの `.claude/settings.json` にマージ
 4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を絶対パスで登録（推奨。元リポジトリを参照するので残しておく）
 5. Quarto を入れる（HTML サイト生成に必要。`quarto --version` が通ればよい）
-6. `ledger init-templates` で仕様書テンプレを `docs/templates/` に配置し、項目立て・書き方を
+6. `ledger init-templates` で人が書くファイル一式（規約・業務知識・例外ポリシー・仕様書テンプレ・
+   工程別プロンプト）の雛形を配置し、項目立て・書き方を
    プロジェクトに合わせて人が編集する（編集不要ならそのままでよい）
 7. `/legacy-reverse` を実行してセットアップ確認 → `/legacy-0-analyze` から開始
 
