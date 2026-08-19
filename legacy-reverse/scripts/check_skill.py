@@ -43,8 +43,9 @@ PROJECT_PREFIXES = ("docs/", "data/", "src/", "tests/", "legacy/", "pdf/",
                     ".legacy-reverse/", "docs-sphinx/", "dist/", ".claude/",
                     "docs\\", "data\\")
 # skill の外にある既知のファイル（対象プロジェクト・他 skill・リポジトリ直下）
-EXTERNAL_FILES = {"bench.py", "qtpdf.py", "server.py", "conf.py", "setup.py",
-                  "make_pdf.py", "make_manual.py", "ledger_old.py", "sphinx-conf.py"}
+EXTERNAL_FILES = {"bench.py", "conftest.py", "qtpdf.py", "server.py", "conf.py",
+                  "setup.py", "make_pdf.py", "make_manual.py", "ledger_old.py",
+                  "sphinx-conf.py"}
 
 # 文書内のコマンド例を拾うための別名（`ledger` = python <LR>/scripts/ledger.py）
 ALIASES = {"ledger": "ledger.py"}

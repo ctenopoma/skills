@@ -192,7 +192,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 |---|---|
 | [slides/index.html](slides/index.html) | 初見の操作者（⓪→⑦チュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き） |
-| [MANUAL.md](MANUAL.md) / MANUAL.pdf | 操作者（背景と操作の意味） |
+| [MANUAL.md](MANUAL.md) / MANUAL.pdf | 使う人・skill を触る人（構成・参照関係と、人が書く MD（規約・テンプレ・工程別プロンプト）の手引き） |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 構成と区分け（層・固変・作成者区分・操作の入口）の正 |
 | 本書 DESIGN.md | skill の開発者・保守者 |
 | [references/workflow.md](references/workflow.md) | 全フェーズ skill（規則の正） |

@@ -11,7 +11,7 @@
 | [slides/index.html](slides/index.html) | 初めて使う人（セットアップ→⑦を手順どおりに進めるチュートリアル） |
 | [QUICKREF.md](QUICKREF.md) | 作業中の操作者（コマンド即引き1枚） |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Skills とスクリプトの構成・区分け（層／固定と可変／作成者区分／操作の入口／skill 自体の保守） |
-| [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者（背景と操作の意味・トラブル対処）。HTML は画像込みの単一ファイルでそのまま配れる |
+| [MANUAL.md](MANUAL.md) / MANUAL.html / MANUAL.pdf | 使う人・skill を触る人（構成・参照関係と、人が書く MD（規約・テンプレ・工程別プロンプト）の手引き）。HTML は画像込みの単一ファイルでそのまま配れる |
 | [DESIGN.md](DESIGN.md) | skill の開発者・保守者（構造と設計判断） |
 | [../docs/legacy-reverse/](../docs/legacy-reverse/) | 設計者・保守者・運用管理者（skill＋画面＋MCPサーバ＋運用の設計・仕様書。Quarto サイト。`quarto render docs/legacy-reverse` で HTML 化、合本 PDF は同梱の `pdf/`。再生成は `make_pdf.py`。章別に分けたいときは `--chapters`） |
 | [references/workflow.md](references/workflow.md) / [schema.md](references/schema.md) | フェーズskill・スクリプト（規則とデータの正） |

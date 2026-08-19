@@ -132,7 +132,7 @@ python <LR>/scripts/check_skill.py --json   # エージェントの自己修正�
 
 | 文書 | 内容 |
 |---|---|
-| [MANUAL.md](MANUAL.md) | 操作者向け: 背景と操作の意味・トラブル対処 |
+| [MANUAL.md](MANUAL.md) | 構成・参照関係と、人が書く MD（規約・テンプレ・工程別プロンプト）の手引き |
 | [QUICKREF.md](QUICKREF.md) | 作業中のコマンド即引き |
 | [DESIGN.md](DESIGN.md) | 設計判断の理由（5原則・品質ゲート・スケール） |
 | [references/workflow.md](references/workflow.md) | 全フェーズ共通規則の正 |

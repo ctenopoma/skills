@@ -18,7 +18,7 @@
 | --- | --- |
 | [legacy-reverse/slides/index.html](legacy-reverse/slides/index.html) | 初見の操作者(ブラウザで開くだけのチュートリアル) |
 | [legacy-reverse/QUICKREF.md](legacy-reverse/QUICKREF.md) | 作業中の操作者(コマンド即引き 1 枚) |
-| [legacy-reverse/MANUAL.md](legacy-reverse/MANUAL.md) / MANUAL.html / MANUAL.pdf | 操作者(背景と操作の意味・トラブル対処)。HTML は画像込みの**単一ファイル**なのでそのまま配れる |
+| [legacy-reverse/MANUAL.md](legacy-reverse/MANUAL.md) / MANUAL.html / MANUAL.pdf | 使う人・skill を触る人(構成・参照関係と、人が書く MD の手引き)。HTML は画像込みの**単一ファイル**なのでそのまま配れる |
 | [docs/legacy-reverse/pdf/](docs/legacy-reverse/pdf/) | 設計者・保守者・運用管理者(設計・仕様書。全8章の合本 PDF) |
 
 skill を直したら（文書とスクリプトの食い違いを機械検知。詳細は [CLAUDE.md](CLAUDE.md)）:

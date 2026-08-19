@@ -171,7 +171,42 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
   <strong>以後も、迷ったら・再開するときは、いつでも <code>/legacy-reverse</code>。</strong></div>
 </section>
 
+
 <!-- 7 -->
+<section class="slide">
+  <h2>セットアップ③ — あなたが書く MD を用意する</h2>
+  <p><strong>「どう進めるか」（工程・チェック・禁止事項）は全プロジェクト共通で固定です。</strong>
+  一方<strong>「このプロジェクトでどう書くか」は、あなたが MD に書いて決めます</strong>。まず雛形を置きます。</p>
+  <pre><code>python &lt;LR&gt;/scripts/ledger.py --root . init-templates</code></pre>
+  <table>
+    <tr><th>置き場所</th><th>書くこと</th><th>いつ書くか</th></tr>
+    <tr><td><code>docs/conventions.md</code></td>
+        <td><strong>規約</strong>: 型対応表・丸め・許容誤差・単位・日付・命名・docstring</td>
+        <td>⓪のヒアリングで<strong>決め切る</strong></td></tr>
+    <tr><td><code>docs/domain-knowledge.md</code></td>
+        <td><strong>業務知識</strong>: 略語・区分値・ISSUE に答えた内容</td>
+        <td>⓪で語彙を先に。以後は随時</td></tr>
+    <tr><td><code>docs/templates/</code></td>
+        <td>仕様書の<strong>項目立て</strong>（節を足す・消す・記入ガイド）</td>
+        <td>①を始める前</td></tr>
+    <tr><td><code>docs/prompts/</code></td>
+        <td>工程ごとの<strong>AIへの指示</strong>（重点・用語・繰り返さない指摘・手本）</td>
+        <td>いつでも（次の実行から効く）</td></tr>
+  </table>
+  <div class="you"><b>書き方の要点</b>
+  <ul style="margin:6px 0 0">
+    <li><strong>丸め・許容誤差・単位・日付・文字コード・既知バグの扱い</strong>は⓪で決め切る。
+      ②以降の全ケースの期待値の前提になるので、後から覆すと作り直しになります</li>
+    <li>迷ったら「関数ごと」ではなく<strong>全体の既定を1つ</strong>。例外は
+      domain-knowledge.md に関数単位で書けば、そちらが勝ちます</li>
+    <li><code>docs/prompts/</code> は<strong>雛形のままなら「指示なし」</strong>。必要な工程だけ書けば十分</li>
+  </ul></div>
+  <p class="note">AI はこれらのファイルを<strong>書き換えません</strong>（直したほうがよい時は提案文を出すだけ）。
+  あなたの決めたことと AI の文章が混ざらないようにするためです。
+  記入状況は <code>python &lt;LR&gt;/scripts/ledger.py --root . prompts</code> で確認できます。</p>
+</section>
+
+<!-- 8 -->
 <section class="slide">
   <h2>⓪ 解析 — 関数リストを作る</h2>
   <ol class="steps">
@@ -182,7 +217,8 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
       <ul style="margin:4px 0 0">
         <li>レガシーコードの場所と言語、新しいパッケージ名</li>
         <li>型対応表（例: <code>REAL*8</code>→<code>float</code>）、丸め・単位・日付などの
-          全体ルール → <strong>規約（conventions.md）として提示されるので OK を出す</strong></li>
+          全体ルール → AI が質問リストを出すので、<strong>あなたが
+          <code>docs/conventions.md</code> に記入して確定する</strong>（前ページ）</li>
       </ul></li>
     <li><strong>途中で聞かれること:</strong> 「0割をどう扱うか」（例外ポリシー。次ページ）と
       「この略語は読めますか」（変数辞書の準備。次々ページ）</li>
@@ -193,7 +229,7 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
   <strong>途中でやり直しても安全</strong>（再実行はマージ動作。関数IDは変わらない）。</p>
 </section>
 
-<!-- 8 -->
+<!-- 9 -->
 <section class="slide">
   <h2>⓪の途中で聞かれること — 例外ポリシー（0割の扱い）</h2>
   <p>Fortran は0で割っても Inf（無限大）を作って走り続けますが、<strong>Python はそこで
@@ -220,7 +256,7 @@ cp -r legacy-reverse/skills/* &lt;project&gt;/.claude/skills/</code></pre>
     （<strong>個別の指定が全体の既定に勝つ</strong>）。答えは登録簿に記録され、二度と聞かれない。</div>
 </section>
 
-<!-- 8b -->
+<!-- 10 -->
 <section class="slide">
   <h2>作業範囲を決める — 「この Main に関わる範囲だけ」を指定できる</h2>
   <p>①以降のバッチは、既定では<strong>全関数</strong>が対象です。メインルーチンが複数ある、
@@ -249,7 +285,7 @@ ledger flow list                        # 定義の確認</code></pre>
   </ul>
 </section>
 
-<!-- 8c -->
+<!-- 11 -->
 <section class="slide">
   <h2>進捗サイトを開く — ここからはブラウザも使う</h2>
   <p>⓪が終わると HTML の進捗サイトができています（以後、全フェーズの最後に自動更新）。
@@ -270,7 +306,7 @@ ledger flow list                        # 定義の確認</code></pre>
   返答方法）が本文の先頭に出る——何待ちか・どうすればよいかはページを見れば分かる。</p>
 </section>
 
-<!-- 9 -->
+<!-- 12 -->
 <section class="slide">
   <h2>⓪.5 変数辞書 (1/2) — なぜ仕様書より先にやるのか</h2>
   <p>レガシーの変数名（<code>R8TBL</code>・<code>WKA</code>・<code>IFLG</code>）はそれだけでは
@@ -293,7 +329,7 @@ ledger flow list                        # 定義の確認</code></pre>
   ①に進めません（急ぐ場合は「辞書のゲートを解除して」と言えば先へ進めます）。</p>
 </section>
 
-<!-- 10 -->
+<!-- 13 -->
 <section class="slide">
   <h2>⓪.5 変数辞書 (2/2) — 実際の手順</h2>
   <ol class="steps">
@@ -319,7 +355,7 @@ ledger flow list                        # 定義の確認</code></pre>
   （または AI が「dict-gate で止まる関数は無くなった」と報告）→ <code>/legacy-1-spec</code> へ。</div>
 </section>
 
-<!-- 12 -->
+<!-- 14 -->
 <section class="slide">
   <h2>① 関数仕様書 — まず1件お試し、あとは全件バッチ</h2>
   <ol class="steps">
@@ -344,7 +380,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   書き直しは draft のうちは何度でも頼める。</p>
 </section>
 
-<!-- 13 -->
+<!-- 15 -->
 <section class="slide">
   <h2>一斉レビュー表 — まとめて承認する</h2>
   <p>draft になった仕様書が1枚の表に並びます（WBS の「要対応」からリンク）。</p>
@@ -361,7 +397,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   と返すやり方も、そのまま使える。</p>
 </section>
 
-<!-- 14 -->
+<!-- 16 -->
 <section class="slide">
   <h2>② テスト仕様書 — ①が全部承認できたら、②を全件</h2>
   <ol class="steps">
@@ -385,7 +421,37 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   次はまとめて流すだけです。</div>
 </section>
 
-<!-- 15 -->
+<!-- 17 -->
+<section class="slide">
+  <h2>同じ指摘を2回したら — <code>docs/prompts/</code> に1行足す</h2>
+  <p>レビューで「またここか」と思ったら、それは<strong>指示を書く場所がある</strong>というサインです。
+  ①〜④は<strong>起動のたびに</strong>この4ファイルを読んでから書き始めます
+  （作り直し・改訂・無人バッチでも同じ）。</p>
+  <table>
+    <tr><th>ファイル</th><th>効く工程</th><th>書くことの例</th></tr>
+    <tr><td><code>docs/prompts/1-spec.md</code></td><td>① 仕様書</td>
+        <td>「漸化式は言葉で要約せず式で書く」「添字の基準を毎回明記」</td></tr>
+    <tr><td><code>docs/prompts/2-testspec.md</code></td><td>② テスト仕様</td>
+        <td>「0近傍と負値は全関数で必ず1ケース」</td></tr>
+    <tr><td><code>docs/prompts/3-testcode.md</code></td><td>③ テストコード</td>
+        <td>「fixture は conftest.py に集約」「比較は pytest.approx」</td></tr>
+    <tr><td><code>docs/prompts/4-impl.md</code></td><td>④ 実装</td>
+        <td>「要素ごとの Python ループは避ける」「Decimal を float にしない」</td></tr>
+  </table>
+  <p>どのファイルにも<strong>重点 / 用語の約束 / 繰り返さないでほしい指摘 / 手本にする成果物</strong>
+  の節が用意してあります。<strong>一番効くのは「手本」</strong>——
+  「粒度は <code>docs/specs/F-0123.md</code> に揃えて」と1行書くほうが、抽象的な指示を10行書くより揃います。</p>
+  <div class="you"><b>使い分け</b>
+  <ul style="margin:6px 0 0">
+    <li>この1件だけ直したい → <strong>チャットで言う</strong>（書き足すと指示が太るだけ）</li>
+    <li>毎回同じことを言っている → <strong>prompts の「繰り返さないでほしい指摘」に1行</strong></li>
+    <li>節そのものを増減したい → <strong>docs/templates/</strong>、規約なら <strong>conventions.md</strong></li>
+  </ul></div>
+  <p class="note">書けるのは「どう書くか」だけです。読んでよい入力の制限・必須項目・承認の要否といった
+  <strong>土台の規則は変えられません</strong>（反する指示があっても AI は従わず、あなたに報告します）。</p>
+</section>
+
+<!-- 18 -->
 <section class="slide">
   <h2>③④⑤ — 承認が終わったら、まとめて流すだけ</h2>
   <p>②の承認が済んだ関数は、③テストコード→④実装→⑤テストまで<strong>人の承認なしで
@@ -409,7 +475,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   </ul>
 </section>
 
-<!-- 16 -->
+<!-- 19 -->
 <section class="slide">
   <h2>⑤ の結果 — fail のときだけ、あなたの出番（裁定）</h2>
   <p>⑤はバッチ（run）が自動実行します（1件ずつなら <code>/legacy-5-test F-0001</code>）。
@@ -432,7 +498,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   (b)(c) をAIが勝手にやることはない（テスト改変は hook が物理的に拒否）。</div>
 </section>
 
-<!-- 17 -->
+<!-- 20 -->
 <section class="slide">
   <h2>無人バッチの共通ルール — 中断・再開・順番の割り込み</h2>
   <p>ここまでに出てきた <code>pipeline.py dict / spec / run</code> は、すべて同じ性質を持ちます:</p>
@@ -455,7 +521,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   ライブに見える（表示専用）。次ページ参照。</p>
 </section>
 
-<!-- 18 -->
+<!-- 21 -->
 <section class="slide">
   <h2>バッチ実行状況ページ — 進捗のライブ表示（見るだけ）</h2>
   <p>ナビバーの「バッチ状況」（<code>/pipeline.html</code>）。無人実行の進捗が
@@ -473,7 +539,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   回しながら承認（チャット / CLI）を返していけば、止まらずに進む。</div>
 </section>
 
-<!-- 19 -->
+<!-- 22 -->
 <section class="slide">
   <h2>ISSUE の答え方 — 白紙の質問は来ない</h2>
   <p>AIが判断に迷うと ISSUE（質問票）を起票します。必ず
@@ -490,7 +556,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   </ul>
 </section>
 
-<!-- 20 -->
+<!-- 23 -->
 <section class="slide">
   <h2>⑥ 完了検証 / ⑦ 分析・改善 — 全関数が終わったら</h2>
   <p><strong>⑥</strong> <code>/legacy-6-check</code> — 全関数の①〜⑤・未回答ISSUEゼロ・実装率100%を
@@ -510,7 +576,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
   これで計測の質が決まる。あとは施策票の承認だけ。</div>
 </section>
 
-<!-- 21 -->
+<!-- 24 -->
 <section class="slide">
   <h2>まとめ — 全体の流れをコマンドで（バッチ運転の基本形）</h2>
   <table>
