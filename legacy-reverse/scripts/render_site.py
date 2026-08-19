@@ -334,8 +334,9 @@ def build_shadow(docs: Path, work: Path) -> int:
         rel = src.relative_to(docs)
         if any(part.startswith(("_", ".")) for part in rel.parts):
             continue                                 # _site / _sitework / _pdfwork / .quarto
-        if rel.parts and rel.parts[0] == "templates":
-            continue                                 # プロジェクト所有のテンプレ（サイトには載せない）
+        if rel.parts and rel.parts[0] in ("templates", "prompts"):
+            continue                                 # プロジェクト所有の設定（テンプレ・工程別
+            #                                          プロンプト調整）はサイトには載せない
         dst = work / rel
         if src.is_dir():
             dst.mkdir(parents=True, exist_ok=True)

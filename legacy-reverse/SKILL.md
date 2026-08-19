@@ -40,7 +40,8 @@ user-invocable: true
 1. schema.md のプロジェクト構成でディレクトリを作る
 2. hook を登録: `<LR>/hooks/settings-example.json` の内容を対象プロジェクトの
    `.claude/settings.json` にマージ（④⑤中の tests/ 編集をブロックする安全装置）
-3. `ledger init-templates` で仕様書テンプレのシードを `docs/templates/` にコピーし、
+3. `ledger init-templates` でシードを `docs/templates/`（項目立て）と
+   `docs/prompts/`（工程別のプロジェクト個別指示。①〜④が毎回読む）にコピーし、
    **項目立て・書き方をプロジェクトに合わせて人が編集**するよう案内する
    （固変分離。編集不要ならそのままでよい。固定契約は workflow.md「固定と可変」）
 4. `/legacy-0-analyze` へ

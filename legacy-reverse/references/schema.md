@@ -23,6 +23,8 @@
     _site/              # HTML出力（render_site.py が作り直す。git 管理外）
     _sitework/          # render 用の .qmd 影コピー（render_site.py の作業用。残らない）
     templates/          # 仕様書の項目立て・書き方テンプレ（人が著者。ledger init-templates でシード配置）
+    prompts/            # 工程別のPJ個別指示 1-spec/2-testspec/3-testcode/4-impl.md
+                        #   （人が著者。①〜④が起動のたびに読む。無い・雛形のままなら個別指示なし）
     conventions.md      # プロジェクト規約（⓪で人が記入・確定。人だけが書く）
     domain-knowledge.md # 業務知識・ISSUE回答の蓄積（人だけが書く。AIは転記文の提案まで）
     specs/F-xxxx.md

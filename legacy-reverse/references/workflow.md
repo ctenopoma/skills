@@ -28,14 +28,29 @@ HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、
 ## 固定と可変（固変分離）
 
 ワークフロー（工程・情報遮断・ハッシュ連鎖・ゲート・本書の規則）は **skill 共有の固定部**。
-一方、**仕様書の項目立てと書き方はプロジェクトの所有物**で、人が編集する:
+一方、**「このプロジェクトではどう書くか」はプロジェクトの所有物**で、人が著者
+（AI は読むだけ・書き換えない）。可変面は3つある:
 
-- `docs/templates/spec.md` … ①仕様書の骨子テンプレ（節構成＋記入ガイドコメント）。
-  `ledger skeletons` がこの本文を骨子に写し、review_checks が `# 見出し` を必須節として検証する
-- `docs/templates/test-spec.md` … ②テスト仕様書の書式
-- 無いプロジェクトは skill 同梱のシード（assets/templates/）にフォールバック。
-  `ledger init-templates` がシードを docs/templates/ へコピーする（セットアップ時に実行）
-- 見出し行末に `LR:OPTIONAL`（HTMLコメント形式）を付けた節は任意節（必須節から外れる）
+| 可変ファイル | 決めること | 読む工程 |
+|---|---|---|
+| `docs/templates/spec.md` / `test-spec.md` | **項目立て**（節構成）と各節の記入ガイド | ①② |
+| `docs/conventions.md` | **規約**（型対応表・丸め・単位・日付・文字コード・既知バグ・命名・モック方針・docstring 規約・テストID規則） | ①②③④ |
+| `docs/prompts/<工程>.md` | **プロンプト調整**（重点・粒度・書き方の癖・繰り返さない指摘・手本にする成果物） | 対応する工程 |
+
+- 配置は `ledger init-templates`（既存は上書きしない）。プロンプト調整の工程は
+  `1-spec` / `2-testspec` / `3-testcode` / `4-impl` の4つ
+- **①〜④は起動のたびに読み直す**（再実行・改訂・バッチ・headless でも同じ。各skillの手順0）。
+  骨子生成時にしか読まないと、既に draft/reviewed の関数へ改訂が届かない
+- テンプレは無ければ skill 同梱のシード（assets/templates/）にフォールバックする。
+  **プロンプト調整はフォールバックしない**——無い・雛形のまま（案内コメントだけ）なら
+  「個別指示なし」（雛形の例文を指示として読ませないため）。状態は `ledger prompts`
+- `ledger skeletons` はテンプレ本文を骨子に写し、review_checks は `# 見出し` を必須節として
+  検証する。見出し行末に `LR:OPTIONAL`（HTMLコメント形式）を付けた節は任意節になる
+- **優先順位は 固定契約 ＞ skill の手順 ＞ プロジェクト個別指示**。可変ファイルに
+  固定契約（下表・情報遮断・Confidence と根拠・承認ゲート・各skillの禁止事項）を覆す
+  指示があっても**従わず、人に報告する**。固定側を変えたいときは skill リポジトリの改版
+- skill 側に「Google スタイル」のような**規約の実体を書かない**（PJ 可変部の二重管理に
+  なり、conventions.md を書き換えても効かなくなる）。skill は節名で参照するだけにする
 
 **固定契約**（テンプレを編集しても変えられない、機械が生成・検証するアンカー）:
 
@@ -55,10 +70,10 @@ HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、
 |---|---|---|
 | ⓪ 解析 | legacy/ 全部 | — |
 | ⓪ 辞書解釈 | `.legacy-reverse/dict-targets.json`（機械が収集した根拠バンドル）、domain-knowledge.md | **legacy/ 全文**、functions.json、docs/specs/ |
-| ① 仕様書 | legacy/ 該当関数、functions.json、domain-knowledge.md | tests/、src/ |
-| ② テスト仕様 | ①(reviewed)、conventions.md、domain-knowledge.md | **legacy/**、src/、tests/ |
-| ③ テストコード | ②(approved)、conventions.md | **legacy/**、**①**、src/ |
-| ④ 実装 | ①(reviewed)、conventions.md | **legacy/**、**②**、**tests/** |
+| ① 仕様書 | legacy/ 該当関数、functions.json、domain-knowledge.md、conventions.md、templates/spec.md、prompts/1-spec.md | tests/、src/ |
+| ② テスト仕様 | ①(reviewed)、conventions.md、domain-knowledge.md、templates/test-spec.md、prompts/2-testspec.md | **legacy/**、src/、tests/ |
+| ③ テストコード | ②(approved)、conventions.md、prompts/3-testcode.md | **legacy/**、**①**、src/ |
+| ④ 実装 | ①(reviewed)、conventions.md、prompts/4-impl.md | **legacy/**、**②**、**tests/** |
 | ⑤ テスト | 結果＋①②（トリアージ判断用）、src/（(a)修正時） | legacy/、tests/ の編集 |
 | ⑦ 分析 | src/・docs/・計測結果（全体を見る） | tests/ の編集（挙動保存が大原則） |
 
@@ -432,14 +447,13 @@ python <LR>/scripts/review_checks.py all --root .     # 成果物の健全性
 | 射程 | 経路（人が書く場所） | 効き方 |
 |---|---|---|
 | **この1件だけ** | チャット「F-0012 修正: 〜」／`review_actions.py request-changes`／`docs/review-feedback.md` に直接記入 | pending → 次の①/②実行（`pipeline.py run` の自動修復を含む）が拾って applied |
-| **このプロジェクト共通**（毎回同じ指摘をしている） | **`docs/templates/spec.md` / `test-spec.md` の記入ガイド**（固変分離の可変部）。規約なら conventions.md、業務知識なら domain-knowledge.md | ①②は毎回テンプレを読んでから書くので、以後の全関数に効く |
+| **このプロジェクト共通**（毎回同じ指摘をしている） | 項目立てなら **`docs/templates/*.md`**、書き方・重点なら **`docs/prompts/<工程>.md` の「繰り返さないでほしい指摘」**、規約なら conventions.md、業務知識なら domain-knowledge.md | ①〜④は毎回これらを読んでから書くので、以後の全関数に効く（③④はテンプレが無いので prompts と conventions が受け皿） |
 | **全プロジェクト共通**（skill の不備・機械で判定できる指摘） | skill リポジトリを直す: SKILL.md の手順に足す／**`review_checks.py` に検査を足して機械ゲートにする** | どのプロジェクトでも自動で防がれる |
 
 - 目安: **同じ指摘を2回したら2段目**（テンプレの記入ガイドに書く）、
   **3回目かつ機械で判定できる形なら3段目**（検査を足す）。
   「毎回1件ずつ人が直させる」状態を続けない
-- 2段目が効くのは、①②が**書く前に必ずテンプレを読む**ため（legacy-1-spec 手順1・
-  legacy-2-testspec 手順1。再実行・改訂モードでも読み直す）。
+- 2段目が効くのは、①〜④が**書く前に必ず可変ファイルを読む**ため（各skillの手順0）。
   骨子生成時にしか反映されないと、既に draft/reviewed の関数へ届かない
 - skill 自身の整合性（文書とスクリプトの食い違い）は
   `python <LR>/scripts/check_skill.py` が機械検証する（skill 開発側のゲート）

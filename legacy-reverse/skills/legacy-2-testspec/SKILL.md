@@ -7,7 +7,8 @@ user-invocable: true
 # legacy-2-testspec — ② テスト仕様書作成
 
 親skill legacy-reverse の references/workflow.md に従う。
-**入力は ①(reviewed)・docs/conventions.md・docs/domain-knowledge.md のみ。
+**入力は ①(reviewed)・docs/conventions.md・docs/domain-knowledge.md・
+docs/prompts/2-testspec.md のみ。
 legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴 → ISSUE）。
 
 引数: func-id。前提: ①が reviewed（違えば断って ① へ誘導）。
@@ -17,7 +18,18 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
 0. **起動時スキャン**: `docs/review-feedback.md` に対象func-idの「状態: pending」が
    ないか確認（人が修正依頼を記入している場合がある。直接記入でも
    `review_actions.py request-changes` 経由でも同じ形式）。
-   あれば内容を反映してから「状態: applied」に書き換える
+   あれば内容を反映してから「状態: applied」に書き換える。
+   **プロジェクト個別の指示も毎回読む**（再実行・改訂・バッチでも省略しない。
+   いずれも人が著者なので **AI は書き換えない**）:
+   - **`docs/prompts/2-testspec.md`** — ケース観点の重点・期待値の決め方・命名・
+     繰り返さない指摘。無い or 雛形のままなら「個別指示なし」
+   - **`docs/conventions.md`** — 特に「数値の丸め・比較規則」（許容誤差）
+     「モックの書き方」「テストケースIDの対応付け」「既知レガシーバグの扱い」
+   - **`docs/domain-knowledge.md`** — 期待値の前提になる業務知識・語彙
+
+   **固定契約に反する個別指示には従わない**（情報遮断＝legacy/ を読まない・
+   トレーサビリティマトリクス・期待値の根拠の区分・spec-hash・人の承認ゲート）。
+   矛盾を見つけたら従わずに人へ報告する
 1. **プロジェクトの `docs/templates/test-spec.md`（人が著者。無ければ skill 同梱シード）を
    読み**、その形式で `docs/test-specs/<func-id>.md` を生成する
    （再生成・改訂で呼ばれたときも毎回読み直す。人が記入ガイドを更新していることがある。
@@ -72,6 +84,9 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
 - 挙動が変わる hazard（guard_raise / guard_value / legacy_preserve）に境界ケースがある
 
 ## 禁止
+
+- `docs/prompts/2-testspec.md`・`docs/conventions.md`・`docs/templates/`（人が著者）を
+  書き換えること。直したいときは提案文を人に見せる
 
 - legacy/・src/・tests/ を読むこと
 - 期待値を推測で埋めて根拠を「仕様書🟢」と偽ること

@@ -9,7 +9,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   wbs                        docs/index.qmd を再生成
   skeletons [--force]        functions.json から docs/specs/ の骨子を生成
                              （項目立ては docs/templates/spec.md が正。無ければ同梱シード）
-  init-templates             テンプレのシードを docs/templates/ にコピー（以後は人が編集）
+  init-templates             テンプレ（docs/templates/）と工程別プロンプト（docs/prompts/）の
+                             シードをコピー（以後は人が編集）
+  prompts [--json]           工程別プロンプト調整の有無と記入状況を表示
   hash <path>                sha256 先頭8桁を表示
   verify <func-id>           ハッシュ連鎖（①→②、③）を検証
   status [<func-id>]         フェーズ状況を表示（機械可読 JSON も可: --json）
@@ -682,6 +684,17 @@ def _sync_dict_hash(p: Project, path: Path, fid: str) -> int:
 
 ASSETS_TEMPLATES = Path(__file__).resolve().parent.parent / "assets" / "templates"
 TEMPLATE_NAMES = {"spec": "spec.md", "testspec": "test-spec.md"}
+
+# ---------- 工程別のプロンプト調整（固変分離の「可変」その2） ----------
+#
+# docs/prompts/<phase>.md … ①〜④の skill が起動のたびに読む、プロジェクト個別の
+# 上乗せ指示（人が著者）。項目立て（docs/templates/）や規約（conventions.md）に
+# 収まらない「書き方の癖・重点・繰り返したくない指摘」を置く場所。
+#
+# 同梱シードへのフォールバックは**しない**——シードは案内コメントだけの雛形なので、
+# プロジェクトに無いときは「個別指示なし」が正しい（雛形の文言を指示として
+# 読ませない）。`ledger init-templates` がシードを docs/prompts/ へ配置する。
+PROMPT_PHASES = ("1-spec", "2-testspec", "3-testcode", "4-impl")
 SPEC_TEMPLATE_MARKERS = ("<!-- LR:IO-TABLES -->", "<!-- LR:CALLS-TABLE -->",
                          "<!-- LR:HAZARD-TABLE -->")
 SPEC_CONTRACT_HEADS = ("# 機能詳細", "# 副作用・例外", "## 例外・数値特異点", "# 未確定事項")
@@ -716,8 +729,30 @@ def spec_template_problems(body: str) -> list:
     return problems
 
 
+def prompt_path(root, phase: str):
+    """工程別プロンプト調整の実体（無ければ None。シードへのフォールバックはしない）。"""
+    if phase not in PROMPT_PHASES:
+        raise KeyError(f"未知の工程: {phase}（{'/'.join(PROMPT_PHASES)}）")
+    p = Path(root) / "docs" / "prompts" / f"{phase}.md"
+    return p if p.exists() else None
+
+
+def prompt_is_seed(path: Path) -> bool:
+    """シードのまま（案内コメントだけで、人が中身を書いていない）かどうか。
+
+    見出し・コメント・空行だけなら「未記入」と判定する。`ledger prompts` の表示と、
+    skill 側の「個別指示なし」の判定に使う（雛形の例文を指示として扱わないため）。
+    """
+    body = re.sub(r"(?s)<!--.*?-->", "", path.read_text(encoding="utf-8-sig"))
+    return not [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+
+
 def cmd_init_templates(p: Project, args) -> None:
-    """シードを docs/templates/ にコピーする（既存は上書きしない。以後は人が編集）。"""
+    """シードを docs/templates/ と docs/prompts/ にコピーする。
+
+    既存は上書きしない（以後は人が編集する資産のため）。
+    """
     tdir = p.docs / "templates"
     tdir.mkdir(parents=True, exist_ok=True)
     for name in TEMPLATE_NAMES.values():
@@ -727,6 +762,40 @@ def cmd_init_templates(p: Project, args) -> None:
             continue
         shutil.copy2(ASSETS_TEMPLATES / name, dst)
         print(f"copied: {dst}（項目立て・書き方ガイドはこのファイルを人が編集する）")
+
+    pdir = p.docs / "prompts"
+    pdir.mkdir(parents=True, exist_ok=True)
+    for phase in PROMPT_PHASES:
+        dst = pdir / f"{phase}.md"
+        if dst.exists():
+            print(f"skip: {dst}（既存。編集して使う）")
+            continue
+        shutil.copy2(ASSETS_TEMPLATES / "prompts" / f"{phase}.md", dst)
+        print(f"copied: {dst}（工程{phase}のプロジェクト個別指示。人が編集する）")
+
+
+def cmd_prompts(p: Project, args) -> None:
+    """工程別プロンプト調整（docs/prompts/）の有無と記入状況を表示する。"""
+    rows = []
+    for phase in PROMPT_PHASES:
+        path = prompt_path(p.root, phase)
+        if path is None:
+            rows.append({"phase": phase, "path": str(p.docs / "prompts" / f"{phase}.md"),
+                         "exists": False, "written": False, "state": "なし（個別指示なし）"})
+        else:
+            seed = prompt_is_seed(path)
+            rows.append({"phase": phase, "path": str(path), "exists": True,
+                         "written": not seed,
+                         "state": "未記入（雛形のまま＝個別指示なし）" if seed else "記入あり"})
+    if args.json:
+        print(json.dumps({"prompts": rows}, ensure_ascii=False, indent=1))
+        return
+    print("工程別プロンプト調整（docs/prompts/。人が著者・AIは読むだけ）:")
+    for r in rows:
+        mark = "✏" if r["written"] else "・"
+        print(f"  {mark} {r['phase']:<11} {r['state']}")
+    if not any(r["exists"] for r in rows):
+        print("  → `ledger init-templates` で雛形を配置できる")
 
 
 def cmd_skeletons(p: Project, args) -> None:
@@ -1299,7 +1368,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("wbs")
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
-    sub.add_parser("init-templates", help="仕様書テンプレのシードを docs/templates/ にコピー（以後は人が編集）")
+    sub.add_parser("init-templates", help="テンプレと工程別プロンプトのシードを docs/templates/・docs/prompts/ にコピー（以後は人が編集）")
+    s = sub.add_parser("prompts", help="工程別プロンプト調整（docs/prompts/）の有無と記入状況を表示")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("hash"); s.add_argument("path")
     s = sub.add_parser("verify"); s.add_argument("func_id")
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
@@ -1344,6 +1415,7 @@ def main() -> None:
         {"add": cmd_flow_add, "rm": cmd_flow_rm, "list": cmd_flow_list}[args.flow_cmd](p, args)
         return
     {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "init-templates": cmd_init_templates,
+     "prompts": cmd_prompts,
      "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,
