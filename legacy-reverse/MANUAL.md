@@ -65,7 +65,8 @@ legacy-reverse/
   ARCHITECTURE.md / DESIGN.md / MANUAL.md / QUICKREF.md / slides/
 ```
 
-スクリプト1本ずつの責務は [ARCHITECTURE.md](ARCHITECTURE.md) §2 にあります。本書では触れません。
+各 skill が何を読み・何を呼ぶかは §3.1、スクリプト1本ずつの責務は
+[ARCHITECTURE.md](ARCHITECTURE.md) §2 にあります。
 
 ## 2.2 プロジェクト側 — ここが可変
 
@@ -98,7 +99,34 @@ legacy-reverse/
 **【人】のファイルに AI は書き込みません**（提案文の提示までです）。あなたの意思の一次記録を
 AI の文章と混ぜないためで、ここが混ざると「誰が決めたのか」が後から追えなくなります。
 
-# 3. 参照関係 — 誰が何を読むか
+# 3. 参照関係 — どの skill が何を読み、何を呼ぶか
+
+## 3.1 skill 一覧（フェーズ・起動のされ方・呼ぶ機械）
+
+skill は工程と1対1です。**どれも起動するのは人**（またはその代理である無人バッチ）で、
+skill が次の skill を勝手に呼ぶことはありません。
+
+| skill | フェーズ | 起動のされ方 | 主に呼ぶスクリプト |
+|---|---|---|---|
+| `legacy-reverse`（親） | 全体管理 | `/legacy-reverse`（迷ったとき・再開時） | `ledger status` `next` |
+| `legacy-0-analyze` | ⓪ 解析 | `/legacy-0-analyze` | `extract_fortran` / `extract_c`・`graph`・`hazards`・`variables`・`ledger init-templates` `skeletons` `wbs` |
+| `legacy-0-dict` | ⓪ 変数辞書 | `/legacy-0-dict`／`pipeline.py dict` | `variables.py`（build / verify-interp / approve / propagate / page） |
+| `legacy-1-spec` | ① 仕様書 | `/legacy-1-spec F-xxxx`／`pipeline.py spec`／spec-gap ISSUE を受けた**改訂** | `review_checks spec`・`hazards match`・`ledger skeletons` `verify` `wbs` |
+| `legacy-2-testspec` | ② テスト仕様 | `/legacy-2-testspec F-xxxx`／`pipeline.py testspec` | `review_checks testspec`・`ledger hash` `wbs` |
+| `legacy-3-testcode` | ③ テストコード | `/legacy-3-testcode F-xxxx`／`pipeline.py testcode` | `pytest`・`collect_results`・`ledger freeze-tests` |
+| `legacy-4-impl` | ④ 実装 | `/legacy-4-impl F-xxxx`／`pipeline.py impl` | `check_stubs`・`ledger phase-start` `phase-end` |
+| `legacy-5-test` | ⑤ テスト | `/legacy-5-test F-xxxx`／`pipeline.py test` | `pytest`・`collect_results`・`ledger verify` `unblock` |
+| `legacy-6-check` | ⑥ 完了検証 | `/legacy-6-check` | `ledger check`・`review_checks all`・`pdf_book` |
+| `legacy-7-analyze` | ⑦ 分析・改善 | `/legacy-7-analyze` | `quant_analyze`・`profile_run`・`ledger sphinx-index` |
+
+- **フェーズをまたぐ唯一の例外が①の改訂**です。④が「①だけでは実装を決められない」と
+  判断すると spec-gap ISSUE を立てて止まり、人が①へ回します（レガシー原文を読めるのは
+  ⓪と①だけなので、他の工程は自力で調べに行けません）
+- **どの skill も最後に `ledger wbs` と HTML の更新**を行います（§7.1）
+- 無人バッチ（`pipeline.py`）は skill の中身を持たず、**`claude -p "/legacy-1-spec F-xxxx"`
+  のように skill を1関数ずつ起動する**だけです。チャットで打つのと同じものが走ります
+
+## 3.2 何を読み、何を書くか
 
 工程を起動すると、skill は毎回この順で読みます。
 
@@ -114,7 +142,7 @@ AI の文章と混ぜないためで、ここが混ざると「誰が決めた�
                         成果物を書く → 機械レビュー → 人の承認
 ```
 
-| 工程 | 読む（前工程の成果物） | 読む（人が書いた可変ファイル） | 出力 |
+| 工程 | 読む（前工程の成果物・共通で `references/workflow.md`） | 読む（人が書いた可変ファイル） | 書く |
 |---|---|---|---|
 | ⓪ 解析 | legacy/ 全部 | —（この工程で人が conventions.md・語彙・例外ポリシーを書く） | functions.json・骨子・WBS |
 | ⓪ 辞書 | 機械が集めた根拠のみ | domain-knowledge.md | variables.json |
@@ -123,6 +151,8 @@ AI の文章と混ぜないためで、ここが混ざると「誰が決めた�
 | ③ テストコード | ②(approved) | prompts/3-testcode.md・conventions.md | tests/ |
 | ④ 実装 | ①(reviewed) | prompts/4-impl.md・conventions.md | src/ |
 | ⑤ テスト | 実行結果・①② | — | docs/test-results/ |
+| ⑥ 完了検証 | 全成果物 | — | docs/completion-check.md |
+| ⑦ 分析・改善 | src/・計測結果 | conventions.md | docs/analysis.md・施策票 |
 
 読むときの規則は3つです。
 
@@ -283,7 +313,7 @@ NG が出たら**ゼロになるまで直します**。原則は「スクリプ�
 | ⑥ 完了検証 | `/legacy-6-check` | 不足の埋め戻しを指示 | 全関数 pass |
 | ⑦ 分析・改善 | `/legacy-7-analyze` | `bench.py` を用意し、施策を承認 | テスト全pass維持 |
 
-## 無人バッチ（pipeline.py）の挙動
+## 6.1 無人バッチ（pipeline.py）の挙動
 
 まとめて流すときは `pipeline.py` を使います。サブコマンドは4つです。
 
@@ -351,15 +381,32 @@ AI の成果物は、あなたに届く前に機械の検査を通ります。
 | ファイル記入 | ISSUE の「回答（人が記入）」欄・`docs/review-feedback.md` に書く（次回起動時に AI が拾う） |
 | CLI | `review_actions.py approve` / `request-changes` / `adjudicate`、`variables.py approve`、`hazards.py add-policy`、`ledger unblock` |
 
-```bash
-python <LR>/scripts/render_site.py --root .    # docs/ → HTML（工程の区切りで実行）
-python <LR>/scripts/serve_site.py --root .     # 閲覧（127.0.0.1 のみ）
-python <LR>/scripts/build_viewer.py --root .   # レビューアへ配る単体EXE（相手に環境不要）
-```
-
 ![WBS（進捗のホーム画面）。進捗サマリ・あなたへの質問（Open ISSUES）・関数一覧が1画面に集約され、各リンクから成果物へ移動できる](assets/manual/wbs.png)
 
-`docs/templates/` と `docs/prompts/` はサイトに載りません（成果物ではなく設定のためです）。
+## 7.1 HTML の作られ方（render_site.py）
+
+`docs/` の Markdown を Quarto で HTML サイト（`docs/_site/`）にします。トップは WBS です。
+
+```bash
+python <LR>/scripts/render_site.py --root .            # 差分レンダ（既定）
+python <LR>/scripts/render_site.py --root . --full     # 全ページ＋サイト内検索の索引を作り直す
+python <LR>/scripts/serve_site.py --root .             # 閲覧（127.0.0.1 のみ・GET だけ）
+python <LR>/scripts/build_viewer.py --root .           # レビューアへ配る単体EXE（相手に環境不要）
+```
+
+- **実行タイミングは自動**です。各 skill が工程の最後に、無人バッチはチャンクの区切りと
+  終了時に実行します。人が打つのは「今すぐ見たい」ときだけです
+- **差分レンダが既定**（変わったページだけ。数十秒）。ただし差分では検索索引が更新されないので、
+  節目で `--full` を1回流します
+- **`quarto render docs` を直接叩かないでください**。図（Mermaid）が描画されません。
+  render_site.py は `_sitework/` に `.qmd` の影コピーを作ってからレンダリングします
+- 人の対応が要るページには、**案内パネル**（機械レビューの結果と「どう返答するか」）を
+  本文の先頭に焼き込みます。ボタンではなく案内だけなので、画面は閲覧専用のままです
+- `docs/templates/` と `docs/prompts/` は載せません（成果物ではなく設定のため）
+- ④の docstring は Sphinx で「新コード詳細(API)」として `docs/_site/api` に、
+  種別ごとの合本 PDF は `pdf_book.py` で別に作ります（§9）
+- 配信は自分の PC の中だけ（外に出ません）。ポートはプロジェクトごとに固定なので
+  ブックマークできます
 
 # 8. セットアップ
 
