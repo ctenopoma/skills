@@ -116,7 +116,7 @@ AI の文章と混ぜないためで、ここが混ざると「誰が決めた�
 
 | 工程 | 読む（前工程の成果物） | 読む（人が書いた可変ファイル） | 出力 |
 |---|---|---|---|
-| ⓪ 解析 | legacy/ 全部 | — （ここで conventions.md と語彙を人が書く） | functions.json・骨子・WBS |
+| ⓪ 解析 | legacy/ 全部 | —（この工程で人が conventions.md・語彙・例外ポリシーを書く） | functions.json・骨子・WBS |
 | ⓪ 辞書 | 機械が集めた根拠のみ | domain-knowledge.md | variables.json |
 | ① 仕様書 | legacy/ 該当関数・functions.json | prompts/1-spec.md・conventions.md・templates/spec.md・domain-knowledge.md | docs/specs/ |
 | ② テスト仕様 | ①(reviewed) | prompts/2-testspec.md・conventions.md・templates/test-spec.md・domain-knowledge.md | docs/test-specs/ |
@@ -137,18 +137,27 @@ AI の文章と混ぜないためで、ここが混ざると「誰が決めた�
 
 # 4. 人が書くファイル
 
-## 4.1 4つの置き場所の使い分け
+## 4.1 どこに書くか（置き場所の使い分け）
 
 同じ「AI にこう書いてほしい」でも、**射程で置き場所が違います**。ここを間違えると効きません。
 
-| 書きたいこと | 置き場所 | 効く範囲 |
-|---|---|---|
-| 節を足したい・消したい（仕様書の構成） | `docs/templates/spec.md` `test-spec.md` | ①② |
-| 型の対応・丸め・命名・docstring などの規約 | `docs/conventions.md` | ①②③④ |
-| 重点・書き方の癖・繰り返したくない指摘 | `docs/prompts/<工程>.md` | その工程 |
-| 業務知識・略語・過去の判断 | `docs/domain-knowledge.md` | ⓪①② |
-| 0割など例外の扱いの決定 | `docs/exception-policy.md`（`hazards.py add-policy`） | ①②（機械レビューが突合） |
-| この関数のこの箇所だけ直して | チャット or `docs/review-feedback.md` | その1件 |
+| 書きたいこと | 置き場所 | 効く範囲 | いつ書くか |
+|---|---|---|---|
+| 型の対応・丸め・命名・docstring などの規約 | `docs/conventions.md` | ①②③④ | **⓪で決め切る** |
+| 業務知識・略語・区分値・過去の判断 | `docs/domain-knowledge.md` | ⓪①② | **⓪で語彙を先行投入**、以後随時 |
+| 0割など例外の扱いの決定 | `docs/exception-policy.md`（`hazards.py add-policy`） | ①②（機械レビューが突合） | **⓪で全件決める** |
+| 節を足したい・消したい（仕様書の構成） | `docs/templates/spec.md` `test-spec.md` | ①② | ①を始める前（不要ならそのまま） |
+| 重点・書き方の癖・繰り返したくない指摘 | `docs/prompts/<工程>.md` | その工程 | いつでも（次の実行から効く） |
+| この関数のこの箇所だけ直して | チャット or `docs/review-feedback.md` | その1件 | 気づいたとき |
+
+**上の3つは⓪のうちに埋めます**（AI が質問リストと記入文を出すので、貼って確定するのが
+あなたの作業）。後回しにすると次のように跳ね返ります。
+
+| ファイル | 後回しにすると |
+|---|---|
+| `conventions.md` | ②以降の全ケースの期待値の前提なので、覆すと②〜⑤が作り直し |
+| `domain-knowledge.md` | ⓪.5 の変数辞書で**一括承認が効かなくなり**、1件ずつ確認する量が増える |
+| `exception-policy.md` | 未決定のままだと**①に進めない**（機械レビューが止める） |
 
 これらは**⓪の最初に `ledger init-templates` が雛形をまとめて作ります**（既存は上書きしません）。
 どのファイルにも空欄と「何を書くか」の記入ガイドがコメントで入っているので、白紙から
@@ -264,7 +273,7 @@ NG が出たら**ゼロになるまで直します**。原則は「スクリプ�
 
 | 工程 | 起動 | あなたがやること | 完了条件（機械が判定） |
 |---|---|---|---|
-| ⓪ 解析 | `/legacy-0-analyze` | ヒアリングに答え、conventions.md を確定 | 抽出の完全性突合 |
+| ⓪ 解析 | `/legacy-0-analyze` | ヒアリングに答え、**conventions.md・domain-knowledge.md（語彙）・exception-policy.md** を埋める（§4.1） | 抽出の完全性突合＋例外ポリシー全件決定 |
 | ⓪ 辞書 | `/legacy-0-dict` | 語義を承認（A/B は一括、C/D は直して承認） | 全変数 approved |
 | ① 仕様書 | `/legacy-1-spec F-xxxx` | 内容をレビューして OK / 修正指示 | status: reviewed |
 | ② テスト仕様 | `/legacy-2-testspec F-xxxx` | ⚠未確定に答えて承認 | status: approved |

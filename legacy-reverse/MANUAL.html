@@ -2243,7 +2243,7 @@ code { font-size: .92em; }
   <li><a href="#参照関係-誰が何を読むか" id="toc-参照関係-誰が何を読むか" class="nav-link" data-scroll-target="#参照関係-誰が何を読むか">3. 参照関係 — 誰が何を読むか</a></li>
   <li><a href="#人が書くファイル" id="toc-人が書くファイル" class="nav-link" data-scroll-target="#人が書くファイル">4. 人が書くファイル</a>
   <ul class="collapse">
-  <li><a href="#つの置き場所の使い分け" id="toc-つの置き場所の使い分け" class="nav-link" data-scroll-target="#つの置き場所の使い分け">4.1 4つの置き場所の使い分け</a></li>
+  <li><a href="#どこに書くか置き場所の使い分け" id="toc-どこに書くか置き場所の使い分け" class="nav-link" data-scroll-target="#どこに書くか置き場所の使い分け">4.1 どこに書くか（置き場所の使い分け）</a></li>
   <li><a href="#conventions.md-規約" id="toc-conventions.md-規約" class="nav-link" data-scroll-target="#conventions.md-規約">4.2 conventions.md — 規約</a></li>
   <li><a href="#domain-knowledge.md-業務知識" id="toc-domain-knowledge.md-業務知識" class="nav-link" data-scroll-target="#domain-knowledge.md-業務知識">4.3 domain-knowledge.md — 業務知識</a></li>
   <li><a href="#docstemplates-仕様書の項目立て" id="toc-docstemplates-仕様書の項目立て" class="nav-link" data-scroll-target="#docstemplates-仕様書の項目立て">4.4 docs/templates/ — 仕様書の項目立て</a></li>
@@ -2452,7 +2452,7 @@ code { font-size: .92em; }
 <tr class="odd">
 <td>⓪ 解析</td>
 <td>legacy/ 全部</td>
-<td>— （ここで conventions.md と語彙を人が書く）</td>
+<td>—（この工程で人が conventions.md・語彙・例外ポリシーを書く）</td>
 <td>functions.json・骨子・WBS</td>
 </tr>
 <tr class="even">
@@ -2502,52 +2502,87 @@ code { font-size: .92em; }
 </section>
 <section id="人が書くファイル" class="level1">
 <h1>4. 人が書くファイル</h1>
-<section id="つの置き場所の使い分け" class="level2">
-<h2 class="anchored" data-anchor-id="つの置き場所の使い分け">4.1 4つの置き場所の使い分け</h2>
+<section id="どこに書くか置き場所の使い分け" class="level2">
+<h2 class="anchored" data-anchor-id="どこに書くか置き場所の使い分け">4.1 どこに書くか（置き場所の使い分け）</h2>
 <p>同じ「AI にこう書いてほしい」でも、<strong>射程で置き場所が違います</strong>。ここを間違えると効きません。</p>
 <table class="caption-top table">
 <colgroup>
-<col style="width: 33%">
-<col style="width: 33%">
-<col style="width: 33%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
 </colgroup>
 <thead>
 <tr class="header">
 <th>書きたいこと</th>
 <th>置き場所</th>
 <th>効く範囲</th>
+<th>いつ書くか</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td>節を足したい・消したい（仕様書の構成）</td>
-<td><code>docs/templates/spec.md</code> <code>test-spec.md</code></td>
-<td>①②</td>
-</tr>
-<tr class="even">
 <td>型の対応・丸め・命名・docstring などの規約</td>
 <td><code>docs/conventions.md</code></td>
 <td>①②③④</td>
-</tr>
-<tr class="odd">
-<td>重点・書き方の癖・繰り返したくない指摘</td>
-<td><code>docs/prompts/&lt;工程&gt;.md</code></td>
-<td>その工程</td>
+<td><strong>⓪で決め切る</strong></td>
 </tr>
 <tr class="even">
-<td>業務知識・略語・過去の判断</td>
+<td>業務知識・略語・区分値・過去の判断</td>
 <td><code>docs/domain-knowledge.md</code></td>
 <td>⓪①②</td>
+<td><strong>⓪で語彙を先行投入</strong>、以後随時</td>
 </tr>
 <tr class="odd">
 <td>0割など例外の扱いの決定</td>
 <td><code>docs/exception-policy.md</code>（<code>hazards.py add-policy</code>）</td>
 <td>①②（機械レビューが突合）</td>
+<td><strong>⓪で全件決める</strong></td>
+</tr>
+<tr class="even">
+<td>節を足したい・消したい（仕様書の構成）</td>
+<td><code>docs/templates/spec.md</code> <code>test-spec.md</code></td>
+<td>①②</td>
+<td>①を始める前（不要ならそのまま）</td>
+</tr>
+<tr class="odd">
+<td>重点・書き方の癖・繰り返したくない指摘</td>
+<td><code>docs/prompts/&lt;工程&gt;.md</code></td>
+<td>その工程</td>
+<td>いつでも（次の実行から効く）</td>
 </tr>
 <tr class="even">
 <td>この関数のこの箇所だけ直して</td>
 <td>チャット or <code>docs/review-feedback.md</code></td>
 <td>その1件</td>
+<td>気づいたとき</td>
+</tr>
+</tbody>
+</table>
+<p><strong>上の3つは⓪のうちに埋めます</strong>（AI が質問リストと記入文を出すので、貼って確定するのが あなたの作業）。後回しにすると次のように跳ね返ります。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>ファイル</th>
+<th>後回しにすると</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>conventions.md</code></td>
+<td>②以降の全ケースの期待値の前提なので、覆すと②〜⑤が作り直し</td>
+</tr>
+<tr class="even">
+<td><code>domain-knowledge.md</code></td>
+<td>⓪.5 の変数辞書で<strong>一括承認が効かなくなり</strong>、1件ずつ確認する量が増える</td>
+</tr>
+<tr class="odd">
+<td><code>exception-policy.md</code></td>
+<td>未決定のままだと<strong>①に進めない</strong>（機械レビューが止める）</td>
 </tr>
 </tbody>
 </table>
@@ -2700,8 +2735,8 @@ code { font-size: .92em; }
 <tr class="odd">
 <td>⓪ 解析</td>
 <td><code>/legacy-0-analyze</code></td>
-<td>ヒアリングに答え、conventions.md を確定</td>
-<td>抽出の完全性突合</td>
+<td>ヒアリングに答え、<strong>conventions.md・domain-knowledge.md（語彙）・exception-policy.md</strong> を埋める（§4.1）</td>
+<td>抽出の完全性突合＋例外ポリシー全件決定</td>
 </tr>
 <tr class="even">
 <td>⓪ 辞書</td>
