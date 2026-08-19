@@ -220,15 +220,22 @@ python &lt;LR&gt;/scripts/ledger.py --root . authored         # どこがまだ�
     <li><strong>打つ:</strong> <code>/legacy-0-analyze</code></li>
     <li><strong>起きること:</strong> 静的解析プログラムがレガシーの全関数を機械抽出する
       （Fortran / C。引数・COMMON・呼び出し関係・外部ファイルまで自動。AIは説明の充填だけ）</li>
-    <li><strong>あなたがやること:</strong> ヒアリングに答える
-      <ul style="margin:4px 0 0">
-        <li>レガシーコードの場所と言語、新しいパッケージ名</li>
-        <li>型対応表（例: <code>REAL*8</code>→<code>float</code>）、丸め・単位・日付などの
-          全体ルール → AI が質問リストを出すので、<strong>あなたが
-          <code>docs/conventions.md</code> に記入して確定する</strong>（前ページ）</li>
-      </ul></li>
-    <li><strong>途中で聞かれること:</strong> 「0割をどう扱うか」（例外ポリシー。次ページ）と
-      「この略語は読めますか」（変数辞書の準備。次々ページ）</li>
+    <li><strong>あなたがやること:</strong> ヒアリングに答え、<strong>⓪のうちに3つの MD を埋める</strong>
+      （AI が質問リストと記入文を出すので、貼って確定するのがあなたの作業）
+      <table style="margin:6px 0">
+        <tr><th>埋める MD</th><th>聞かれること</th><th>後回しにすると</th></tr>
+        <tr><td><code>docs/conventions.md</code></td>
+            <td>レガシーの場所・言語・新パッケージ名、型対応表（例: <code>REAL*8</code>→<code>float</code>）、
+              丸め・許容誤差・単位・日付・文字コード・既知バグの扱い</td>
+            <td><strong>②以降の期待値の前提</strong>。後から覆すと②〜⑤が作り直し</td></tr>
+        <tr><td><code>docs/domain-knowledge.md</code></td>
+            <td>「この略語は読めますか」——<code>ZAN</code>・<code>KBN</code> 等の<strong>語彙・略語</strong>と
+              区分値（<code>KBN=9</code> はエラー等）。分かるものだけでよい</td>
+            <td>次の⓪.5で<strong>変数辞書の一括承認が効かなくなり</strong>、1件ずつ見る量が増える</td></tr>
+        <tr><td><code>docs/exception-policy.md</code></td>
+            <td>「0割をどう扱うか」（次ページ。登録はコマンドで行う）</td>
+            <td><strong>未決定のままだと①に進めない</strong>（機械レビューが止める）</td></tr>
+      </table></li>
   </ol>
   <div class="done"><b>完了のサイン:</b> 関数一覧（functions.json）と進捗サイトができ、
   関数数・循環の有無・推奨着手順が報告される。最後に「次は <code>/legacy-0-dict</code>」と案内される。</div>
@@ -409,7 +416,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
   <h2>② テスト仕様書 — ①が全部承認できたら、②を全件</h2>
   <ol class="steps">
     <li><strong>打つ（全件バッチ・②だけ）:</strong>
-      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py run --root . --only testspec [--flow 月次バッチ]</code></pre>
+      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py testspec --root . [--flow 月次バッチ]</code></pre>
       対象になるのは<strong>①が承認済み（reviewed）の関数だけ</strong>。未承認の関数が
       勝手に進むことはない。1件ずつなら <code>/legacy-2-testspec F-0001</code></li>
     <li><strong>起きること:</strong> AIが「①の仕様書<strong>だけ</strong>」からテストケースを
@@ -593,7 +600,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
         <td>以後のバッチに <code>--flow 月次バッチ</code> を付ける</td></tr>
     <tr><td>⓪.5</td><td><code>pipeline.py dict --root .</code></td><td>「変数辞書」画面で A/B 一括承認・C/D は直して承認</td></tr>
     <tr><td>①</td><td>1件お試し後 <code>pipeline.py spec --root . [--flow …]</code></td><td>一斉レビュー表でまとめて承認</td></tr>
-    <tr><td>②</td><td><code>pipeline.py run --root . --only testspec [--flow …]</code></td><td>⚠未確定に答えて承認</td></tr>
+    <tr><td>②</td><td><code>pipeline.py testspec --root . [--flow …]</code></td><td>⚠未確定に答えて承認</td></tr>
     <tr><td>③④⑤</td><td><code>pipeline.py run --root . [--flow …]</code></td><td>⛔ が出たら裁定（それ以外は見守り）</td></tr>
     <tr><td>⑥</td><td><code>/legacy-6-check</code></td><td>fail なら作業リストを該当フェーズで埋める</td></tr>
     <tr><td>⑦</td><td><code>/legacy-7-analyze</code></td><td><code>bench.py</code> を用意し、施策票を承認</td></tr>

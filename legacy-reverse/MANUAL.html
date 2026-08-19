@@ -2756,6 +2756,7 @@ code { font-size: .92em; }
 <section id="無人バッチpipeline.pyの挙動" class="level2">
 <h2 class="anchored" data-anchor-id="無人バッチpipeline.pyの挙動">無人バッチ（pipeline.py）の挙動</h2>
 <p>まとめて流すときは <code>pipeline.py</code> を使います。サブコマンドは4つです。</p>
+<p><strong>工程ごとに1つずつサブコマンドがあります</strong>（①だけ、②だけ、を同じ形で流せます）。</p>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 33%">
@@ -2773,12 +2774,32 @@ code { font-size: .92em; }
 <tr class="odd">
 <td><code>pipeline.py spec</code></td>
 <td>①だけを全件</td>
-<td>①を全部 draft にして、一斉レビュー表でまとめて承認する運転</td>
+<td>①を全部 draft にして、一斉レビュー表でまとめて承認する</td>
+</tr>
+<tr class="even">
+<td><code>pipeline.py testspec</code></td>
+<td>②だけを全件</td>
+<td>①の承認が済んだ関数の②を全部作り、まとめて承認する</td>
+</tr>
+<tr class="odd">
+<td><code>pipeline.py testcode</code></td>
+<td>③だけを全件</td>
+<td>②の承認が済んだ関数の③を全部書く</td>
+</tr>
+<tr class="even">
+<td><code>pipeline.py impl</code></td>
+<td>④だけを全件</td>
+<td>③が終わった関数の④を全部書く</td>
+</tr>
+<tr class="odd">
+<td><code>pipeline.py test</code></td>
+<td>⑤だけを全件</td>
+<td>④が終わった関数のテストを全部流す</td>
 </tr>
 <tr class="even">
 <td><code>pipeline.py run</code></td>
 <td>①〜⑤を工程横断</td>
-<td>承認済みの関数から②③④⑤へ自動で進む。<code>--only testspec</code> で工程を限定できる</td>
+<td>承認済みの関数から②③④⑤へ<strong>自動で次工程へ進む</strong>。承認待ち・裁定待ちはスキップ</td>
 </tr>
 <tr class="odd">
 <td><code>pipeline.py dict</code></td>
@@ -2792,12 +2813,8 @@ code { font-size: .92em; }
 </tr>
 </tbody>
 </table>
-<p><strong>なぜ①だけ専用の <code>spec</code> があるのか</strong>（<code>run --only spec</code> でも①は回せます）:</p>
-<ul>
-<li><code>spec</code> は<strong>書きかけ（機械レビューNGの draft）を先に修復してから</strong>未着手へ進み、 終了時に「レビュー待ち何件」を報告します。①→一斉レビューという運転に合わせた形です</li>
-<li>対象の再走査が <strong><code>spec</code> はチャンク境界ごと / <code>run</code> は1件ごと</strong>です。<code>run</code> は実行中の承認や ⭐を即座に拾える代わりに毎回全関数を見るので、2000関数級で①を全件流すときは <code>spec</code> が軽い</li>
-<li>逆に言うと、規模が小さければ <code>run --only spec</code> で十分です。歴史的には <code>spec</code> が先にでき、 あとから <code>run</code> が①〜⑤へ一般化しました</li>
-</ul>
+<p>工程別コマンドと <code>run</code> の使い分けは「<strong>承認をまとめたいか、流し切りたいか</strong>」です。 承認ゲートのある①②は工程別で回して溜まったところで一斉承認、③④⑤は <code>run</code> に任せて 流し切る、という運転が基本形になります。</p>
+<p>②〜⑤の工程別コマンドは <code>run --only &lt;工程&gt;</code> と等価です（実体は同じエンジン）。 ①の <code>spec</code> だけは2000関数規模向けの専用ドライバで、<strong>書きかけ（機械レビューNGの draft）の 修復を先に</strong>行い、対象の再走査をチャンク境界に間引きます（<code>run</code> は1件ごとに全関数を 再走査するので、実行中の承認・⭐を即座に拾える代わりに大規模では重くなります）。</p>
 <p>共通の挙動（4つとも同じ）:</p>
 <ul>
 <li><strong>1関数 = 1つの新しい headless プロセス</strong>（<code>claude -p &quot;/legacy-1-spec F-xxxx&quot;</code>）。 会話が積み上がらないので、何千関数でも1件あたりのトークンは一定です</li>
@@ -2807,10 +2824,11 @@ code { font-size: .92em; }
 <li>進捗は <code>/pipeline.html</code>（閲覧サイト）でライブに見えます。実行中でも人は並行して承認できます</li>
 <li>ログは <code>.legacy-reverse/agent-logs/&lt;fid&gt;.txt</code>（応答全文）と <code>.legacy-reverse/pipeline-log.jsonl</code>（1行1試行）。失敗の一次情報はここです</li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py run  <span class="at">--root</span> . <span class="at">--dry-run</span>        <span class="co"># 対象と実行順の確認だけ</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py spec <span class="at">--root</span> . <span class="at">--max-funcs</span> 200  <span class="co"># ①を200件まで</span></span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py run  <span class="at">--root</span> . <span class="at">--only</span> testspec  <span class="co"># ②だけ全件</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py priority F-0012 <span class="at">--root</span> .       <span class="co"># F-0012 に割り込ませる</span></span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py run      <span class="at">--root</span> . <span class="at">--dry-run</span>        <span class="co"># 対象と実行順の確認だけ</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py spec     <span class="at">--root</span> . <span class="at">--max-funcs</span> 200  <span class="co"># ①を200件まで</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py testspec <span class="at">--root</span> .                  <span class="co"># ②だけ全件</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py impl     <span class="at">--root</span> . <span class="at">--flow</span> 月次バッチ  <span class="co"># ④をそのフローだけ</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/pipeline.py priority F-0012 <span class="at">--root</span> .           <span class="co"># F-0012 に割り込ませる</span></span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <p>AI の成果物は、あなたに届く前に機械の検査を通ります。</p>
 <table class="caption-top table">
 <colgroup>

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """pipeline.py — 無人バッチ実行ドライバ（2000関数規模・トークン制約なし）。
 
-サブコマンドは4つ:
-  spec      ①仕様書だけを全件 draft まで回す（→ 人が一斉レビュー表でまとめて承認）
+サブコマンド:
+  spec / testspec / testcode / impl / test
+            **その工程だけ**を全件回す（①②③④⑤に1つずつ）。
+            「②だけ全件流して、溜まったら人がまとめて承認する」という運転の入口。
+            ①(spec)は2000関数規模向けの専用ドライバ（書きかけの修復を優先し、
+            対象の再走査をチャンク境界に間引く）。②〜⑤は run エンジンを
+            その工程に限定して呼ぶだけで、`run --only <工程>` と等価
   run       ①〜⑤を工程横断で回す（連続実行。承認済みの関数から
             ②③④⑤と自動で進み、承認・裁定待ちはスキップ。⭐優先も反映される）。
-            --only testspec のように工程を限定すれば「②だけを全件」のような
-            工程単位のバッチにもなる
+            --only は複数工程に限定したいときに使う（1工程なら同名サブコマンドが早い）
   dict      変数辞書の解釈（⓪の一部）を回す。対象は関数でなく**変数のチャンク**で、
             検証は variables.py verify-interp の exit code。既定モデルは sonnet
   priority  ⭐優先の ON/OFF・一覧。実行中の run/spec に即座に効き、
@@ -37,9 +41,10 @@
 書きかけ draft は機械レビュー NG として検出し先に修復される）。
 
 使い方（対象プロジェクトのルートで）:
-  python <LR>/scripts/pipeline.py spec --root . --max-funcs 200   # ①だけ全件
-  python <LR>/scripts/pipeline.py run  --root . --max-funcs 100   # ①〜⑤を工程横断で
-  python <LR>/scripts/pipeline.py run  --root . --only testspec   # ②だけを全件
+  python <LR>/scripts/pipeline.py spec     --root . --max-funcs 200   # ①だけ全件
+  python <LR>/scripts/pipeline.py testspec --root . --max-funcs 100   # ②だけ全件
+  python <LR>/scripts/pipeline.py impl     --root .                   # ④だけ全件
+  python <LR>/scripts/pipeline.py run      --root . --max-funcs 100   # ①〜⑤を工程横断で
   python <LR>/scripts/pipeline.py run  --root . --dry-run         # 対象と実行順の確認のみ
   python <LR>/scripts/pipeline.py dict --root . --chunk 40        # 変数辞書の解釈を全件
   python <LR>/scripts/pipeline.py priority F-0012 --root .        # F-0012 を⭐優先（次に割り込む）
@@ -1146,7 +1151,11 @@ def cmd_run(args) -> None:
         extra += ["--dangerously-skip-permissions"]
     extra += args.claude_args
 
-    status = RunStatus(root, "連続実行（CLI）", len(targets), args)
+    # 1工程だけに限定しているときは、進捗ページにその工程名を出す
+    # （「連続実行」と出ると②だけ回しているのか工程横断なのか区別が付かないため）
+    mode = (label(next(iter(only))) + "（全件・CLI）") if only and len(only) == 1 \
+        else "連続実行（CLI）"
+    status = RunStatus(root, mode, len(targets), args)
     import serve_site                        # ポート規則は serve_site.default_port が正
     pname = Project(root).functions.get("project", {}).get("name") or root.name
     print(f"ライブ進捗: http://127.0.0.1:{serve_site.default_port(pname)}/pipeline.html"
@@ -1520,7 +1529,18 @@ def main() -> None:
     add_driver_args(r, chunk_default=5)
     r.add_argument("--only", default=None,
                    help="工程を限定（spec,testspec,testcode,impl,test をカンマ区切り。"
-                        "例: --only testspec で②だけを全件回す）")
+                        "複数工程だけを回したいときに使う。1工程なら同名のサブコマンドが早い）")
+
+    # 工程ごとの専用サブコマンド（②〜⑤）。①の `spec` と同じ粒度で「②だけ全件」を
+    # 打てるようにする入口で、実体は run エンジンをその工程に限定して呼ぶだけ
+    # （`run --only <工程>` と等価。挙動を二重に実装はしない）。
+    # 名前はリテラルで書く——check_skill.py の静的走査（文書に書いたサブコマンドの
+    # 実在確認）が拾えるようにするため。
+    for s in (sub.add_parser("testspec", help="②テスト仕様書だけを全件 無人実行（run --only testspec と同じ）"),
+              sub.add_parser("testcode", help="③テストコードだけを全件 無人実行（run --only testcode と同じ）"),
+              sub.add_parser("impl", help="④実装だけを全件 無人実行（run --only impl と同じ）"),
+              sub.add_parser("test", help="⑤テストだけを全件 無人実行（run --only test と同じ）")):
+        add_driver_args(s, chunk_default=5)
 
     d = sub.add_parser("dict", help="変数辞書の解釈を無人実行（未解釈の変数をチャンクごとに"
                                     "LLMへ。検証は variables.py verify-interp）")
@@ -1543,7 +1563,11 @@ def main() -> None:
         # 割り込み順を変える用途がむしろ本命なので、ロックは取らない
         cmd_priority(args)
         return
-    fn = {"spec": cmd_spec, "run": cmd_run, "dict": cmd_dict}[args.cmd]
+    if args.cmd in KINDS and args.cmd != "spec":
+        args.only = args.cmd            # 工程別サブコマンド = run をその工程に限定
+        fn = cmd_run
+    else:
+        fn = {"spec": cmd_spec, "run": cmd_run, "dict": cmd_dict}[args.cmd]
     root = Path(args.root).resolve()
     if args.dry_run:
         fn(args)

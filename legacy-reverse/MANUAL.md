@@ -278,21 +278,27 @@ NG が出たら**ゼロになるまで直します**。原則は「スクリプ�
 
 まとめて流すときは `pipeline.py` を使います。サブコマンドは4つです。
 
+**工程ごとに1つずつサブコマンドがあります**（①だけ、②だけ、を同じ形で流せます）。
+
 | コマンド | 対象 | 使いどころ |
 |---|---|---|
-| `pipeline.py spec` | ①だけを全件 | ①を全部 draft にして、一斉レビュー表でまとめて承認する運転 |
-| `pipeline.py run` | ①〜⑤を工程横断 | 承認済みの関数から②③④⑤へ自動で進む。`--only testspec` で工程を限定できる |
+| `pipeline.py spec` | ①だけを全件 | ①を全部 draft にして、一斉レビュー表でまとめて承認する |
+| `pipeline.py testspec` | ②だけを全件 | ①の承認が済んだ関数の②を全部作り、まとめて承認する |
+| `pipeline.py testcode` | ③だけを全件 | ②の承認が済んだ関数の③を全部書く |
+| `pipeline.py impl` | ④だけを全件 | ③が終わった関数の④を全部書く |
+| `pipeline.py test` | ⑤だけを全件 | ④が終わった関数のテストを全部流す |
+| `pipeline.py run` | ①〜⑤を工程横断 | 承認済みの関数から②③④⑤へ**自動で次工程へ進む**。承認待ち・裁定待ちはスキップ |
 | `pipeline.py dict` | 変数の解釈（⓪） | 対象が関数ではなく**変数のチャンク**（既定40件＝1プロセス） |
 | `pipeline.py priority` | ⭐優先の設定・一覧 | **実行中でも**割り込み順を変えられる（次の1件から効く） |
 
-**なぜ①だけ専用の `spec` があるのか**（`run --only spec` でも①は回せます）:
+工程別コマンドと `run` の使い分けは「**承認をまとめたいか、流し切りたいか**」です。
+承認ゲートのある①②は工程別で回して溜まったところで一斉承認、③④⑤は `run` に任せて
+流し切る、という運転が基本形になります。
 
-- `spec` は**書きかけ（機械レビューNGの draft）を先に修復してから**未着手へ進み、
-  終了時に「レビュー待ち何件」を報告します。①→一斉レビューという運転に合わせた形です
-- 対象の再走査が **`spec` はチャンク境界ごと / `run` は1件ごと**です。`run` は実行中の承認や
-  ⭐を即座に拾える代わりに毎回全関数を見るので、2000関数級で①を全件流すときは `spec` が軽い
-- 逆に言うと、規模が小さければ `run --only spec` で十分です。歴史的には `spec` が先にでき、
-  あとから `run` が①〜⑤へ一般化しました
+②〜⑤の工程別コマンドは `run --only <工程>` と等価です（実体は同じエンジン）。
+①の `spec` だけは2000関数規模向けの専用ドライバで、**書きかけ（機械レビューNGの draft）の
+修復を先に**行い、対象の再走査をチャンク境界に間引きます（`run` は1件ごとに全関数を
+再走査するので、実行中の承認・⭐を即座に拾える代わりに大規模では重くなります）。
 
 共通の挙動（4つとも同じ）:
 
@@ -308,10 +314,11 @@ NG が出たら**ゼロになるまで直します**。原則は「スクリプ�
   `.legacy-reverse/pipeline-log.jsonl`（1行1試行）。失敗の一次情報はここです
 
 ```bash
-python <LR>/scripts/pipeline.py run  --root . --dry-run        # 対象と実行順の確認だけ
-python <LR>/scripts/pipeline.py spec --root . --max-funcs 200  # ①を200件まで
-python <LR>/scripts/pipeline.py run  --root . --only testspec  # ②だけ全件
-python <LR>/scripts/pipeline.py priority F-0012 --root .       # F-0012 に割り込ませる
+python <LR>/scripts/pipeline.py run      --root . --dry-run        # 対象と実行順の確認だけ
+python <LR>/scripts/pipeline.py spec     --root . --max-funcs 200  # ①を200件まで
+python <LR>/scripts/pipeline.py testspec --root .                  # ②だけ全件
+python <LR>/scripts/pipeline.py impl     --root . --flow 月次バッチ  # ④をそのフローだけ
+python <LR>/scripts/pipeline.py priority F-0012 --root .           # F-0012 に割り込ませる
 ```
 
 AI の成果物は、あなたに届く前に機械の検査を通ります。

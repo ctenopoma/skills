@@ -23,7 +23,8 @@ HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、
 | CLI | `review_actions.py approve / request-changes / adjudicate`・`variables.py approve / revise`・`hazards.py add-policy`・`ledger unblock` | スクリプトが直接反映しサイトも更新する |
 
 実行の入口も CLI に一本化されている: 単発はチャット（`/legacy-1-spec F-xxxx` 等）、
-バッチは `pipeline.py spec / run / dict`。進捗のライブ表示（/pipeline.html）は残るが表示専用。
+バッチは `pipeline.py`（工程別の `spec` / `testspec` / `testcode` / `impl` / `test`、
+工程横断の `run`、辞書の `dict`）。進捗のライブ表示（/pipeline.html）は残るが表示専用。
 
 ## 固定と可変（固変分離）
 
@@ -247,7 +248,7 @@ python <LR>/scripts/hazards.py add-policy --kind div_by_var --decision guard_rai
 ```bash
 python <LR>/scripts/pipeline.py spec --root . [--max-funcs 200] [--budget-usd 20]  # ①のみ
 python <LR>/scripts/pipeline.py run  --root .                    # ①〜⑤を工程横断
-python <LR>/scripts/pipeline.py run  --root . --only testspec    # ②だけ全件（工程単位）
+python <LR>/scripts/pipeline.py testspec --root .                # ②だけ全件（工程別サブコマンド）
 python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（実行中でも効く）
 ```
 
