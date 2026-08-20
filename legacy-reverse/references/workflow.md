@@ -504,6 +504,13 @@ python <LR>/scripts/render_site.py --root .
 
 - **4 で `--force` を使わない**。骨子の再生成は書いた本文を捨てる
 - **5 → 6 の順を守る**。契約見出しを足す前に判定すると、足せば直るものまで差し戻す
+- **5 は本文を触らず、機械が決まる欄だけ埋める**。`## 例外・数値特異点` の節と hazard 表
+  （hazard・種別・箇所）に加え、**適用EP は `data/hazard-map.json` の突合結果を転記**する。
+  ここまでで例外ポリシーが決定済みなら①の指摘は消える（残る「仕様記述」欄は機械レビューの
+  対象外で、①が後から埋める）。**未決定なら「EP 未割当のまま仕様化」が hazard ごとに残る**
+  ——`docs/exception-queue.md` で決定 → `hazards.py add-policy` → `hazards.py match` →
+  **`ledger migrate-specs` を回し直す**と、節がある関数も空欄の適用EPだけ埋まって消える
+  （人や①が書いた値は上書きしない）
 - 6 は機械レビューが **NG のものだけ** 承認前に戻し、承認情報（`reviewed-by` /
   `reviewed-date`）も消す。OK のものは1バイトも触らない。差し戻した分は一斉レビュー表
   （`docs/spec-review.md`）に載るので、人はそこだけ見ればよい

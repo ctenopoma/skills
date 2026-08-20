@@ -730,14 +730,30 @@ def template_body(tpath: Path) -> str:
         return text
 
 
-def hazard_table_lines(f: dict) -> list:
+def load_hazard_map(root) -> dict:
+    """data/hazard-map.json（hazards.py match の突合結果）。無ければ空。"""
+    path = Path(root) / "data" / "hazard-map.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def hazard_table_lines(f: dict, hz_map: dict = None) -> list:
     """LR:HAZARD-TABLE に差し込む hazard 表（⓪が検知した数値特異点の一覧）。
 
     骨子生成（cmd_skeletons）と、後から契約見出しを足す移行（cmd_migrate_specs）で
-    同じ表を作る。適用EP・仕様記述の欄は空のまま——埋めるのは①の仕事。
+    同じ表を作る。**適用EP は機械が決めた突合結果（hazard-map.json）をそのまま入れる**
+    ——人が exception-policy.md で決めた EP-ID の転記なので、①に書かせる意味がない
+    （未決定なら空欄。決めてから `hazards.py match` を回し直せば埋まる）。
+    仕様記述の欄は空のまま——「その EP をこの関数でどう適用するか」は①の仕事。
     """
+    hz_map = hz_map or {}
     rows = [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:"
-            f"{h.get('line', '')} | | |" for h in f.get("hazards", [])]
+            f"{h.get('line', '')} | {(hz_map.get(h['hz_id']) or {}).get('ep', '') or ''} | |"
+            for h in f.get("hazards", [])]
     return (["| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
              "|--------|------|------|--------|----------|"]
             + (rows or ["| 該当なし | | | | |"]))
@@ -895,6 +911,7 @@ def cmd_skeletons(p: Project, args) -> None:
                  + "\n  - ".join(bad)
                  + "\n  マーカーと契約見出しの説明は references/workflow.md「固定契約」を参照")
     made = synced = 0
+    hz_map = load_hazard_map(p.root)          # 適用EP は機械の突合結果をそのまま載せる
 
     # フロー所属（func_id -> [フロー名, ...]）。骨子の新規生成時のみフロントマターに載せる
     # （文脈付与のみ・機械判定には使わない。既存 spec ファイルは触らない）
@@ -974,7 +991,7 @@ def cmd_skeletons(p: Project, args) -> None:
                        "| 名前 | func-id | 用途 |", "|------|---------|------|"]
         calls_lines += [f"| | {c} | |" for c in f.get("calls", [])] or ["| （なし） | | |"]
 
-        haz_lines = hazard_table_lines(f)
+        haz_lines = hazard_table_lines(f, hz_map)
 
         # テンプレ本文（プロジェクト所有）にプレースホルダと機械ブロックを差し込む。
         # LR:TEMPLATE-NOTE コメント（テンプレ自身の説明書き）は骨子には写さない
@@ -1007,13 +1024,13 @@ HAZ_NOTE = ("<!-- ⓪が検知した hazard を1件ずつ書く。適用EP は d
             "この節は後から入った契約見出しで、ledger migrate-specs が枠だけ置いた -->")
 
 
-def _insert_haz_section(text: str, f: dict) -> str:
+def _insert_haz_section(text: str, f: dict, hz_map: dict = None) -> str:
     """「## 例外・数値特異点」節を、本文を壊さずに挿し込んだ全文を返す。
 
     置き場所は上から順に: `# 副作用・例外` 節の末尾 → `# 未確定事項` の直前 → 文末。
     （`##` なので `# 副作用・例外` の配下に入るのが正。テンプレの並びと同じにする）
     """
-    block = "\n".join([HAZ_HEAD, "", HAZ_NOTE, ""] + hazard_table_lines(f)) + "\n"
+    block = "\n".join([HAZ_HEAD, "", HAZ_NOTE, ""] + hazard_table_lines(f, hz_map)) + "\n"
     lines = text.splitlines(keepends=True)
 
     def head_index(pat: str):
@@ -1038,8 +1055,35 @@ def _insert_haz_section(text: str, f: dict) -> str:
     return body + "\n\n" + block + ("\n" + rest if rest.strip() else "")
 
 
+RE_HAZ_ROW = re.compile(r"^\|\s*(H-\d+-\d+)\s*\|")
+
+
+def _fill_eps(text: str, hz_map: dict) -> tuple:
+    """既にある hazard 表の「適用EP」欄が空なら、突合結果の EP-ID を入れる。
+
+    例外ポリシーは節を足したあとに決まることが多い（決定 → add-policy → match）。
+    節があるだけで migrate をスキップすると、EP が決まっても表は空のままになるので、
+    **空欄だけ**を後から埋める。人や①が書いた値は上書きしない。
+    """
+    out, filled = [], []
+    for line in text.splitlines(keepends=True):
+        m = RE_HAZ_ROW.match(line)
+        cells = line.rstrip("\n").split("|") if m else []
+        # "| a | b | c | d | e |" → ['', ' a ', ' b ', ' c ', ' d ', ' e ', '']
+        if m and len(cells) >= 6 and not cells[4].strip():
+            ep = (hz_map.get(m.group(1)) or {}).get("ep")
+            if ep:
+                cells[4] = f" {ep} "
+                line = "|".join(cells) + "\n"
+                filled.append(m.group(1))
+        out.append(line)
+    return "".join(out), filled
+
+
 def cmd_migrate_specs(p: Project, args) -> None:
-    added, already, missing, reviewed_touched = [], [], [], []
+    hz_map = load_hazard_map(p.root)
+    added, already, missing, reviewed_touched, ep_filled = [], [], [], [], []
+    undecided: set = set()
     for f in p.funcs():
         fid = f["func_id"]
         sp = p.docs / "specs" / f"{fid}.md"
@@ -1049,18 +1093,37 @@ def cmd_migrate_specs(p: Project, args) -> None:
         text = sp.read_text(encoding="utf-8-sig")
         if re.search(r"(?m)^#{1,4}\s*例外[・･]数値特異点\s*$", text):
             already.append(fid)
+            new_text, filled = _fill_eps(text, hz_map)
+            if filled:
+                ep_filled.append((fid, len(filled)))
+                if not args.dry_run:
+                    sp.write_text(new_text, encoding="utf-8")
             continue
         added.append(fid)
+        undecided |= {h["hz_id"] for h in f.get("hazards") or []
+                      if not (hz_map.get(h["hz_id"]) or {}).get("ep")}
         if parse_frontmatter(text).get("status") == "reviewed":
             reviewed_touched.append(fid)
         if not args.dry_run:
-            sp.write_text(_insert_haz_section(text, f), encoding="utf-8")
+            sp.write_text(_insert_haz_section(text, f, hz_map), encoding="utf-8")
 
     verb = "追加できる" if args.dry_run else "追加した"
     print(f"migrate-specs: {len(added)} 件に「例外・数値特異点」節を{verb}"
           f"（既にある {len(already)} 件 / 仕様書なし {len(missing)} 件）")
     if added:
         print("  " + ", ".join(added[:20]) + (" ほか" if len(added) > 20 else ""))
+    if ep_filled:
+        n = sum(k for _, k in ep_filled)
+        print(f"  既存の節の「適用EP」空欄 {n} 件を{'埋められる' if args.dry_run else '埋めた'}"
+              f"（{len(ep_filled)} 関数。決定済みの EP-ID を突合結果から転記）")
+    if not hz_map:
+        print("warn: data/hazard-map.json が無いので適用EPの欄は空になる"
+              "（`hazards.py match --root .` を先に回すと機械が埋める）")
+    elif undecided:
+        print(f"warn: 例外ポリシーが未決定の hazard が {len(undecided)} 件あり、適用EPが空になる"
+              "（docs/exception-queue.md で決定 → hazards.py add-policy → hazards.py match → "
+              "この migrate-specs を回し直すと空欄だけ埋まる）: "
+              + ", ".join(sorted(undecided)[:10]))
     if reviewed_touched:
         print(f"warn: 承認済み（reviewed）の仕様書 {len(reviewed_touched)} 件を書き換える"
               "＝②の spec-hash が古くなる（WBS に「⚠ ②stale」が出る）: "
@@ -1069,9 +1132,9 @@ def cmd_migrate_specs(p: Project, args) -> None:
         print("  （--dry-run。実行するにはこの指定を外す）")
         return
     if added:
-        print("next: 枠を置いただけで中身は空。①で埋める"
-              "（/legacy-1-spec <func-id> か pipeline.py spec）。"
-              "EP 未決定の hazard は docs/exception-queue.md で先に決める")
+        print("next: 置いたのは枠と機械が決まる欄（hazard・適用EP）だけ。"
+              "「仕様記述」は①で埋める（/legacy-1-spec <func-id> か pipeline.py spec）")
+    if added or ep_filled:
         print("      反映: ledger wbs → render_site.py")
 
 

@@ -511,6 +511,8 @@ def test_migrate_specs_adds_contract_head(tmp: Path):
     after = sp.read_text(encoding="utf-8")
     assert "## 例外・数値特異点" in after
     assert "H-0001-01" in after and "H-0001-02" in after, "hazard 表が入っていない"
+    # 適用EP は機械の突合結果（hazard-map.json）をそのまま載せる＝①に書かせない
+    assert "EP-001" in after and "EP-002" in after, "適用EPが転記されていない"
     for keep in ("# 概要", "A を B で割って結果を返す。", "# 機能詳細",
                  "# 副作用・例外", "# 未確定事項", "| 1 | A | REAL |"):
         assert keep in after, f"本文が壊れた: {keep}"
@@ -525,12 +527,49 @@ def test_migrate_specs_adds_contract_head(tmp: Path):
     print("OK  migrate-specs（旧世代の仕様書に契約見出しを後追い・冪等）")
 
 
+def test_migrate_specs_fills_ep_later(tmp: Path):
+    """例外ポリシーを後から決めても、空欄の適用EPだけ後追いで埋まること。
+
+    節を足した時点では EP 未決定 → 「EP未割当のまま仕様化」の指摘が残る。決定して
+    match を回し直したあと migrate-specs を再実行すれば、節がある関数も空欄だけ
+    埋まって指摘が消える（人や①が書いた値は上書きしない）。
+    """
+    import ledger
+    root = review_project(tmp, "rv_ep_later", "", policy_rows=[], run_match=True)
+    sp = root / "docs" / "specs" / "F-0001.md"
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    assert "| EP-0" not in sp.read_text(encoding="utf-8"), "EP 未決定なのに埋まっている"
+    r = review_checks.check_spec(str(root), "F-0001")
+    assert any("EP 未割当" in x for x in r["problems"]), r["problems"]
+
+    write_policy(root, [
+        "| EP-001 | div_by_var | 全体既定 | guard_raise | 0割は例外送出 | 山田 2026-08-20 |",
+        "| EP-002 | sqrt_arg | 全体既定 | guard_raise | 負値は例外送出 | 山田 2026-08-20 |"])
+    hazards.match_hazards(root, write=True)
+
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    after = sp.read_text(encoding="utf-8")
+    assert "EP-001" in after and "EP-002" in after, "決定後も適用EPが埋まらない"
+    r = review_checks.check_spec(str(root), "F-0001")
+    assert r["ok"], r["problems"]
+
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    assert sp.read_text(encoding="utf-8") == after, "冪等でない"
+
+    # 人が書いた値は上書きしない
+    sp.write_text(after.replace("| EP-001 |", "| EP-009 |"), encoding="utf-8")
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    assert "EP-009" in sp.read_text(encoding="utf-8"), "人の記入を機械が上書きした"
+    print("OK  migrate-specs（例外ポリシーを後から決めても適用EPが埋まる）")
+
+
 def main() -> int:
     tests = [test_detectors, test_merge_overwrites_hazards, test_match_precedence,
              test_queue, test_add_policy, test_review_ok, test_review_missing_section,
              test_review_missing_row, test_review_fabricated_ep, test_review_undecided,
              test_review_no_map_is_warning, test_review_function_without_hazards,
-             test_backward_compat_old_functions_json, test_migrate_specs_adds_contract_head]
+             test_backward_compat_old_functions_json, test_migrate_specs_adds_contract_head,
+             test_migrate_specs_fills_ep_later]
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         test_detector_table_is_extensible()
