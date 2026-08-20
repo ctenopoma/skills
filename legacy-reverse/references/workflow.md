@@ -489,7 +489,7 @@ python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by �
 （消してしまった／レガシーのファイル名・ルーチン名を変えた場合だけ ID が変わる）
 
 ```bash
-python <LR>/scripts/extract_fortran.py --root .        # 1. 台帳を最新ソースに合わせる（マージ）
+python <LR>/scripts/extract_fortran.py --root . --write   # 1. 台帳を最新ソースに合わせる（マージ）
 python <LR>/scripts/hazards.py match --root .          # 2. 例外ポリシーの突合をやり直す
 python <LR>/scripts/variables.py build --root .        # 3. 変数辞書（承認は維持。未使用なら飛ばす）
 python <LR>/scripts/variables.py propagate --root .    #    承認済みの語義を IO/globals へ転記
