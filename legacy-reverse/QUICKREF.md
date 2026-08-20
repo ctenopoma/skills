@@ -82,7 +82,6 @@ python <LR>/scripts/graph.py --root . cycles               # 循環（SCC）
 ```bash
 python <LR>/scripts/variables.py build --root .            # 構築・再構築（常にマージ・承認維持）
 python <LR>/scripts/variables.py list-targets --limit 30 --root .   # 未解釈の根拠バンドル
-python <LR>/scripts/pipeline.py  dict --root . --chunk 40           # 解釈を無人バッチで（既定 sonnet）
 python <LR>/scripts/variables.py verify-interp --root .    # 機械検証してマージ（rank は機械が決める）
 python <LR>/scripts/variables.py page --root .             # docs/variables.qmd（ナビバーに自動で出る）
 python <LR>/scripts/variables.py approve V-0001,V-0002 --by <名前> --root .
@@ -129,7 +128,6 @@ python <LR>/scripts/pipeline.py spec --root .                  # ①だけ全件
 python <LR>/scripts/pipeline.py run  --root . --dry-run        # 対象と実行順の確認のみ
 python <LR>/scripts/pipeline.py run  --root . --flow 月次バッチ # そのフローの到達集合だけ
 python <LR>/scripts/pipeline.py testspec --root .              # ②だけ全件（③は testcode / ④は impl / ⑤は test）
-python <LR>/scripts/pipeline.py dict --root . --chunk 40       # ⓪変数辞書の解釈
 python <LR>/scripts/pipeline.py priority F-0012                # ⭐優先ON（実行中でも次に割り込む）
 python <LR>/scripts/pipeline.py priority F-0012 --off          # ⭐優先解除／引数なしで一覧
 ```

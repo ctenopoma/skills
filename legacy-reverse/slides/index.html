@@ -348,7 +348,7 @@ ledger flow list                        # 定義の確認</code></pre>
   <h2>⓪.5 変数辞書 (2/2) — 実際の手順</h2>
   <ol class="steps">
     <li><strong>打つ（無人バッチ）:</strong>
-      <pre style="margin:6px 0"><code>python &lt;LR&gt;/scripts/pipeline.py dict --root .</code></pre>
+      <pre style="margin:6px 0"><code>/legacy-0-dict</code></pre>
       <ul style="margin:4px 0 0"><li>放置でよい（実行中でも次の承認を並行できる）。
         様子を見ながら数十件だけ試したいときはチャットで <code>/legacy-0-dict</code></li></ul></li>
     <li><strong>起きること（あなたの操作なし）:</strong> AIが根拠から変数の意味を書き、
@@ -515,7 +515,7 @@ python &lt;LR&gt;/scripts/pipeline.py spec --root . --flow 月次バッチ  # �
 <!-- 20 -->
 <section class="slide">
   <h2>無人バッチの共通ルール — 中断・再開・順番の割り込み</h2>
-  <p>ここまでに出てきた <code>pipeline.py dict / spec / run</code> は、すべて同じ性質を持ちます:</p>
+  <p>ここまでに出てきた <code>pipeline.py spec / run</code> は、すべて同じ性質を持ちます:</p>
   <ul>
     <li><strong>いつ止めても安全、再開は同じコマンド。</strong> Ctrl-C・電源断でも進捗は
       すべてファイル側にあり、もう一度同じコマンドを打てば続きから走る</li>
@@ -598,7 +598,7 @@ python &lt;LR&gt;/scripts/pipeline.py priority                  # ⭐割り込�
     <tr><td>⓪</td><td><code>/legacy-0-analyze</code></td><td>ヒアリングに答え、規約に OK</td></tr>
     <tr><td>範囲</td><td><code>ledger flow add 月次バッチ --entry F-xxxx</code>（分けるときだけ）</td>
         <td>以後のバッチに <code>--flow 月次バッチ</code> を付ける</td></tr>
-    <tr><td>⓪.5</td><td><code>pipeline.py dict --root .</code></td><td>「変数辞書」画面で A/B 一括承認・C/D は直して承認</td></tr>
+    <tr><td>⓪.5</td><td><code>/legacy-0-dict</code>（チャット）</td><td>「変数辞書」画面で A/B 一括承認・C/D は直して承認</td></tr>
     <tr><td>①</td><td>1件お試し後 <code>pipeline.py spec --root . [--flow …]</code></td><td>一斉レビュー表でまとめて承認</td></tr>
     <tr><td>②</td><td><code>pipeline.py testspec --root . [--flow …]</code></td><td>⚠未確定に答えて承認</td></tr>
     <tr><td>③④⑤</td><td><code>pipeline.py run --root . [--flow …]</code></td><td>⛔ が出たら裁定（それ以外は見守り）</td></tr>

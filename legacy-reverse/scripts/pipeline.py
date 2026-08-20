@@ -11,8 +11,6 @@
   run       ①〜⑤を工程横断で回す（連続実行。承認済みの関数から
             ②③④⑤と自動で進み、承認・裁定待ちはスキップ。⭐優先も反映される）。
             --only は複数工程に限定したいときに使う（1工程なら同名サブコマンドが早い）
-  dict      変数辞書の解釈（⓪の一部）を回す。対象は関数でなく**変数のチャンク**で、
-            検証は variables.py verify-interp の exit code
   priority  ⭐優先の ON/OFF・一覧。実行中の run/spec に即座に効き、
             バッチ実行中でも割り込み順を変えられる
 
@@ -46,7 +44,6 @@
   python <LR>/scripts/pipeline.py impl     --root .                   # ④だけ全件
   python <LR>/scripts/pipeline.py run      --root . --max-funcs 100   # ①〜⑤を工程横断で
   python <LR>/scripts/pipeline.py run  --root . --dry-run         # 対象と実行順の確認のみ
-  python <LR>/scripts/pipeline.py dict --root . --chunk 40        # 変数辞書の解釈を全件
   python <LR>/scripts/pipeline.py priority F-0012 --root .        # F-0012 を⭐優先（次に割り込む）
   python <LR>/scripts/pipeline.py priority --root .               # ⭐優先の一覧
 
@@ -67,9 +64,7 @@
   .legacy-reverse/pipeline-status.json ライブ進捗（serve_site.py の /pipeline.html が表示）
 """
 import argparse
-import contextlib
 import datetime
-import io
 import json
 import os
 import re
@@ -77,7 +72,6 @@ import shutil
 import subprocess
 import sys
 import time
-import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -92,7 +86,6 @@ RUN_ARG_DEFAULTS = {"max_turns": 50, "timeout": 1800, "retries": 1,
 
 # 実行中の生存表示の間隔（秒）。headless の1プロセスは数分〜30分かかることがあり、
 # その間コンソールに1行も出ないと「固まった／応答がない」としか見えない。
-# 特に dict は1チャンク＝変数40件で1プロセスなので、無音区間がいちばん長い。
 HEARTBEAT_SEC = 60
 
 
@@ -952,8 +945,8 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     while attempt <= retries:
         status.current(fid, attempt + 1)
         t0 = time.time()
-        # 開始を必ず1行出す。完了時だけ出す作りだと、1プロセスが長い工程
-        # （特に dict の1チャンク）では「無反応」にしか見えない
+        # 開始を必ず1行出す。完了時だけ出す作りだと、1プロセスが長い工程では
+        # 「無反応」にしか見えない
         print(f"  ▶ {fid} 実行中"
               + (f"（試行 {attempt + 1}）" if attempt else "") + "…", flush=True)
         r = run_claude(claude_cmd, prompt, root, max_turns, extra, timeout,
@@ -1052,7 +1045,7 @@ def cmd_spec(args) -> None:
         if gated:
             # dict-gate（設計 P2）。変数辞書が無いプロジェクトでは常に空＝従来どおり
             print(f"dict-gate: 未承認の語義が残る {len(gated)} 関数を①の対象から外した"
-                  "（`pipeline.py dict` → 辞書ページで承認 → 再実行）")
+                  "（チャットで `/legacy-0-dict` → 辞書ページで承認 → 再実行）")
         return repair + fresh
 
     todo = targets()
@@ -1308,213 +1301,6 @@ def cmd_priority(args) -> None:
         sys.exit(1)
 
 
-# ---------- 辞書解釈バッチ（kind: dict / 設計 P2「LLM 解釈の契約」） ----------
-#
-# 変数辞書の「意味づけ」だけを LLM にやらせる無人バッチ。①〜⑤と違い対象は関数ではなく
-# **変数のチャンク**で、1チャンク = 1つの headless プロセス。
-#   1. variables.py list-targets  … 未解釈（status=unreviewed）の最小コンテキストを取り出す
-#   2. .legacy-reverse/dict-targets.json に書き、DICT_PROMPT で claude を1回起動
-#   3. variables.py verify-interp の **exit code** で契約検証（＝ファイル状態での検証。
-#      LLM の自己申告は一切信用しない）。NG はリトライ → スキップ記録、連続失敗で停止
-#   4. チャンクごとに辞書ページ再生成＋サイト更新（人が並行して承認できるように）
-# プロンプトは skill 呼び出しに依存しない自己完結の指示文（将来 legacy-0-dict skill が
-# できたら、この定数を "/legacy-0-dict" 相当に差し替えるだけで移行できる）。
-
-DICT_TARGETS_REL = ".legacy-reverse/dict-targets.json"
-
-DICT_PROMPT = """\
-レガシーコード（Fortran 等）の変数辞書を作る作業です（対象チャンク: {fid}）。
-次の手順**だけ**を実行してください。
-
-1. `.legacy-reverse/dict-targets.json` を読む。解釈対象の変数の配列で、各要素に
-   var_id / canonical_name / aliases / occurrences（出現する関数・役割・型）/ links /
-   evidence（機械が収集した根拠。ev_id・kind・file・line・text つき）が入っている。
-2. 各 var_id について、**evidence に書かれている事実だけ**を根拠に意味を判断する。
-   comment / format_label / data_init は強い根拠、usage_expr / common_pos は弱い根拠。
-   根拠が無い、または根拠から意味を決められないものは desc を「不明」とし、
-   evidence_cited を空配列にする（**推測で埋めない**。それが正しい振る舞い）。
-3. 結果を `data/interpretations.json` に次の形式で書く。**対象の var_id を1件残らず**
-   含めること（欠落・余剰があると機械検証で全件差し戻しになる）:
-
-   {{
-     "V-0001": {{"desc": "年間税率", "unit": "無次元(比率)", "rank_claim": "A",
-                "evidence_cited": ["E-0001-01"], "notes": ""}}
-   }}
-
-   - desc: 意味（日本語・簡潔に）／ unit: 単位（無ければ null）
-   - rank_claim: A（コメント・FORMAT文字列・初期値を引用）/ B（ドメイン知識）/
-     C（使用式のみ）/ D（根拠なし）。最終判定は機械が行うので申告でよい
-   - evidence_cited: 実際に使った ev_id。**その変数の evidence に実在するものだけ**
-4. `data/interpretations.json` **以外のファイルを作成・編集しないこと**
-   （data/variables.json も docs/ も触らない）。検証とマージは機械が行う。
-"""
-
-
-def _dict_targets(root: Path, limit: int) -> list:
-    """variables.py list-targets 相当（import して stdout を取り込む）。
-
-    サブプロセスを挟まないので JSON のパースだけで済む。variables.py は
-    このバッチの契約相手（変更禁止）なので、公開サブコマンドの形のまま呼ぶ。
-    """
-    import variables as V
-    buf = io.StringIO()
-    ns = types.SimpleNamespace(limit=limit, ids=None, root2=None)
-    with contextlib.redirect_stdout(buf):
-        V.cmd_list_targets(root, ns)
-    return json.loads(buf.getvalue() or "[]")
-
-
-def _make_dict_verify(ids: list):
-    """契約検証: `variables.py verify-interp --ids <chunk>` の exit code。
-
-    「LLM が何を言ったか」ではなく「ファイルがどうなったか」で判定する
-    （欠落・余剰・ev_id の捏造・rank D はすべて verify-interp 側が弾く）。
-    成功時は同じ呼び出しが variables.json へのマージまで済ませる。
-    """
-    def verify(root: str, fid: str) -> tuple:
-        ipath = Path(root) / "data" / "interpretations.json"
-        if not ipath.exists():
-            return False, "data/interpretations.json が作られていない", []
-        env = dict(os.environ)
-        env["PYTHONIOENCODING"] = "utf-8"
-        r = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "variables.py"),
-             "verify-interp", "--ids", ",".join(ids), "--root", str(root)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
-        if r.returncode == 0:
-            return True, "", []
-        problems = [l.strip()[2:].strip() for l in (r.stdout or "").splitlines()
-                    if l.strip().startswith("- ")]
-        return False, f"辞書の機械検証NG（{len(problems) or '理由不明'}件）", problems or [
-            (r.stdout or r.stderr or "").strip()[-300:]]
-    return verify
-
-
-def _refresh_dict_site(root: Path) -> None:
-    """チャンク完了ごとの辞書ページ再生成＋サイト更新（人の承認導線を止めない）。"""
-    import variables as V
-    import review_actions
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            V.cmd_page(root, types.SimpleNamespace(root2=None))
-    except SystemExit as e:
-        print(f"note: 辞書ページの再生成に失敗: {e}")
-    if not review_actions.refresh_site(str(root), "dict"):
-        print("note: サイト更新に失敗（render_site.py を手動実行）")
-
-
-def cmd_dict(args) -> None:
-    root = Path(args.root).resolve()
-    if not (root / "data" / "variables.json").exists():
-        sys.exit("error: data/variables.json が無い（先に `variables.py build` を実行する）")
-    args.max_funcs = args.max_vars       # RunStatus が参照する共通キー（表示用）
-    tpath = root / DICT_TARGETS_REL
-
-    def chunk_targets(processed: set) -> list:
-        # list-targets は「未解釈の先頭N件」なので、このセッションで処理済み
-        # （rank D で人のキューに残ったものを含む）を跨いで取るために多めに引く
-        got = [t for t in _dict_targets(root, args.chunk + len(processed))
-               if t["var_id"] not in processed]
-        if args.max_vars:
-            got = got[:max(args.max_vars - len(processed), 0)]
-        return got[:args.chunk]
-
-    first = chunk_targets(set())
-    if not first:
-        print("辞書の解釈対象なし（status=unreviewed がゼロ）。"
-              "承認は docs/variables.qmd（辞書ページ）で行う")
-        return
-    if args.dry_run:
-        ids = [t["var_id"] for t in first]
-        print(f"1チャンク {len(ids)} 件: {', '.join(ids)}")
-        print(f"  claude -p \"<下記プロンプト>\" "
-              f"--max-turns {args.max_turns}"
-              + (" --dangerously-skip-permissions" if args.skip_permissions else ""))
-        print("  --- prompt ---")
-        print(DICT_PROMPT.format(fid=f"dict:{ids[0]}〜{ids[-1]}" if len(ids) > 1
-                                 else f"dict:{ids[0]}"))
-        return
-
-    claude_cmd = find_claude(args.claude_cmd)
-    preflight_claude(claude_cmd)
-    extra = permission_args(args)
-    extra += args.claude_args
-
-    store = json.loads((root / "data" / "variables.json").read_text(encoding="utf-8-sig"))
-    total = sum(1 for v in store.get("variables", []) if v.get("status") == "unreviewed")
-    if args.max_vars:
-        total = min(total, args.max_vars)
-    print(f"未解釈の変数 {total} 件を {args.chunk} 件ずつ解釈する")
-    print(f"  1チャンク = 変数 {args.chunk} 件を headless 1プロセスで解釈する"
-          f"（1プロセスの上限 {args.timeout}s。{HEARTBEAT_SEC}秒ごとに経過を出す）。"
-          "反応が遠いと感じるときは --chunk を小さくすると刻みが細かくなる")
-
-    status = RunStatus(root, "dict（辞書解釈）", total, args)
-    import serve_site                        # ポート規則は serve_site.default_port が正
-    pname = Project(root).functions.get("project", {}).get("name") or root.name
-    print(f"ライブ進捗: http://127.0.0.1:{serve_site.default_port(pname)}/pipeline.html")
-
-    processed: set = set()
-    done = failed = consecutive_fail = 0
-    cost_total, rate_waited = 0.0, 0
-    stop_reason = ""
-    targets = first
-    try:
-        while targets:
-            if args.budget_usd and cost_total >= args.budget_usd:
-                stop_reason = f"予算 ${args.budget_usd} に到達（累計 ${cost_total:.2f}）"
-                print(f"{stop_reason}。停止")
-                break
-            ids = [t["var_id"] for t in targets]
-            label = f"dict:{ids[0]}〜{ids[-1]}" if len(ids) > 1 else f"dict:{ids[0]}"
-            tpath.parent.mkdir(parents=True, exist_ok=True)
-            tpath.write_text(json.dumps(targets, ensure_ascii=False, indent=1),
-                             encoding="utf-8")
-            try:
-                ok, why, r, cost_total, rate_waited = run_one(
-                    label, claude_cmd, extra, root, DICT_PROMPT, args.max_turns,
-                    args.timeout, args.retries, args.backoff_base, args.backoff_max,
-                    args.rate_wait_total, status, cost_total, rate_waited,
-                    verify_fn=_make_dict_verify(ids), phase="dict")
-            except KeyboardInterrupt:
-                print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。停止する")
-                raise
-            processed.update(ids)      # 成否によらず、このセッションでは再選定しない
-            if ok:
-                done += len(ids)
-                consecutive_fail = 0
-                print(f"[{done}] {label} マージ OK（累計 ${cost_total:.2f}）")
-            else:
-                failed += len(ids)
-                consecutive_fail += 1
-                print(f"  {label}: 失敗として記録しスキップ（{why}）")
-            status.counts(done, failed)
-            _refresh_dict_site(root)
-            if not ok and consecutive_fail >= args.max_consecutive_fail:
-                stop_reason = f"連続 {consecutive_fail} チャンク失敗（環境異常の疑い）"
-                print(f"{stop_reason}。停止する（許可設定・skill配置・claude CLI を確認）")
-                break
-            if args.max_vars and len(processed) >= args.max_vars:
-                stop_reason = f"上限 {args.max_vars} 件に到達"
-                print(f"{stop_reason}。同じコマンドで再開できる")
-                break
-            if args.pause:
-                time.sleep(args.pause)
-            targets = chunk_targets(processed)   # 残りが無くなればループを抜ける
-    except KeyboardInterrupt:
-        stop_reason = "中断（Ctrl-C）"
-        print("\n中断した。進捗はファイルに保存済み。同じコマンドで続きから再開できる")
-    status.finish("stopped" if stop_reason else "finished", stop_reason)
-    tpath.unlink(missing_ok=True)
-
-    print(f"\n完了: 解釈マージ {done} 件 / 失敗 {failed} 件 / 累計コスト ${cost_total:.2f}")
-    print("次: docs/variables.qmd（辞書ページ）で人が承認する"
-          "（rank A/B は一括承認、C/D は1件ずつ desc を確定）")
-    if failed:
-        print("  原因調査: .legacy-reverse/agent-logs/dict_*.txt にエージェント応答の全文、"
-              ".legacy-reverse/pipeline-log.jsonl に検証結果")
-
-
 def build_parser() -> argparse.ArgumentParser:
     """CLI の引数定義。main() から分離してあるのは、既定値の契約
     （--skip-permissions が既定 ON であること等）をセルフテストから検証するため。
@@ -1583,15 +1369,6 @@ def build_parser() -> argparse.ArgumentParser:
               sub.add_parser("test", help="⑤テストだけを全件 無人実行（run --only test と同じ）")):
         add_driver_args(s, chunk_default=5)
 
-    d = sub.add_parser("dict", help="変数辞書の解釈を無人実行（未解釈の変数をチャンクごとに"
-                                    "LLMへ。検証は variables.py verify-interp）")
-    add_driver_args(d, chunk_default=40)
-    d.add_argument("--max-vars", type=int, default=0,
-                   help="このセッションで解釈する変数の上限（0=無制限。dict では --max-funcs でなくこちら）")
-    for a in d._actions:      # dict の --chunk は「更新間隔」ではなく「1プロセスの変数件数」
-        if a.dest == "chunk":
-            a.help = "1チャンクの変数件数（＝headless 1プロセスに渡す数。既定40）"
-
     p = sub.add_parser("priority", help="⭐優先の ON/OFF・一覧（実行中でも使える）")
     p.add_argument("fids", nargs="*", help="関数ID（F-0012 …）。省略すると現在の⭐一覧を表示")
     p.add_argument("--off", action="store_true", help="指定した関数の⭐優先を解除する")
@@ -1616,7 +1393,7 @@ def main() -> None:
         args.only = args.cmd            # 工程別サブコマンド = run をその工程に限定
         fn = cmd_run
     else:
-        fn = {"spec": cmd_spec, "run": cmd_run, "dict": cmd_dict}[args.cmd]
+        fn = {"spec": cmd_spec, "run": cmd_run}[args.cmd]
     root = Path(args.root).resolve()
     if args.dry_run:
         fn(args)

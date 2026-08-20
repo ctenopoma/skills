@@ -44,7 +44,6 @@
   .legacy-reverse/
     state.json          # 実行中フェーズ（hook の判定に使う）
     last-run.json       # pytest プラグインの出力（⑤の一時データ）
-    dict-targets.json   # 辞書解釈バッチが LLM に渡す根拠バンドル（pipeline.py dict の一時データ）
 ```
 
 ## data/functions.json
@@ -184,7 +183,7 @@
 
 ## data/interpretations.json（LLM 解釈の受け渡し）
 
-LLM（`pipeline.py dict` または `/legacy-0-dict`）が書く唯一のファイル。
+LLM（`/legacy-0-dict`）が書く唯一のファイル。
 variables.json は編集しない。`variables.py verify-interp` が機械検証してマージし、
 成功したら `data/interpretations-applied-<YYYYMMDD-HHMM>.json` へ退避して元ファイルを消す。
 

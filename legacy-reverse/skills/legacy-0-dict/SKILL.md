@@ -62,14 +62,16 @@ links / evidence（`ev_id`・kind・file・line・text）だけを JSON で返�
               "evidence_cited": ["E-0001-01"], "notes": "" } }
 ```
 
-**全件（数百件〜）は無人バッチ**（1チャンク=1 headless プロセス。トークン制約なし）:
+**全件（数百件〜）も同じ手順を繰り返す**。`list-targets --limit` で小分けにし、
+チャンクごとに verify-interp までを1往復にする（無人バッチは持たない）:
 
 ```bash
-python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500]
+python <LR>/scripts/variables.py list-targets --limit 40 --root .   # → 解釈して書く
+python <LR>/scripts/variables.py verify-interp --root .             # → 検証・マージ
+python <LR>/scripts/variables.py page --root .                      # → 辞書ページ更新
 ```
 
-モデルは指定しない（`claude -p` の既定モデル）。チャンクごとに検証・マージ・辞書ページ再生成まで
-自動で進むので、人は**実行中でも並行して承認**できる。
+チャンクごとにページを作り直せば、人は**続きを回している間も並行して承認**できる。
 
 #### ルーブリック（rank は機械が決める。申告ではない）
 

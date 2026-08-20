@@ -117,7 +117,7 @@ flowchart TB
 ```
 
 - **単位は関数ではなく変数**。承認 1 回でクラスタの全出現(別名・COMMON・呼び出し結線)に効く
-- 解釈の全件実行は無人バッチ `pipeline.py dict`(1 チャンク = 変数 40 件 = 1 headless
+- 解釈はチャットの `/legacy-0-dict` で行う(無人バッチは持たない。1 チャンク = 変数 40 件 = 1 headless
   プロセス。既定モデル **sonnet**)。契約検証は LLM の申告ではなく
   `variables.py verify-interp` の exit code
 - チャンクごとに辞書ページとサイトを更新するので、**人は実行中でも並行して承認できる**

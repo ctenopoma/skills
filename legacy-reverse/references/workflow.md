@@ -83,7 +83,7 @@ HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、
 
 - 「読んではいけない」に触れたくなったら、それは仕様の穴。ISSUE を起票して停止する
 - レガシー原文を読める役割は ⓪ と ①（改訂含む）だけ
-- **辞書解釈（`pipeline.py dict` / `/legacy-0-dict`）は根拠バンドルだけを読む**。
+- **辞書解釈（`/legacy-0-dict`）は根拠バンドルだけを読む**。
   legacy 全文を読ませないのは、根拠として引用できない「読んだ気配」で desc を埋めさせない
   ため（引用は ev_id でしか行えず、実在しない ev_id は `verify-interp` が弾く）。
   根拠から意味を決められないものは desc「不明」＋引用なしで返すのが**正しい振る舞い**で、
@@ -281,78 +281,6 @@ python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（�
   応答が返らない」という切り分けの難しい失敗になるため撤去した。実験したいときだけ
   `--claude-args` で明示する（自己責任の抜け道）
 
-### 辞書解釈バッチ（`pipeline.py dict`）
-
-①〜⑤と違い**対象は関数でなく変数のチャンク**（既定40件＝headless 1プロセス）。
-
-```bash
-python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500]
-```
-
-1. `variables.py list-targets` 相当で未解釈（status: unreviewed）の根拠バンドルを取り出し、
-   `.legacy-reverse/dict-targets.json` に書いて claude を1回起動する
-2. 契約検証は **`variables.py verify-interp --ids <チャンク>` の exit code**
-   （LLM の自己申告は使わない）。成功すればその呼び出しが variables.json へのマージまで済ませる
-3. チャンクごとに辞書ページを再生成しサイトを更新する——人は**実行中でも並行して承認できる**
-4. 前提: `variables.py build` 済み（variables.json が無ければ即エラー）
-
-ロック（run.lock）・レート耐性・中断安全・`/pipeline.html` のライブ進捗は①〜⑤と共有する。
-
-### ライブ進捗ページ（/pipeline.html）は表示専用
-
-serve_site.py の `/pipeline.html` は、バッチ（pipeline.py spec / run / dict）の
-ライブ進捗を表示する**閲覧専用ページ**——いま何を実行中か・成功率・失敗の内訳・ETA・
-残タスク（実行順・検索つき）・直近の結果とエージェント応答ログが見える。
-実行・中止・承認・⭐操作の類は一切持たない（対応する CLI: 停止は Ctrl+C、
-割り込みは `pipeline.py priority F-xxxx`、承認・裁定は本書冒頭の3チャネル）。
-
-- 進捗の実体は `.legacy-reverse/pipeline-status.json`（RunStatus がアトミックに更新）。
-  Quarto を通さないポーリング表示なので、WBS の再生成なしにリアルタイムで見える
-- 残タスク一覧（GET /batch-queue）は「次に何が走るか」と「人待ち（承認・裁定）」を
-  実行順で見せる。人待ちの行は該当ページへのリンクだけで、返答方法はページ先頭の
-  案内パネルが示す
-- 排他制御は実行スロットロック（`.legacy-reverse/run.lock`。`O_CREAT|O_EXCL` の
-  原子的なファイル作成）。複数のバッチ（別端末の spec / run / dict）が取り合い、
-  ロックには保持プロセスの PID が入っていて、クラッシュの残骸は自動解除される。
-  status ファイル側も `pid` を持ち、書いたプロセスが死んでいる running は無視される
-- 連続実行の対象選定は `pipeline._scan_targets` / `_decide_kind`（①〜⑤のうち次に
-  着手すべき工程。承認・裁定待ちと完了はスキップ。修正依頼(pending)・機械レビューNGが
-  残る draft/generated は自動修復の再実行対象になる）。1件ごとに再走査するので、
-  実行中に人が承認・裁定した分も次の走査で拾われる
-
-### ⑤（テスト実行）の verify_fn が①〜④と違う点
-
-`verify_test` は `retries=0` で呼ばれる（`pipeline.KINDS` の `"test"` エントリで指定。
-`run_one` は kind ごとの retries 上書きに対応）。
-理由: legacy-5-test/SKILL.md の設計上、(a)実装バグは1回の headless 実行の中で
-AI 自身が「src/ 修正→⑤再実行」を attempt 上限までループし、pass か blocked
-（attempt上限到達で自動 ISSUE 起票）のどちらかで自然に止まる。**blocked は
-orchestrator から見て「異常な失敗」ではなく「設計どおりの正常な停止」**——
-ここで orchestrator 側がさらにリトライしても `ledger verify` が blocked を検知して
-即座に断るだけの空実行になる（SKILL.md で「attempt を稼ぐための空実行」は
-明示的に禁止）。`_decide_kind` も `blocked_by` が立っている間は "test" を返さない
-（人が ISSUE に回答して `unblock` するまで再実行対象にならない）。
-`classify_ng` は「裁定待ち」を専用の分類（⛔人の裁定待ち・正常）に振り分け、
-機械的な異常（claude起動不可・タイムアウト等）と区別して集計する。
-
-### ⑥（完了検証）と⑦（分析）は CLI / チャット駆動
-
-⑥は headless Claude を呼ばない純粋な機械チェック: `ledger check`（または
-`/legacy-6-check`。検証 → 最終レンダリングまで行う）。全関数の⑤が pass すると、
-WBS トップの案内パネルに実行方法が表示される（それまでは出さない——時期が来る前の
-案内は「もう押せるの？」という誤解のもとになるため。途中の不足確認は WBS の進捗表・
-spec-review.md、CLI なら `ledger check` が担う）。
-
-⑦（分析・改善）は「計測せずに提案しない」が大原則。チャットで `/legacy-7-analyze` を
-起動すると、定量評価（quant_analyze.py。cProfile＋radon/ruff/bandit/pip-audit、
-LLM不使用）→ 実測データに基づく施策候補の提案（docs/analysis.md）→ 人の承認 →
-挙動保存で適用、と進む。⑥が pass するまで WBS に⑦の案内は出ない。
-
-`/pipeline.html` は2.5秒ごとにポーリングするが、「直近の結果」テーブルは
-**中身が変わった時だけ**再描画する（変化がなければ innerHTML に一切触れない）。
-以前は毎回丸ごと再描画しており、人が開いた `<details>`（NG理由の展開）が
-次のポーリングで即座に閉じる不具合があった。再描画が発生する場合も
-`data-rid` で開いていた行を判別し、開閉状態を復元する。
 
 ## 再開（レジューム）
 

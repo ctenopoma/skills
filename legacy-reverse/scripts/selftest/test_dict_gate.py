@@ -15,8 +15,8 @@ scripts/selftest/fixture_vars/ を毎回テンポラリにコピーし、variabl
       （verify のメッセージと exit / WBS の ⚠ 表示）
   (e) 旧骨子（dict-hash 行が無い spec）は stale 扱いにしない
   (f) pipeline._decide_kind のゲート（ledger 側の共通実装を参照していること）
-  (g) pipeline.py dict の対象選定・チャンク分割・プロンプト組み立て、
-      および run_one の model 引数（未指定なら従来と同一のコマンドライン）
+  (g) run_one が余分な起動引数を足さないこと（モデルは選ばない）と、
+      応答ログのファイル名の正規化
 """
 import contextlib
 import io
@@ -379,47 +379,7 @@ def test_decide_kind_without_dict():
     print("OK  (f) 辞書が無いプロジェクトの _decide_kind は従来どおり")
 
 
-# ---------- (g) pipeline dict の対象選定・プロンプト ----------
-
-def _dict_args(root: Path, **kw) -> types.SimpleNamespace:
-    d = dict(pipeline.RUN_ARG_DEFAULTS)
-    ns = types.SimpleNamespace(
-        root=str(root), chunk=40, max_funcs=0, max_vars=0, budget_usd=0,
-        max_consecutive_fail=3, pause=0, skip_permissions=False,
-        claude_cmd=None, claude_args=[], dry_run=True, no_render=True, flow=None, **d)
-    for k, v in kw.items():
-        setattr(ns, k, v)
-    return ns
-
-
-def test_pipeline_dict_targets_and_chunking():
-    root = make_project()
-    got = pipeline._dict_targets(root, 3)
-    assert [t["var_id"] for t in got] == ["V-0001", "V-0002", "V-0003"], got
-    assert set(got[0]) >= {"var_id", "canonical_name", "occurrences", "evidence"}
-
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        pipeline.cmd_dict(_dict_args(root, chunk=2))
-    out = buf.getvalue()
-    assert "1チャンク 2 件: V-0001, V-0002" in out, out
-    # モデルは選ばない（工程ごとのモデル指定が「その工程だけ応答が返らない」
-    # 切り分けの難しい失敗の原因になったため、--model は付けない）
-    assert "--model" not in out, out
-    assert "dict-targets.json" in out and "data/interpretations.json" in out
-    assert '"V-0001": {"desc"' in out, "プロンプトの JSON 例が二重波括弧のまま残っている"
-    assert "対象チャンク: dict:V-0001〜V-0002" in out
-    assert "他のファイルを作成・編集" not in out  # 文面は「以外のファイルを…」
-    assert "以外のファイルを作成・編集しないこと" in out
-
-    # 解釈対象が尽きたら何もしない（全部 approved にする）
-    for v in load_vars(root):
-        approve(root, v["var_id"], "確定")
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        pipeline.cmd_dict(_dict_args(root, chunk=2))
-    assert "辞書の解釈対象なし" in buf.getvalue()
-    print("OK  (g) pipeline dict: 対象選定・チャンク分割・プロンプト")
+# ---------- (g) run_one の起動引数とログ名 ----------
 
 
 class _StubStatus:
@@ -453,12 +413,14 @@ def test_run_one_no_model_argument():
         st = _StubStatus()
         ok, why, r, cost, waited = pipeline.run_one(
             "dict:V-0001〜V-0002", ["claude"], ["--dangerously-skip-permissions"], root,
-            pipeline.DICT_PROMPT, 50, 60, 0, 60, 900, 21600, st, 0.0, 0,
+            "変数 {fid} を解釈する。例: {{\"V-0001\": {{\"desc\": \"…\"}}}}",
+            50, 60, 0, 60, 900, 21600, st, 0.0, 0,
             verify_fn=lambda root_, fid: (True, "", []), phase="dict")
         # モデルは選ばない。渡した extra 以外の引数を勝手に足さないこと
         assert ok and calls[-1]["extra"] == ["--dangerously-skip-permissions"]
         assert "{fid}" not in calls[-1]["prompt"]
         assert '"V-0001": {"desc"' in calls[-1]["prompt"], "波括弧のエスケープが崩れている"
+        assert "dict:V-0001〜V-0002" in calls[-1]["prompt"]
 
         ok, *_ = pipeline.run_one(
             "F-0001", ["claude"], [], root, "/legacy-1-spec {fid}", 50, 60, 0, 60, 900,
@@ -474,40 +436,6 @@ def test_run_one_no_model_argument():
     print("OK  (g) run_one は --model を付けない ＋ ログ名の正規化")
 
 
-def test_dict_verify_contract():
-    """完了検証は variables.py verify-interp の exit code（ファイル状態の契約）。"""
-    root = make_project()
-    ids = ["V-0001", "V-0002"]
-    verify = pipeline._make_dict_verify(ids)
-
-    ok, why, problems = verify(str(root), "dict:V-0001〜V-0002")
-    assert not ok and "interpretations.json が作られていない" in why
-
-    # 対象に欠落があれば NG（LLM の書き漏らしを機械が弾く）
-    ipath = root / "data" / "interpretations.json"
-    ipath.write_text(json.dumps({"V-0001": {"desc": "金額", "unit": None,
-                                            "rank_claim": "C", "evidence_cited": []}},
-                                ensure_ascii=False), encoding="utf-8")
-    ok, why, problems = verify(str(root), "dict:V-0001〜V-0002")
-    assert not ok and "機械検証NG" in why, (why, problems)
-    assert any("V-0002" in p for p in problems), problems
-
-    # 全件そろえば OK になり、variables.json にマージされる
-    payload = {}
-    for v in load_vars(root):
-        if v["var_id"] in ids:
-            ev = [e["ev_id"] for e in v["evidence"] if e["kind"] == "usage_expr"][:1]
-            payload[v["var_id"]] = {"desc": f"{v['canonical_name']} の値", "unit": None,
-                                    "rank_claim": "C", "evidence_cited": ev, "notes": ""}
-    ipath.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    ok, why, problems = verify(str(root), "dict:V-0001〜V-0002")
-    assert ok, (why, problems)
-    merged = {v["var_id"]: v for v in load_vars(root)}
-    assert merged["V-0001"]["status"] == "interpreted"
-    assert not ipath.exists(), "verify-interp は interpretations.json を消費する"
-    print("OK  (g) 辞書バッチの完了検証（verify-interp の exit code）")
-
-
 def main() -> None:
     tests = [
         test_dict_gate_excludes_and_can_be_disabled,
@@ -519,9 +447,7 @@ def main() -> None:
         test_old_spec_without_dict_hash_is_not_stale,
         test_decide_kind_gate,
         test_decide_kind_without_dict,
-        test_pipeline_dict_targets_and_chunking,
         test_run_one_no_model_argument,
-        test_dict_verify_contract,
     ]
     try:
         for t in tests:

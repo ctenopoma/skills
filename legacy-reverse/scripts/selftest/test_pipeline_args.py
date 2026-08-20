@@ -26,7 +26,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import pipeline                                                    # noqa: E402
 
 # 実行系のサブコマンド（priority は claude を起動しないので対象外）
-DRIVER_CMDS = ["spec", "run", "testspec", "testcode", "impl", "test", "dict"]
+DRIVER_CMDS = ["spec", "run", "testspec", "testcode", "impl", "test"]
 
 
 def test_skip_permissions_defaults_on():
@@ -48,9 +48,9 @@ def test_skip_permissions_opt_out():
 
 def test_permission_args():
     ap = pipeline.build_parser()
-    on = pipeline.permission_args(ap.parse_args(["dict"]))
+    on = pipeline.permission_args(ap.parse_args(["spec"]))
     assert on == ["--dangerously-skip-permissions"], on
-    off = pipeline.permission_args(ap.parse_args(["dict", "--no-skip-permissions"]))
+    off = pipeline.permission_args(ap.parse_args(["spec", "--no-skip-permissions"]))
     assert off == [], off
     print("OK  permission_args() の組み立て")
 

@@ -25,8 +25,8 @@ date: 2026-08-09
   片方が待たされるだけ**で壊れない
 - `pipeline.py run` は**共通の走査**(pipeline の `_scan_targets`)を
   CLI から回すもの。⭐優先・失敗スキップの扱いも同じ。`spec` は「①を全件先に流す」用
-- ⓪の変数辞書だけは別枠で、`pipeline.py dict` が**変数のチャンク**を単位に回す
-  (①〜⑤とロック・進捗表示は共有。既定モデルは sonnet)
+- ⓪の変数辞書は無人バッチを持たない。チャットの `/legacy-0-dict` で
+  `list-targets` → 解釈 → `verify-interp` を小分けに繰り返す
 
 # 導入手順
 
@@ -72,7 +72,7 @@ python <LR>/scripts/hazards.py match --root .                # 4. 例外ポリ�
 python <LR>/scripts/hazards.py add-policy --kind div_by_var \
        --decision guard_raise --by <承認者> --root .         #    → 決定を EP-xxx として登録
 python <LR>/scripts/variables.py build --root .              # 5. 変数辞書の構築
-python <LR>/scripts/pipeline.py dict --root .                #    → 解釈(無人バッチ)
+#   → 解釈はチャットの /legacy-0-dict で（list-targets → verify-interp を小分けに）
 #   → 辞書ページで人が承認 → propagate は承認時に自動
 ledger skeletons && ledger wbs                               # 6. 骨子・WBS
 ledger next                                                  #    → dict-gate が効いた状態で①へ
@@ -252,12 +252,11 @@ python <LR>/scripts/serve_site.py --root .
 
 | 入口 | カバー範囲 | 件数指定 | コスト上限 | 向く場面 |
 |------|-----------|---------|-----------|---------|
-| CLI `pipeline.py dict` | **⓪辞書の解釈** | `--max-vars`(単位は**変数**) | `--budget-usd` | ①の前に語義を全件付ける |
 | CLI `pipeline.py spec` | ①のみ | `--max-funcs` | `--budget-usd` | 夜間に①を全件流す |
 | CLI `pipeline.py run` | **①〜⑤**(`--only` で工程限定可) | `--max-funcs` | `--budget-usd` | サーバを立てずに工程横断で回す |
-: 無人実行の 4 入口と、向く場面の違い {#tbl-ops-batch-entry}
+: 無人実行の入口と、向く場面の違い {#tbl-ops-batch-entry}
 
-4 入口とも実行の実体(`run_one`)と実行枠ロックを共有するので、同時には走らない。
+どちらも実行の実体(`run_one`)と実行枠ロックを共有するので、同時には走らない。
 `run` の対象選定は `pipeline._scan_targets` で、
 ⭐優先・batch-priority.json もそのまま反映される。⭐優先の設定自体も
 ブラウザ(⭐ボタン)と CLI(`pipeline.py priority`)の両方から行える。
@@ -269,7 +268,6 @@ python <LR>/scripts/serve_site.py --root .
 ```{#lst-ops-pipeline .bash lst-cap="CLI ドライバの主な起動パターン"}
 python <LR>/scripts/pipeline.py run  --root .                  # ①〜⑤を工程横断で無人実行
 python <LR>/scripts/pipeline.py spec --root .                  # ①だけ全件 draft まで
-python <LR>/scripts/pipeline.py dict --root . --chunk 40       # ⓪辞書の解釈を全件
 python <LR>/scripts/pipeline.py run  --root . --max-funcs 100  # 今日は 100 件だけ
 python <LR>/scripts/pipeline.py run  --root . --budget-usd 20  # コスト上限
 python <LR>/scripts/pipeline.py run  --root . --flow 月次バッチ # そのフローの到達集合だけ
@@ -279,43 +277,12 @@ python <LR>/scripts/pipeline.py priority F-0012                # ⭐優先ON(次
 python <LR>/scripts/pipeline.py priority                       # ⭐一覧(--off / --clear で解除)
 ```
 
-`--flow <名前|FL-01>` は **spec / run / dict の 3 つで共通**。
+`--flow <名前|FL-01>` は **spec / run で共通**。
 `ledger flow add` で定義したフローの到達集合に対象を絞る(「このフローだけ今日やる」)。
 `run --only <kind,…>` は走査結果を指定工程に限定する(spec / testspec / testcode /
 impl / test)。`priority` は `pipeline.prioritize` を呼ぶ
 CLI で、**実行スロットのロックを取らない**ため実行中のバッチに端末から割り込める
 (次の再走査で反映。失敗スキップ済みの関数も拾い直す)。
-
-## 辞書解釈バッチ(`pipeline.py dict`)
-
-①〜⑤と違い、**対象は関数ではなく変数のチャンク**(既定 40 件 = headless 1 プロセス)。
-
-```{#lst-ops-dict .bash lst-cap="辞書解釈バッチの起動"}
-python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500] [--model sonnet]
-```
-
-1. 未解釈(status: unreviewed)の根拠バンドルを `.legacy-reverse/dict-targets.json` に書き、
-   claude を 1 回起動する(**LLM が読むのはこのファイルだけ**。legacy 全文は読ませない)
-2. 契約検証は **`variables.py verify-interp --ids <チャンク>` の exit code**。
-   LLM の自己申告は使わない。成功すればその呼び出しが variables.json へのマージまで済ませる
-3. チャンクごとに辞書ページを再生成しサイトを更新する —— **人は実行中でも並行して承認できる**
-4. 前提: `variables.py build` 済み(variables.json が無ければ即エラー)
-
-ロック(run.lock)・レート耐性・中断安全・`/pipeline.html` のライブ進捗は①〜⑤と共有する。
-失敗時のエージェント応答は `.legacy-reverse/agent-logs/dict_*.txt` に残る。
-
-## 工程ごとのモデル指定
-
-kind ごとに既定モデルを持てる(`pipeline.KINDS` の `model` キー。
-省略時は `--model` を付けない = 従来の既定モデル)。
-
-| kind | 既定モデル | 理由 |
-|------|-----------|------|
-| `dict`(辞書解釈) | **sonnet** | 入力が機械の集めた根拠バンドルだけで、出力も desc / unit / ev_id と定型。件数が多いのでコストが効く |
-| `spec` / `testspec` / `testcode` / `impl` / `test` | 指定なし(従来の既定モデル) | レガシー読解と仕様執筆は判断の比重が大きい |
-: kind ごとの既定モデル {#tbl-ops-model}
-
-CLI の `--model <id>` は**全 kind を一括上書き**する。
 
 ## 実行手順(ランブック)
 

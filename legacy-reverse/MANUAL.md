@@ -110,7 +110,7 @@ skill が次の skill を勝手に呼ぶことはありません。
 |---|---|---|---|
 | `legacy-reverse`（親） | 全体管理 | `/legacy-reverse`（迷ったとき・再開時） | `ledger status` `next` |
 | `legacy-0-analyze` | ⓪ 解析 | `/legacy-0-analyze` | `extract_fortran` / `extract_c`・`graph`・`hazards`・`variables`・`ledger init-templates` `skeletons` `wbs` |
-| `legacy-0-dict` | ⓪ 変数辞書 | `/legacy-0-dict`／`pipeline.py dict` | `variables.py`（build / verify-interp / approve / propagate / page） |
+| `legacy-0-dict` | ⓪ 変数辞書 | `/legacy-0-dict` | `variables.py`（build / verify-interp / approve / propagate / page） |
 | `legacy-1-spec` | ① 仕様書 | `/legacy-1-spec F-xxxx`／`pipeline.py spec`／spec-gap ISSUE を受けた**改訂** | `review_checks spec`・`hazards match`・`ledger skeletons` `verify` `wbs` |
 | `legacy-2-testspec` | ② テスト仕様 | `/legacy-2-testspec F-xxxx`／`pipeline.py testspec` | `review_checks testspec`・`ledger hash` `wbs` |
 | `legacy-3-testcode` | ③ テストコード | `/legacy-3-testcode F-xxxx`／`pipeline.py testcode` | `pytest`・`collect_results`・`ledger freeze-tests` |
@@ -327,7 +327,6 @@ NG が出たら**ゼロになるまで直します**。原則は「スクリプ�
 | `pipeline.py impl` | ④だけを全件 | ③が終わった関数の④を全部書く |
 | `pipeline.py test` | ⑤だけを全件 | ④が終わった関数のテストを全部流す |
 | `pipeline.py run` | ①〜⑤を工程横断 | 承認済みの関数から②③④⑤へ**自動で次工程へ進む**。承認待ち・裁定待ちはスキップ |
-| `pipeline.py dict` | 変数の解釈（⓪） | 対象が関数ではなく**変数のチャンク**（既定40件＝1プロセス） |
 | `pipeline.py priority` | ⭐優先の設定・一覧 | **実行中でも**割り込み順を変えられる（次の1件から効く） |
 
 工程別コマンドと `run` の使い分けは「**承認をまとめたいか、流し切りたいか**」です。
