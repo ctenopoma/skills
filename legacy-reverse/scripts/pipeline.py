@@ -90,6 +90,11 @@ import review_actions  # noqa: E402  修正依頼(pending)の検出・チャン�
 RUN_ARG_DEFAULTS = {"max_turns": 50, "timeout": 1800, "retries": 1,
                     "backoff_base": 60, "backoff_max": 900, "rate_wait_total": 21600}
 
+# 実行中の生存表示の間隔（秒）。headless の1プロセスは数分〜30分かかることがあり、
+# その間コンソールに1行も出ないと「固まった／応答がない」としか見えない。
+# 特に dict は1チャンク＝変数40件で1プロセスなので、無音区間がいちばん長い。
+HEARTBEAT_SEC = 60
+
 
 # --- 実行スロットの排他（複数のバッチが同じロックを取り合う） ------------------
 #
@@ -253,11 +258,14 @@ def _kill_tree(proc: subprocess.Popen) -> None:
 
 
 def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
-               extra: list, timeout: int, cancel_event=None) -> dict:
+               extra: list, timeout: int, cancel_event=None,
+               heartbeat: int = 0, label: str = "") -> dict:
     """headless Claude を1プロセス起動し、JSON 結果を返す。
 
     cancel_event（threading.Event）が set されたらプロセスツリーごと止めて
     {"canceled": True} を返す（外部からの中止用。CLI バッチは None のまま）。
+    heartbeat（秒）を渡すと、待っている間その間隔で経過を1行ずつ出す
+    （無音のまま数十分待たせない。0 なら何も出さない＝従来と同じ）。
     """
     cmd = claude_cmd + ["-p", prompt, "--output-format", "json",
                         "--max-turns", str(max_turns)] + extra
@@ -266,18 +274,26 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
     proc = subprocess.Popen(cmd, cwd=str(root), stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True,
                             encoding="utf-8", errors="replace", env=env)
-    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    deadline = started + timeout
+    next_beat = (started + heartbeat) if heartbeat else None
     stop = None                                    # None=完走 / "canceled" / "timeout"
     while True:
         try:
             stdout, stderr = proc.communicate(timeout=0.5)
             break
         except subprocess.TimeoutExpired:
+            now = time.monotonic()
             if cancel_event is not None and cancel_event.is_set():
                 stop = "canceled"
-            elif time.monotonic() >= deadline:
+            elif now >= deadline:
                 stop = "timeout"
             else:
+                if next_beat is not None and now >= next_beat:
+                    el = int(now - started)
+                    print(f"    … {label} 実行中 {el // 60}分{el % 60:02d}秒"
+                          f"（上限 {timeout}s）", flush=True)
+                    next_beat = now + heartbeat
                 continue
             _kill_tree(proc)
             try:
@@ -939,8 +955,13 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     while attempt <= retries:
         status.current(fid, attempt + 1)
         t0 = time.time()
+        # 開始を必ず1行出す。完了時だけ出す作りだと、1プロセスが長い工程
+        # （特に dict の1チャンク）では「無反応」にしか見えない
+        print(f"  ▶ {fid} 実行中"
+              + (f"（試行 {attempt + 1}）" if attempt else "") + "…", flush=True)
         r = run_claude(claude_cmd, prompt, root, max_turns, extra, timeout,
-                       cancel_event=cancel_event)
+                       cancel_event=cancel_event,
+                       heartbeat=HEARTBEAT_SEC, label=fid)
         cost_total += r.get("cost_usd") or 0.0
 
         if r.get("rate_limited"):
@@ -1439,6 +1460,9 @@ def cmd_dict(args) -> None:
     if args.max_vars:
         total = min(total, args.max_vars)
     print(f"未解釈の変数 {total} 件を {args.chunk} 件ずつ解釈する（model={model}）")
+    print(f"  1チャンク = 変数 {args.chunk} 件を headless 1プロセスで解釈する"
+          f"（1プロセスの上限 {args.timeout}s。{HEARTBEAT_SEC}秒ごとに経過を出す）。"
+          "反応が遠いと感じるときは --chunk を小さくすると刻みが細かくなる")
 
     status = RunStatus(root, f"dict（辞書解釈・{model}）", total, args)
     import serve_site                        # ポート規則は serve_site.default_port が正

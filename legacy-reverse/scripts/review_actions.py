@@ -24,6 +24,7 @@ import argparse
 import datetime
 import re
 import subprocess
+import time
 import sys
 import threading
 from pathlib import Path
@@ -162,12 +163,18 @@ def refresh_site(root: str, kind: str) -> bool:
             cmd = [sys.executable, str(scripts / name), "--root", root_p]
             if name == "ledger.py":
                 cmd.append("wbs")
+            # 規模によっては render が分単位かかる。無音で待たせると
+            # バッチが固まったようにしか見えないので、開始と所要を必ず出す
+            print(f"  … {name} 実行中", flush=True)
+            t0 = time.time()
             r = subprocess.run(cmd, capture_output=True, text=True,
                                encoding="utf-8", errors="replace")
             if r.returncode != 0:
                 print(f"note: {name} が失敗（exit={r.returncode}）: "
                       f"{(r.stderr or r.stdout or '').strip()[-300:]}")
                 ok = False
+            else:
+                print(f"  … {name} 完了（{time.time() - t0:.1f}s）", flush=True)
         return ok
 
 

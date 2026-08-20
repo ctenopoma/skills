@@ -447,7 +447,8 @@ def test_run_one_model_argument():
     calls = []
     orig = pipeline.run_claude
     try:
-        def fake(claude_cmd, prompt, root_, max_turns, extra, timeout, cancel_event=None):
+        def fake(claude_cmd, prompt, root_, max_turns, extra, timeout, cancel_event=None,
+                 **kw):                       # heartbeat / label は受け流す
             calls.append({"prompt": prompt, "extra": list(extra)})
             return {"ok": True, "cost_usd": 0.0, "tail": "", "err": "",
                     "stdout": "{}", "stderr": "", "exit_code": 0}
