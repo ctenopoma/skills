@@ -12,9 +12,8 @@
 4. **実行中の生存表示**。headless の1プロセスは数分〜30分かかる（dict は1チャンク
    =変数40件で1プロセス）。無音だと「固まった／応答がない」としか見えないため、
    run_claude が heartbeat 間隔で経過を出すこと
-5. **モデル指定の事前確認**。dict は工程で唯一 --model を既定で付ける。通らない
-   指定だとチャンクを丸ごと捨ててから原因の読めない検証NGになるので、
-   preflight_model がループ前に落とすこと
+5. **モデルを選ばない**こと。工程ごとのモデル指定は「その工程だけ応答が返らない」
+   切り分けの難しい失敗の原因になったため、--model は CLI からも消えている
 """
 import contextlib
 import io
@@ -77,31 +76,20 @@ def test_heartbeat_prints_while_running():
     print("OK  実行中の生存表示（heartbeat）")
 
 
-def test_preflight_model():
-    """--model が通らないときは、ループに入る前に理由付きで止まること。"""
-    ok_cmd = [sys.executable, "-c", "print('{}')"]
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        pipeline.preflight_model(ok_cmd, "sonnet", ["--dangerously-skip-permissions"])
-    assert "sonnet" in buf.getvalue(), buf.getvalue()
-
-    ng_cmd = [sys.executable, "-c",
-              "import sys; sys.stderr.write('unknown model: nosuch'); sys.exit(1)"]
-    try:
-        pipeline.preflight_model(ng_cmd, "nosuch", [])
-    except SystemExit as e:
-        msg = str(e)
-        assert "nosuch" in msg and "起動できない" in msg, msg
-        assert "unknown model" in msg, "claude 側の理由が伝わっていない: " + msg
-    else:
-        raise AssertionError("起動できないモデル指定で停止していない")
-    print("OK  --model の事前確認（通らない指定はループ前に停止）")
+def test_no_model_option():
+    """--model は CLI に無く、既定モデルで回すこと。"""
+    ap = pipeline.build_parser()
+    for cmd in DRIVER_CMDS:
+        assert not hasattr(ap.parse_args([cmd]), "model"), f"{cmd}: --model が残っている"
+    assert not hasattr(pipeline, "DICT_MODEL_DEFAULT"), "工程別の既定モデルが残っている"
+    assert not hasattr(pipeline, "preflight_model"), "モデル確認の残骸がある"
+    print("OK  --model を持たない（常に既定モデル）")
 
 
 def main() -> int:
     tests = [test_skip_permissions_defaults_on, test_skip_permissions_opt_out,
              test_permission_args, test_heartbeat_prints_while_running,
-             test_preflight_model]
+             test_no_model_option]
     for t in tests:
         t()
     print(f"\nPASS: {len(tests)}件すべて成功")

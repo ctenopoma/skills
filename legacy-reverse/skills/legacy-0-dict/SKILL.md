@@ -68,7 +68,7 @@ links / evidence（`ev_id`・kind・file・line・text）だけを JSON で返�
 python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500]
 ```
 
-既定モデルは sonnet（`--model` で変更可）。チャンクごとに検証・マージ・辞書ページ再生成まで
+モデルは指定しない（`claude -p` の既定モデル）。チャンクごとに検証・マージ・辞書ページ再生成まで
 自動で進むので、人は**実行中でも並行して承認**できる。
 
 #### ルーブリック（rank は機械が決める。申告ではない）

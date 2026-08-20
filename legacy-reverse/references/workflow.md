@@ -276,16 +276,17 @@ python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（�
   `<LR>/hooks/settings-example.json` の `permissions.allow` をマージしておく
 - **`--flow <名前|FL-01>`**（spec / run / dict 共通）で対象をそのフロー到達集合に限定できる
   （`ledger flow add` で定義したもの。「このフローだけ今日やる」）
-- **モデル階層**: kind ごとに既定モデルを持てる（`pipeline.KINDS` の `model` キー）。
-  現状 `dict`（辞書解釈）だけが **sonnet** 既定で、①〜⑤は指定なし＝従来の既定モデル。
-  CLI の `--model <id>` は全 kind を一括上書きする
+- **モデルは選ばない**: 全工程 `claude -p` の既定モデルで回す（`--model` は付けない）。
+  工程ごとにモデルを変えられる作りだと、その指定が通らない環境で「その工程だけ
+  応答が返らない」という切り分けの難しい失敗になるため撤去した。実験したいときだけ
+  `--claude-args` で明示する（自己責任の抜け道）
 
 ### 辞書解釈バッチ（`pipeline.py dict`）
 
 ①〜⑤と違い**対象は関数でなく変数のチャンク**（既定40件＝headless 1プロセス）。
 
 ```bash
-python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500] [--model sonnet]
+python <LR>/scripts/pipeline.py dict --root . [--chunk 40] [--max-vars 500]
 ```
 
 1. `variables.py list-targets` 相当で未解釈（status: unreviewed）の根拠バンドルを取り出し、

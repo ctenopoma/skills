@@ -182,7 +182,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | 新レガシー言語（C# 等） | extract_fortran.py / extract_c.py と同じ出力契約（functions.json スキーマ＋ extract-report）で抽出器を追加し、MCP ツールに登録。既存の抽出結果とマージされ、実行順は問わない。call_sites / hazards も同じキーで出せば辞書・例外ポリシーがそのまま効く |
 | 新しい hazard 検出器 | extract_fortran.py の `HAZARD_DETECTORS`（kind → 走査関数のテーブル）に1行足す。EP 登録簿・質問キュー・①②の機械レビューは kind 非依存なので変更不要 |
 | 辞書の根拠の種類 | variables.py の `EV_KINDS` / `EV_LIMITS` に追加し、rank A 相当なら `RANK_A_KINDS` に入れる。LLM 側のプロンプトは「強い根拠/弱い根拠」の区別しか持たない |
-| 工程ごとのモデル階層 | `pipeline.KINDS` の各エントリに `model` を足す（省略時は既定モデル）。CLI の `pipeline.py --model` は全 kind を一括上書き |
+| 工程ごとのモデル階層 | **採らない**。全工程 `claude -p` の既定モデルで回す。工程ごとに変えられる作りは、その指定が通らない環境で「その工程だけ応答が返らない」という切り分けの難しい失敗を生んだため撤去した。実験したいときだけ `--claude-args` で明示する |
 | 完全自動運転の全フェーズ化 | ①は pipeline.py で実装済み。②〜⑤も同じ骨格（対象選定 `actionable()` → headless 実行 → ファイル状態で契約検証 → ログ）にフェーズ別の検証関数を足せば拡張できる。情報遮断はフェーズ別 permission deny に落とせる |
 | 意味レベルのレビュー強化 | 別コンテキストのレビューアエージェント（①と legacy だけを読む）をドライバ段に挿入 |
 

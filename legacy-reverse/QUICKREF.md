@@ -128,8 +128,7 @@ python <LR>/scripts/pipeline.py spec --root .                  # ①だけ全件
 python <LR>/scripts/pipeline.py run  --root . --dry-run        # 対象と実行順の確認のみ
 python <LR>/scripts/pipeline.py run  --root . --flow 月次バッチ # そのフローの到達集合だけ
 python <LR>/scripts/pipeline.py testspec --root .              # ②だけ全件（③は testcode / ④は impl / ⑤は test）
-python <LR>/scripts/pipeline.py dict --root . --chunk 40       # ⓪変数辞書の解釈（既定 sonnet）
-python <LR>/scripts/pipeline.py spec --root . --model opus     # モデルを一括上書き
+python <LR>/scripts/pipeline.py dict --root . --chunk 40       # ⓪変数辞書の解釈
 python <LR>/scripts/pipeline.py priority F-0012                # ⭐優先ON（実行中でも次に割り込む）
 python <LR>/scripts/pipeline.py priority F-0012 --off          # ⭐優先解除／引数なしで一覧
 ```

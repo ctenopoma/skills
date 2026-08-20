@@ -15,7 +15,7 @@ scripts/selftest/fixture_vars/ を毎回テンポラリにコピーし、variabl
       （verify のメッセージと exit / WBS の ⚠ 表示）
   (e) 旧骨子（dict-hash 行が無い spec）は stale 扱いにしない
   (f) pipeline._decide_kind のゲート（ledger 側の共通実装を参照していること）
-  (g) pipeline.py dict の対象選定・チャンク分割・プロンプト組み立て・--model 付与、
+  (g) pipeline.py dict の対象選定・チャンク分割・プロンプト組み立て、
       および run_one の model 引数（未指定なら従来と同一のコマンドライン）
 """
 import contextlib
@@ -379,13 +379,13 @@ def test_decide_kind_without_dict():
     print("OK  (f) 辞書が無いプロジェクトの _decide_kind は従来どおり")
 
 
-# ---------- (g) pipeline dict の対象選定・プロンプト・モデル ----------
+# ---------- (g) pipeline dict の対象選定・プロンプト ----------
 
 def _dict_args(root: Path, **kw) -> types.SimpleNamespace:
     d = dict(pipeline.RUN_ARG_DEFAULTS)
     ns = types.SimpleNamespace(
         root=str(root), chunk=40, max_funcs=0, max_vars=0, budget_usd=0,
-        max_consecutive_fail=3, pause=0, model=None, skip_permissions=False,
+        max_consecutive_fail=3, pause=0, skip_permissions=False,
         claude_cmd=None, claude_args=[], dry_run=True, no_render=True, flow=None, **d)
     for k, v in kw.items():
         setattr(ns, k, v)
@@ -403,18 +403,14 @@ def test_pipeline_dict_targets_and_chunking():
         pipeline.cmd_dict(_dict_args(root, chunk=2))
     out = buf.getvalue()
     assert "1チャンク 2 件: V-0001, V-0002" in out, out
-    assert "--model sonnet" in out, "既定モデルは sonnet"
+    # モデルは選ばない（工程ごとのモデル指定が「その工程だけ応答が返らない」
+    # 切り分けの難しい失敗の原因になったため、--model は付けない）
+    assert "--model" not in out, out
     assert "dict-targets.json" in out and "data/interpretations.json" in out
     assert '"V-0001": {"desc"' in out, "プロンプトの JSON 例が二重波括弧のまま残っている"
     assert "対象チャンク: dict:V-0001〜V-0002" in out
     assert "他のファイルを作成・編集" not in out  # 文面は「以外のファイルを…」
     assert "以外のファイルを作成・編集しないこと" in out
-
-    # --model は全 kind を一括上書きする
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        pipeline.cmd_dict(_dict_args(root, chunk=2, model="opus"))
-    assert "--model opus" in buf.getvalue()
 
     # 解釈対象が尽きたら何もしない（全部 approved にする）
     for v in load_vars(root):
@@ -423,7 +419,7 @@ def test_pipeline_dict_targets_and_chunking():
     with contextlib.redirect_stdout(buf):
         pipeline.cmd_dict(_dict_args(root, chunk=2))
     assert "辞書の解釈対象なし" in buf.getvalue()
-    print("OK  (g) pipeline dict: 対象選定・チャンク分割・プロンプト・--model")
+    print("OK  (g) pipeline dict: 対象選定・チャンク分割・プロンプト")
 
 
 class _StubStatus:
@@ -442,7 +438,7 @@ class _StubStatus:
         self.results.append((fid, ok, phase))
 
 
-def test_run_one_model_argument():
+def test_run_one_no_model_argument():
     root = make_project(with_dict=False)
     calls = []
     orig = pipeline.run_claude
@@ -458,13 +454,12 @@ def test_run_one_model_argument():
         ok, why, r, cost, waited = pipeline.run_one(
             "dict:V-0001〜V-0002", ["claude"], ["--dangerously-skip-permissions"], root,
             pipeline.DICT_PROMPT, 50, 60, 0, 60, 900, 21600, st, 0.0, 0,
-            verify_fn=lambda root_, fid: (True, "", []), phase="dict", model="sonnet")
-        assert ok and calls[-1]["extra"] == ["--dangerously-skip-permissions",
-                                             "--model", "sonnet"]
+            verify_fn=lambda root_, fid: (True, "", []), phase="dict")
+        # モデルは選ばない。渡した extra 以外の引数を勝手に足さないこと
+        assert ok and calls[-1]["extra"] == ["--dangerously-skip-permissions"]
         assert "{fid}" not in calls[-1]["prompt"]
         assert '"V-0001": {"desc"' in calls[-1]["prompt"], "波括弧のエスケープが崩れている"
 
-        # model 未指定なら従来と同一のコマンドライン（--model を付けない）
         ok, *_ = pipeline.run_one(
             "F-0001", ["claude"], [], root, "/legacy-1-spec {fid}", 50, 60, 0, 60, 900,
             21600, st, 0.0, 0, verify_fn=lambda root_, fid: (True, "", []), phase="spec")
@@ -476,7 +471,7 @@ def test_run_one_model_argument():
     # 識別子に ':' を含んでもエージェントログが書ける（Windows のファイル名制約）
     logs = sorted(p.name for p in (root / ".legacy-reverse" / "agent-logs").glob("*.txt"))
     assert logs == ["F-0001.txt", "dict_V-0001_V-0002.txt"], logs
-    print("OK  (g) run_one の --model 付与（未指定なら従来どおり）とログ名の正規化")
+    print("OK  (g) run_one は --model を付けない ＋ ログ名の正規化")
 
 
 def test_dict_verify_contract():
@@ -525,7 +520,7 @@ def main() -> None:
         test_decide_kind_gate,
         test_decide_kind_without_dict,
         test_pipeline_dict_targets_and_chunking,
-        test_run_one_model_argument,
+        test_run_one_no_model_argument,
         test_dict_verify_contract,
     ]
     try:

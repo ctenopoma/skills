@@ -12,7 +12,7 @@
             ②③④⑤と自動で進み、承認・裁定待ちはスキップ。⭐優先も反映される）。
             --only は複数工程に限定したいときに使う（1工程なら同名サブコマンドが早い）
   dict      変数辞書の解釈（⓪の一部）を回す。対象は関数でなく**変数のチャンク**で、
-            検証は variables.py verify-interp の exit code。既定モデルは sonnet
+            検証は variables.py verify-interp の exit code
   priority  ⭐優先の ON/OFF・一覧。実行中の run/spec に即座に効き、
             バッチ実行中でも割り込み順を変えられる
 
@@ -241,33 +241,6 @@ def preflight_claude(claude_cmd: list, timeout: int = 120) -> None:
     print(f"claude: {' '.join(claude_cmd)}（{(r.stdout or '').strip().splitlines()[0] if r.stdout.strip() else 'version不明'}）")
 
 
-def preflight_model(claude_cmd: list, model: str, extra: list, timeout: int = 120) -> None:
-    """`--model <値>` で実際に起動できるかを、ループに入る前に1回だけ実測する。
-
-    dict は工程の中で唯一 --model を既定で付ける（DICT_MODEL_DEFAULT）。この指定が
-    通らない環境だと、claude は何も書かずに終わり、チャンク（変数40件）を丸ごと
-    捨ててから「data/interpretations.json が作られていない」という、原因の読めない
-    検証NGとして表面化する。**同じ引数で最小のプロンプトを1回投げて先に落とす**。
-    引数は本番と揃える（extra に --dangerously-skip-permissions 等が入っている）。
-    """
-    cmd = claude_cmd + ["-p", "ok", "--model", model, "--max-turns", "1"] + extra
-    env = dict(os.environ)
-    env["PYTHONIOENCODING"] = "utf-8"
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout, env=env)
-    except subprocess.TimeoutExpired:
-        sys.exit(f"error: --model {model} の起動確認が {timeout}s で返らない。"
-                 "モデル指定を変えるか --model で明示する")
-    if r.returncode != 0:
-        tail = ((r.stderr or "") + " " + (r.stdout or "")).strip()[-300:]
-        sys.exit(f"error: --model {model} で claude を起動できない（exit={r.returncode}）\n"
-                 f"  {tail}\n"
-                 f"  → 使えるモデル名を確認して --model <値> で指定する"
-                 "（dict の既定は DICT_MODEL_DEFAULT）")
-    print(f"model: {model} で起動できることを確認した")
-
-
 # レートリミット・過負荷・利用枠上限の検知（これらは「失敗」でなく「待って再試行」）
 RATE_LIMIT_PAT = re.compile(
     r"rate.?limit|too many requests|\b429\b|overloaded|\b529\b|usage limit"
@@ -488,10 +461,11 @@ def verify_analysis(root: str, fid: str) -> tuple:
 #
 # kind ごとの設定。任意キー:
 #   retries … その工程だけリトライ回数を変える
-#   model  … その工程だけ別モデルで回す（`claude -p --model <値>`。設計「モデル階層」）。
-#            **省略時は --model を付けない＝既定モデル**。①〜⑤は指定なし
-#            （辞書解釈バッチだけが cmd_dict 側で sonnet を既定にしている）。
-#            CLI の `--model` は全 kind を一括上書きする
+#
+# モデルは**選ばない**。全工程 claude -p の既定モデルで回す（--model は付けない）。
+# 工程ごとにモデルを変えられる作りだと、その指定が通らない環境で「その工程だけ
+# 応答が返らない」という切り分けの難しい失敗になる。どうしても変えたいときだけ
+# --claude-args で明示する（自己責任の抜け道）。
 
 KINDS = {
     "spec": {"label": "①", "noun": "仕様書", "prompt_template": "/legacy-1-spec {fid}",
@@ -958,8 +932,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
            prompt_template: str, max_turns: int, timeout: int, retries: int,
            backoff_base: int, backoff_max: int, rate_wait_total: int,
            status: "RunStatus", cost_total: float, rate_waited: int,
-           verify_fn=verify_spec, cancel_event=None, phase: str = None,
-           model: str = None) -> tuple:
+           verify_fn=verify_spec, cancel_event=None, phase: str = None) -> tuple:
     """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
     cmd_spec（①無人バッチ）と cmd_run（①〜⑤の連続実行）が共用する。
@@ -971,12 +944,9 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     安全停止と同じ扱い。単発実行側もこれを捕まえて「停止」として扱えばよい）。
     cancel_event（threading.Event）が set されたら実行中の claude を止め、
     レート待機も打ち切って (False, "中止された", ...) を返す。
-    model を渡すと `--model <値>` を付けて起動する（工程ごとのモデル階層。
-    **None なら何も付けない＝従来と同一のコマンドライン**）。
+    モデルは指定しない（claude の既定モデルで回す）。
     """
     prompt = prompt_template.format(fid=fid)
-    if model:
-        extra = list(extra) + ["--model", model]
     ok, why, r = False, "", {}
     attempt, backoff = 0, backoff_base
     while attempt <= retries:
@@ -1059,14 +1029,8 @@ def cmd_spec(args) -> None:
     claude_cmd = None if args.dry_run else find_claude(args.claude_cmd)
     if claude_cmd:
         preflight_claude(claude_cmd)
-    extra = []
-    if args.model:
-        extra += ["--model", args.model]
-    extra += permission_args(args)
+    extra = permission_args(args)
     extra += args.claude_args
-    if args.model and claude_cmd:
-        preflight_model(claude_cmd, args.model,
-                        [a for a in extra if a not in ("--model", args.model)])
 
     done = failed = 0
     consecutive_fail = 0
@@ -1219,22 +1183,14 @@ def cmd_run(args) -> None:
     if args.dry_run:
         for fid, kind in targets[:args.max_funcs or None]:
             cfg = KINDS[kind]
-            mdl = args.model or cfg.get("model")
-            print(f"  {label(kind):<10} claude -p \"{cfg['prompt_template'].format(fid=fid)}\""
-                  + (f" --model {mdl}" if mdl else ""))
+            print(f"  {label(kind):<10} claude -p \"{cfg['prompt_template'].format(fid=fid)}\"")
         print("※ 実際は1件ごとに再走査するため、実行中の承認・⭐優先で対象と順番は変わる")
         return
 
     claude_cmd = find_claude(args.claude_cmd)
     preflight_claude(claude_cmd)
-    extra = []
-    if args.model:
-        extra += ["--model", args.model]
-    extra += permission_args(args)
+    extra = permission_args(args)
     extra += args.claude_args
-    if args.model and claude_cmd:
-        preflight_model(claude_cmd, args.model,
-                        [a for a in extra if a not in ("--model", args.model)])
 
     # 1工程だけに限定しているときは、進捗ページにその工程名を出す
     # （「連続実行」と出ると②だけ回しているのか工程横断なのか区別が付かないため）
@@ -1267,9 +1223,7 @@ def cmd_run(args) -> None:
                     fid, claude_cmd, extra, root, cfg["prompt_template"], args.max_turns,
                     args.timeout, cfg.get("retries", args.retries), args.backoff_base,
                     args.backoff_max, args.rate_wait_total, status, cost_total, rate_waited,
-                    verify_fn=cfg["verify_fn"], phase=kind,
-                    # CLI の --model は全 kind を一括上書きする（既に extra に入っている）
-                    model=None if args.model else cfg.get("model"))
+                    verify_fn=cfg["verify_fn"], phase=kind)
             except KeyboardInterrupt:
                 print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。"
                       f"停止する（再開は同じコマンド）")
@@ -1366,7 +1320,6 @@ def cmd_priority(args) -> None:
 # プロンプトは skill 呼び出しに依存しない自己完結の指示文（将来 legacy-0-dict skill が
 # できたら、この定数を "/legacy-0-dict" 相当に差し替えるだけで移行できる）。
 
-DICT_MODEL_DEFAULT = "sonnet"          # 設計「モデル階層」: 辞書解釈は sonnet
 DICT_TARGETS_REL = ".legacy-reverse/dict-targets.json"
 
 DICT_PROMPT = """\
@@ -1455,7 +1408,6 @@ def cmd_dict(args) -> None:
     if not (root / "data" / "variables.json").exists():
         sys.exit("error: data/variables.json が無い（先に `variables.py build` を実行する）")
     args.max_funcs = args.max_vars       # RunStatus が参照する共通キー（表示用）
-    model = args.model or DICT_MODEL_DEFAULT
     tpath = root / DICT_TARGETS_REL
 
     def chunk_targets(processed: set) -> list:
@@ -1475,7 +1427,7 @@ def cmd_dict(args) -> None:
     if args.dry_run:
         ids = [t["var_id"] for t in first]
         print(f"1チャンク {len(ids)} 件: {', '.join(ids)}")
-        print(f"  claude -p \"<下記プロンプト>\" --model {model} "
+        print(f"  claude -p \"<下記プロンプト>\" "
               f"--max-turns {args.max_turns}"
               + (" --dangerously-skip-permissions" if args.skip_permissions else ""))
         print("  --- prompt ---")
@@ -1487,18 +1439,17 @@ def cmd_dict(args) -> None:
     preflight_claude(claude_cmd)
     extra = permission_args(args)
     extra += args.claude_args
-    preflight_model(claude_cmd, model, extra)     # dict だけが --model を既定で付ける
 
     store = json.loads((root / "data" / "variables.json").read_text(encoding="utf-8-sig"))
     total = sum(1 for v in store.get("variables", []) if v.get("status") == "unreviewed")
     if args.max_vars:
         total = min(total, args.max_vars)
-    print(f"未解釈の変数 {total} 件を {args.chunk} 件ずつ解釈する（model={model}）")
+    print(f"未解釈の変数 {total} 件を {args.chunk} 件ずつ解釈する")
     print(f"  1チャンク = 変数 {args.chunk} 件を headless 1プロセスで解釈する"
           f"（1プロセスの上限 {args.timeout}s。{HEARTBEAT_SEC}秒ごとに経過を出す）。"
           "反応が遠いと感じるときは --chunk を小さくすると刻みが細かくなる")
 
-    status = RunStatus(root, f"dict（辞書解釈・{model}）", total, args)
+    status = RunStatus(root, "dict（辞書解釈）", total, args)
     import serve_site                        # ポート規則は serve_site.default_port が正
     pname = Project(root).functions.get("project", {}).get("name") or root.name
     print(f"ライブ進捗: http://127.0.0.1:{serve_site.default_port(pname)}/pipeline.html")
@@ -1524,7 +1475,7 @@ def cmd_dict(args) -> None:
                     label, claude_cmd, extra, root, DICT_PROMPT, args.max_turns,
                     args.timeout, args.retries, args.backoff_base, args.backoff_max,
                     args.rate_wait_total, status, cost_total, rate_waited,
-                    verify_fn=_make_dict_verify(ids), phase="dict", model=model)
+                    verify_fn=_make_dict_verify(ids), phase="dict")
             except KeyboardInterrupt:
                 print(f"レート待機の累計が上限 {args.rate_wait_total}s に到達。停止する")
                 raise
@@ -1595,7 +1546,6 @@ def build_parser() -> argparse.ArgumentParser:
                        help="レート待機の累計上限秒。超えたら停止（既定21600=6時間）")
         s.add_argument("--pause", type=float, default=0,
                        help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
-        s.add_argument("--model", default=None, help="claude に渡すモデル指定")
         s.add_argument("--skip-permissions", dest="skip_permissions", action="store_true",
                        default=True,
                        help="--dangerously-skip-permissions を claude に渡す（既定。"
