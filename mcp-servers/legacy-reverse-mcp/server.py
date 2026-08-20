@@ -399,13 +399,15 @@ def review_all(root: str = ".") -> dict:
 
 
 @mcp.tool()
-def spec_review_report(root: str = ".") -> dict:
-    """①draft 仕様書の一斉レビュー表（docs/spec-review.md）を生成する。
+def spec_review_report(root: str = ".", kind: str = "") -> dict:
+    """一斉レビュー表を生成する（①→docs/spec-review.md、②→docs/testspec-review.md）。
 
-    バッチモード（複数関数を連続 draft 化）の後、人がブラウザでまとめて
-    レビューするための一覧。生成後に render_site で HTML 化して案内する。
+    バッチモード（複数関数を連続処理）の後、人がブラウザでまとめてレビューするための一覧。
+    kind（spec / testspec）を省くと両方を作る。生成後に render_site で HTML 化して案内する。
     """
-    return review_checks.make_report(root)
+    if kind:
+        return review_checks.make_report(root, kind)
+    return review_checks.make_reports(root)
 
 
 # ---------- 台帳（書き込み） ----------

@@ -507,12 +507,20 @@ def cmd_wbs(p: Project, args) -> None:
     failing = [fid for fid in order
                if stats[fid]["test"] == "fail" and not stats[fid]["blocked_by"]]
     drafts = [fid for fid in order if stats[fid]["spec"] == "draft"]
-    if blocked or stale or dict_stale or tampered or failing or drafts:
+    # ②も①と同じく「まとめて承認」の対象（review_checks.py report が表を作る）
+    generated = [fid for fid in order
+                 if stats[fid]["test_spec"] == "generated" and not stats[fid]["test_spec_stale"]]
+    if blocked or stale or dict_stale or tampered or failing or drafts or generated:
         lines += ["# 要対応", "", "| 種別 | 関数 | 詳細 |", "|------|------|------|"]
         if drafts:
             ref = ("[一斉レビュー表](spec-review.md)"
                    if (p.docs / "spec-review.md").exists() else "関数一覧の ▲draft を参照")
             lines.append(f"| ▲ ①レビュー待ち | {len(drafts)} 件 | {ref} |")
+        if generated:
+            ref = ("[一斉レビュー表](testspec-review.md)"
+                   if (p.docs / "testspec-review.md").exists()
+                   else "関数一覧の ▲generated を参照")
+            lines.append(f"| ▲ ②レビュー待ち | {len(generated)} 件 | {ref} |")
         for fid, iss in blocked:
             lines.append(f"| ⛔ 裁定待ち | {_spec_ref(fid, stats[fid])} | [{iss}](issues/{iss}.md) |")
         for fid in stale:

@@ -145,7 +145,7 @@ Fortran は 0割でも Inf を作って走り続けるが、**Python は例外�
    コンテキストが長くなっても、状態はファイルにあるので続行・再開に影響しない
 5. 対象が尽きたら（または人に見せる区切りで）:
    ```bash
-   python <LR>/scripts/review_checks.py report --root .   # docs/spec-review.md を生成
+   python <LR>/scripts/review_checks.py report spec --root .   # docs/spec-review.md を生成
    ledger wbs
    python <LR>/scripts/render_site.py --root .
    ```

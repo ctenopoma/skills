@@ -15,6 +15,7 @@
     index.qmd           # WBS（ledger.py wbs で自動生成。手編集禁止）
     wbs/                # 200関数超で自動生成されるファイル別明細ページ（手編集禁止）
     spec-review.md      # ①draft の一斉レビュー表（review_checks.py report が自動生成。手編集禁止）
+    testspec-review.md  # ②generated の一斉レビュー表（同上。ケース数・⚠未確定つき）
     review-feedback.md  # 修正依頼（人が著者: 直接記入 or review_actions.py request-changes。AIが起動時に読み applied 化）
     variables.qmd       # 変数辞書ページ（variables.py page が自動生成。手編集禁止。承認は variables.py approve/revise）
     dict-conflicts.md   # 辞書と reviewed 仕様書の矛盾候補（variables.py conflicts が自動生成。手編集禁止）

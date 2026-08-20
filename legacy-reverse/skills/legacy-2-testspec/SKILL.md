@@ -53,7 +53,16 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
 4. **人へ承認依頼**: ケース一覧（分類・根拠の内訳）＋要回答の質問一覧を提示
    （人は CLI `review_actions.py approve testspec <func-id> --by <名前>` や
    `request-changes` で直接返してもよい。
-   その場合は反映まで CLI 側で完結する）
+   その場合は反映まで CLI 側で完結する）。
+   **複数関数をまとめて処理したときは一斉レビュー表で依頼する**:
+   ```bash
+   python <LR>/scripts/review_checks.py report testspec --root .   # docs/testspec-review.md
+   ledger wbs
+   python <LR>/scripts/render_site.py --root .
+   ```
+   件数・ケース数の合計・⚠未確定の残件を報告し、「② テスト仕様書 一斉レビュー」表
+   （閲覧サイト。WBS の要対応からもリンクされる）へ誘導する。
+   返答はチャット（「全部OK」「F-xxxx は修正: 〜」）・review-feedback.md 記入・CLI のどれでもよい
 5. 人が質問に回答したら期待値を確定（根拠を「人間確認済み」に）。ドメイン知識として
    残すべき回答は転記文を提案し、**人が domain-knowledge.md に貼る**（AI は書き込まない）
 6. 人のOKが出たら `review_actions.py approve testspec <func-id> --by <名前>` 相当で
@@ -81,6 +90,8 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
 ## 完了条件（approved にしてよい条件）
 
 - 全🟢仕様項目にケース1件以上 / ⚠未確定ゼロ / 人のOK
+  （⚠未確定が残る間は `review_actions.py approve` がどの入口でも拒否する。
+  一斉レビュー表では「⚠回答待ち」と表示される）
 - 挙動が変わる hazard（guard_raise / guard_value / legacy_preserve）に境界ケースがある
 
 ## 禁止

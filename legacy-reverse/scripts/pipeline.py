@@ -746,13 +746,16 @@ def batch_queue(root: str, q: str = "", chip: str = "") -> dict:
 
 
 def refresh_outputs(root: Path) -> dict:
-    """WBS と一斉レビュー表を再生成する（人が途中経過を常に見られる状態を保つ）。"""
+    """WBS と一斉レビュー表（①②）を再生成する（人が途中経過を常に見られる状態を保つ）。
+
+    戻り値は①の表の集計（連続実行の対象選定が machine_ng_funcs を使う）。
+    """
     scripts = Path(__file__).resolve().parent
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     subprocess.run([sys.executable, str(scripts / "ledger.py"), "--root", str(root), "wbs"],
                    capture_output=True, env=env)
-    return review_checks.make_report(str(root))
+    return review_checks.make_reports(str(root))["spec"]
 
 
 def classify_ng(why: str, r: dict) -> str:
@@ -1103,7 +1106,7 @@ def cmd_spec(args) -> None:
         print(f"失敗した関数: {sorted(skip)}")
         print("  原因調査: .legacy-reverse/agent-logs/<fid>.txt にエージェント応答の全文、"
               ".legacy-reverse/pipeline-log.jsonl に検証結果と応答末尾がある")
-    rep = review_checks.make_report(str(args.root))
+    rep = review_checks.make_report(str(args.root), "spec")
     print(f"レビュー待ち {rep['drafts']} 件 → docs/spec-review.md を人がレビューし、"
           f"OK分を reviewed 化してください")
 
@@ -1219,7 +1222,7 @@ def cmd_run(args) -> None:
             if (done + failed) % args.chunk == 0:
                 # 承認待ちが溜まるので定期的にサイトを更新し、人が閲覧サイトを
                 # 見ながら承認・裁定（チャット/CLI/ファイル記入）を並行できるようにする
-                review_actions.refresh_site(str(root), "spec")
+                review_actions.refresh_site(str(root), "all")     # ①②の表とも
                 print(f"  -- WBS・一斉レビュー表を更新（済 {done} / 失敗 {failed}）")
             targets = scan(skip)             # 承認・⭐で増減した対象を拾う（--only 指定分に限定）
             status.counts(done, failed, total=done + failed + len(targets))
@@ -1231,7 +1234,7 @@ def cmd_run(args) -> None:
                                  "残りは承認・裁定待ちか完了）")
 
     if not args.no_render:
-        review_actions.refresh_site(str(root), "spec")   # 一斉レビュー表・WBS・サイトを最終更新
+        review_actions.refresh_site(str(root), "all")    # ①②の一斉レビュー表・WBS・サイトを最終更新
     print(f"\n完了: 成功 {done} 件 / 失敗 {failed} 件 / 累計コスト ${cost_total:.2f}")
     if failed:
         print(f"失敗した (関数, 工程): {sorted(skip)}")

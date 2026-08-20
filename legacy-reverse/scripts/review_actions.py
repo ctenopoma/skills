@@ -147,7 +147,7 @@ _REFRESH_MU = threading.Lock()
 
 
 def refresh_site(root: str, kind: str) -> bool:
-    """WBS・（①なら）一斉レビュー表・サイトを更新する（差分レンダなので数秒）。
+    """WBS・（①②なら）一斉レビュー表・サイトを更新する（差分レンダなので数秒）。
 
     戻り値は全工程の成否。失敗を無音にしない——ここが黙って失敗すると、閲覧側は
     リロードしても古いページのままで手がかりが一切残らない。
@@ -157,8 +157,10 @@ def refresh_site(root: str, kind: str) -> bool:
     scripts = Path(__file__).resolve().parent
     root_p = str(Path(root).resolve())
     with _REFRESH_MU:
-        if kind == "spec":
-            review_checks.make_report(root_p)
+        if kind in review_checks.REPORT_KINDS:
+            review_checks.make_report(root_p, kind)      # ①/②の一斉レビュー表
+        elif kind == "all":
+            review_checks.make_reports(root_p)           # 工程横断の実行後（①②とも作り直す）
         ok = True
         for name in ("ledger.py", "render_site.py"):
             cmd = [sys.executable, str(scripts / name), "--root", root_p]
@@ -249,6 +251,12 @@ def approve(root: str, kind: str, fid: str, approver: str) -> dict:
     if not r["ok"]:
         return {"ok": False,
                 "message": "機械レビューNGのため承認できません: " + " / ".join(r["problems"][:3])}
+    # ②の完了条件は「⚠未確定ゼロ」。承認後に check が NG になる状態を作らないよう、
+    # 承認の入口で止める（残っている質問に人が答えてから承認する）
+    if r.get("pending"):
+        return {"ok": False,
+                "message": f"⚠未確定が {r['pending']} 件残っているため承認できません"
+                           "（期待値を確定させてから承認してください）"}
 
     today = datetime.date.today().isoformat()
     text = _set_field(text, "status", cfg["approved_status"])

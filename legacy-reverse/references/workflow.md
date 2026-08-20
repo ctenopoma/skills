@@ -422,11 +422,14 @@ python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by �
 
 勝手に approved にしない。承認待ちで turn を終えるのは正しい動作。
 
-- **①は一斉レビュー可**: バッチモード（legacy-1-spec）で複数関数を draft まで連続処理し、
-  `review_checks.py report` が生成する docs/spec-review.md（一斉レビュー表）で人が
-  まとめて OK / 個別修正指示を返せる。承認が人であることは変わらない（粒度の違いだけ）。
-  一斉レビュー表の「機械レビュー」列は仕様書ページの案内パネル（#review-<fid>）へ直接
-  ジャンプするリンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）
+- **①②は一斉レビュー可**: バッチ（legacy-1-spec / legacy-2-testspec / pipeline.py）で
+  複数関数を承認待ちまで連続処理し、`review_checks.py report` が生成する
+  docs/spec-review.md（①draft）・docs/testspec-review.md（②generated）で人がまとめて
+  OK / 個別修正指示を返せる。承認が人であることは変わらない（粒度の違いだけ）。
+  一斉レビュー表の「機械レビュー」列は成果物ページの案内パネル（#review-<fid>）へ直接
+  ジャンプするリンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）。
+  ②の表はケース数と **⚠未確定** を列に持つ（⚠未確定が残る行は「⚠回答待ち」＝
+  質問に答えるまで承認できない。approve はどの入口でも拒否する）
 
 ### 辞書を直したときの反映範囲
 
@@ -530,9 +533,9 @@ python <LR>/scripts/render_site.py --root .
   （人や①が書いた値は上書きしない）
 - 6 は機械レビューが **NG のものだけ** 承認前に戻し、承認情報（`reviewed-by` /
   `reviewed-date`）も消す。OK のものは1バイトも触らない。差し戻した分は一斉レビュー表
-  （`docs/spec-review.md`）に載るので、人はそこだけ見ればよい
+  （`docs/spec-review.md` / ②は `docs/testspec-review.md`）に載るので、人はそこだけ見ればよい
 - 消してよいのは生成物だけ（`docs/index.qmd` / `docs/variables.qmd` /
-  `docs/spec-review.md` / `docs/_site`）。**`data/functions.json`・`docs/specs/`・
+  `docs/spec-review.md` / `docs/testspec-review.md` / `docs/_site`）。**`data/functions.json`・`docs/specs/`・
   人が書く MD（規約・業務知識・例外ポリシー・templates・prompts）は消さない**
 - 対象外にしたい関数があるなら 1 のあとに `ledger exclude --dead`（→ WBS から降りる）
 

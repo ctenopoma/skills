@@ -4,8 +4,10 @@
 LLM が書いた①仕様書・②テスト仕様書を、LLM を使わずに検証する。
 「もっともらしいが根拠のない記述」「勝手な省略」を人のレビュー前に機械で落とすための関門。
 
-report              ①draft の一斉レビュー表を docs/spec-review.md に生成
-                    （バッチ実行後の人の一括レビュー用。概要・🟢🟡🔴内訳・機械レビュー・ISSUE）
+report [kind]       人の承認待ちを1枚にまとめた一斉レビュー表を生成する（バッチ実行後の一括レビュー用）
+                    ① → docs/spec-review.md（概要・🟢🟡🔴内訳・機械レビュー・ISSUE）
+                    ② → docs/testspec-review.md（テスト方針・ケース数・⚠未確定・機械レビュー・ISSUE）
+                    kind（spec / testspec）を省くと両方を作る
 spec <func-id>      ①のレビュー:
   - 根拠 `file:lines` の実在検証（ファイルが存在し、行範囲がファイル内に収まるか）
   - 🟢(VERIFIED) なのに有効な根拠引用がない項目の検出
@@ -495,6 +497,7 @@ def check_testspec(root: str, func_id: str) -> dict:
                     f"（{' / '.join(EVIDENCE_KINDS)} のいずれかにする）")
     if not cases:
         res["problems"].append("テストケース（## xx-TC-xxx）が1つもない")
+    res["cases"] = len(cases)                        # 一斉レビュー表の「ケース」列
     res["pending"] = text.count("⚠未確定")
     if res["pending"] and res["status"] == "approved":
         res["problems"].append(f"approved なのに ⚠未確定 が {res['pending']} 件残っている")
@@ -545,14 +548,59 @@ def check_all(root: str) -> dict:
             "results": [r for r in results if not r["ok"]]}
 
 
-def make_report(root: str) -> dict:
-    """①draft 仕様書の一斉レビュー表 docs/spec-review.md を生成する。
+# 一斉レビュー表（①仕様書 / ②テスト仕様書）の kind 別設定。
+# dir/pending は review_actions.KINDS と対になっている（承認の入口が使う定義と同じ状態遷移）。
+REPORT_KINDS = {
+    "spec": {
+        "dir": "specs", "pending": "draft", "out": "spec-review.md",
+        "title": "① 仕様書 一斉レビュー", "label": "①仕様書", "head": "概要",
+        "summary_col": "概要",
+        "approve": "review_actions.py approve spec F-xxxx --by 名前",
+        "skill": "/legacy-1-spec F-xxxx",
+    },
+    "testspec": {
+        "dir": "test-specs", "pending": "generated", "out": "testspec-review.md",
+        "title": "② テスト仕様書 一斉レビュー", "label": "②テスト仕様書", "head": "テスト方針",
+        "summary_col": "テスト方針",
+        "approve": "review_actions.py approve testspec F-xxxx --by 名前",
+        "skill": "/legacy-2-testspec F-xxxx",
+    },
+}
 
-    バッチ実行（複数関数を連続で draft 化）の後、人がまとめてレビューするための一覧。
-    「人がいま動ける行」を上に並べる（承認できる → ISSUEあり → AI修正待ち）。
+
+def _summary_line(text: str, head: str, limit: int = 60) -> str:
+    """一斉レビュー表の要約セルに出す1行を拾う。
+
+    `# <head>` 節の最初の本文行を使い、無ければ本文の先頭行にフォールバックする
+    （項目立てはプロジェクト所有＝節名が変わっていても表が空にならないようにする）。
+    """
+    def pick(body: str) -> str:
+        body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+        for line in body.splitlines():
+            s = line.strip()
+            if not s or s.startswith(("#", "|", "-", ":", "```")):
+                continue
+            return s
+        return ""
+
+    m = re.search(rf"(?ms)^#\s*{re.escape(head)}\s*$(.*?)(?=^# |\Z)", text)
+    line = pick(m.group(1)) if m else ""
+    if not line:
+        line = pick(re.sub(r"(?s)\A---.*?\n---\n", "", text))
+    line = line.replace("|", "\\|")                  # 表のセルに入れるので | はエスケープ
+    return line[:limit] + ("…" if len(line) > limit else "")
+
+
+def make_report(root: str, kind: str = "spec") -> dict:
+    """人の承認待ちの成果物を1枚の表にする（①→docs/spec-review.md、②→docs/testspec-review.md）。
+
+    バッチ実行（複数関数を連続処理）の後、人がまとめてレビューするための一覧。
+    「人がいま動ける行」を上に並べる（承認できる → ISSUEあり → ⚠回答待ち → AI修正待ち）。
     表は**閲覧専用**——承認・修正依頼はチャット（「全部OK」「F-xxxx は修正: 〜」）、
     review_actions.py（CLI）、または review-feedback.md への記入で行う。
     """
+    cfg = REPORT_KINDS[kind]
+    check = review_check_of(kind)
     rootp = Path(root).resolve()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from ledger import Project
@@ -564,94 +612,116 @@ def make_report(root: str) -> dict:
         if ifm.get("status") == "open":
             open_issues.setdefault(ifm.get("func-id", ""), []).append(ip.stem)
 
-    rows, ng_funcs = [], []
+    rows, ng_funcs, holds = [], [], []
     for f in p.funcs():
         fid = f["func_id"]
-        sp = rootp / "docs" / "specs" / f"{fid}.md"
-        if not sp.exists():
+        dp = rootp / "docs" / cfg["dir"] / f"{fid}.md"
+        if not dp.exists():
             continue
-        text = sp.read_text(encoding="utf-8-sig")
+        text = dp.read_text(encoding="utf-8-sig")
         fm = _frontmatter(text)
-        if fm.get("status") != "draft":
+        if fm.get("status") != cfg["pending"]:
             continue
-        r = check_spec(root, fid)
+        r = check(root, fid)
         if not r["ok"]:
             ng_funcs.append(fid)
-        mo = re.search(r"(?ms)^# 概要\s*$(.*?)(?=^# |\Z)", text)
-        overview = ""
-        if mo:
-            body = re.sub(r"<!--.*?-->", "", mo.group(1), flags=re.S).strip()
-            # 表のセルに入れるので | はエスケープ（表崩れ防止）
-            first = body.splitlines()[0].replace("|", "\\|") if body else ""
-            overview = first[:60] + ("…" if len(first) > 60 else "")
-        c = r["confidence"]
-        conf = " ".join(f"{c[k]}{k}" for k in ("🟢", "🟡", "🔴") if c[k]) or "—"
-        # #review-<fid> は render_site.py が仕様書ページに埋め込む案内パネルの位置
+        summary = _summary_line(text, cfg["head"])
+        # #review-<fid> は render_site.py が成果物ページに埋め込む案内パネルの位置
         # （機械レビュー結果の全文と、返答方法の案内がそこにある）
-        review_link = f"specs/{fid}.html#review-{fid}"
+        review_link = f"{cfg['dir']}/{fid}.html#review-{fid}"
         mech = (f"[✅]({review_link})" if r["ok"]
-               else f"[❌ {len(r['problems'])}件]({review_link})")
+                else f"[❌ {len(r['problems'])}件]({review_link})")
         iss_ids = open_issues.get(fid, [])
         iss = " ".join(f"[{i}](issues/{i}.md)" for i in iss_ids) or "—"
         name = f["new"].get("name", fid).replace("|", "\\|")
-        if r["ok"]:
-            act = '<span class="sr-can">承認できる</span>'
+        if kind == "spec":
+            c = r["confidence"]
+            mid = [" ".join(f"{c[k]}{k}" for k in ("🟢", "🟡", "🔴") if c[k]) or "—"]
         else:
-            act = '<span class="sr-wait">AI修正待ち</span>'
-        # 並び順: 人がいま動ける行が先（0=承認できる, 1=承認できるがISSUEあり, 2=AI修正待ち）
-        group = 2 if not r["ok"] else (1 if iss_ids else 0)
-        rows.append((group, f"| [{name}](specs/{fid}.md) | {overview} "
-                            f"| {conf} | {mech} | {iss} | {act} |"))
+            mid = [str(r.get("cases", 0)),
+                   (f"⚠{r['pending']}" if r.get("pending") else "—")]
+        pending = kind == "testspec" and r.get("pending")
+        # 並び順: 人がいま動ける行が先
+        # （0=承認できる, 1=承認できるがISSUEあり, 2=⚠回答待ち, 3=AI修正待ち）
+        if not r["ok"]:
+            act, group = '<span class="sr-wait">AI修正待ち</span>', 3
+        elif pending:
+            holds.append(fid)
+            act, group = '<span class="sr-hold">⚠回答待ち</span>', 2
+        else:
+            act, group = '<span class="sr-can">承認できる</span>', 1 if iss_ids else 0
+        cells = [f"[{name}]({cfg['dir']}/{fid}.md)", summary] + mid + [mech, iss, act]
+        rows.append((group, "| " + " | ".join(cells) + " |"))
     rows.sort(key=lambda t: t[0])                    # 安定ソート（同グループ内は登録順のまま）
 
+    if kind == "spec":
+        header = (f"| 関数 | {cfg['summary_col']} | Confidence | 機械レビュー | 未確定(ISSUE) | 状態 |",
+                  "|------|------|:---:|:---:|------|------|")
+        seeing = "概要と Confidence を見て、"
+    else:
+        header = (f"| 関数 | {cfg['summary_col']} | ケース | ⚠未確定 | 機械レビュー "
+                  "| 未確定(ISSUE) | 状態 |",
+                  "|------|------|:---:|:---:|:---:|------|------|")
+        seeing = "方針とケース数を見て、"
     # page-layout: full — 列の多い表を既定の本文幅に押し込むと1行が縦に伸びて
     # 「件数のわりに数行しか見えない」状態になるため、このページは全幅で使う
-    lines = ["---", 'title: "① 仕様書 一斉レビュー"', "date: last-modified",
+    lines = ["---", f'title: "{cfg["title"]}"', "date: last-modified",
              "page-layout: full", "---", "",
              "<!-- review_checks.py report による自動生成。手編集禁止 -->", ""]
     if rows:
         lines += [
-            f"レビュー待ち（draft）: **{len(rows)} 件**。概要と Confidence を見て、"
-            "そのまま承認するか、関数名リンクで仕様書全文を確認してください。", "",
-            "返答はチャット（「全部OK」／「F-xxxx は修正: 〜」）、CLI"
-            "（`review_actions.py approve spec F-xxxx --by 名前`）、"
+            f"レビュー待ち（{cfg['pending']}）: **{len(rows)} 件**。{seeing}"
+            f"そのまま承認するか、関数名リンクで{cfg['label']}の全文を確認してください。", "",
+            f"返答はチャット（「全部OK」／「F-xxxx は修正: 〜」）、CLI（`{cfg['approve']}`）、"
             "または docs/review-feedback.md への記入で（すべて同格）。"
-            "❌ は AI が自己修正するまで承認できません。", "",
-            "各行は1行の高さに揃えてあります（はみ出しは …）。"
-            "**全文は行にカーソルを載せると開きます**。", "",
-            "| 関数 | 概要 | Confidence | 機械レビュー | 未確定(ISSUE) | 状態 |",
-            "|------|------|:---:|:---:|------|------|"] + [r for _, r in rows]
+            "❌ は AI が自己修正するまで承認できません。"
+            + ("⚠未確定が残っている行も、質問に回答するまで承認できません。"
+               if kind == "testspec" else ""), "",
+            "各行の高さは上限つきです（はみ出しは …）。"
+            "**行にカーソルを載せると開きます**（長い行は枠内でスクロールします）。", "",
+            *header] + [r for _, r in rows]
         lines += ["", "```{=html}", SPEC_REVIEW_PAGE_JS, "```"]
     else:
-        lines.append("レビュー待ちの仕様書（draft）はありません 🎉")
-    out = rootp / "docs" / "spec-review.md"
+        lines.append(f"レビュー待ちの{cfg['label']}（{cfg['pending']}）はありません 🎉")
+    out = rootp / "docs" / cfg["out"]
     out.parent.mkdir(parents=True, exist_ok=True)   # ⓪の骨子生成前に呼ばれても落ちない
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"ok": not ng_funcs, "drafts": len(rows), "machine_ng": len(ng_funcs),
-            "machine_ng_funcs": ng_funcs, "path": str(out)}
+    return {"ok": not ng_funcs, "kind": kind, "drafts": len(rows),
+            "machine_ng": len(ng_funcs), "machine_ng_funcs": ng_funcs,
+            "pending_answer": holds, "path": str(out)}
+
+
+def review_check_of(kind: str):
+    return check_spec if kind == "spec" else check_testspec
+
+
+def make_reports(root: str) -> dict:
+    """①②の一斉レビュー表を両方作る（{kind: make_report の戻り値}）。"""
+    return {kind: make_report(root, kind) for kind in REPORT_KINDS}
 
 
 # 一斉レビュー表のページ内JS（Quarto の ```{=html} ブロックとして焼き込む）。
 # フィルタチップ・検索・件数表示を表の直前に注入する**表示専用**のJS
 # （サーバへの書き込みは行わない。承認はチャット / CLI / ファイル記入で）。
+# ①（6列）と②（7列）で共用するため、列幅は見出し名で当てる（nth-child は使わない）。
 SPEC_REVIEW_PAGE_JS = """\
 <style>
-/* 列幅の固定（Quarto既定は内容比の自動配分で、概要列が関数名列を潰す）。
-   余り幅はすべて概要列(2)に寄せ、関数名(1)は折り返さない */
+/* 列幅の固定（Quarto既定は内容比の自動配分で、要約列が関数名列を潰す）。
+   余り幅はすべて要約列に寄せ、関数名は折り返さない */
 #sr-table{table-layout:fixed;width:100%;min-width:58em}
+#sr-table th:first-child{width:8em}   /* 関数列。残りの列幅は JS が見出し名で当てる */
 .sr-scroll{overflow-x:auto}
-#sr-table th:nth-child(1){width:8em}
-#sr-table th:nth-child(3){width:6em}
-#sr-table th:nth-child(4){width:6.5em}
-#sr-table th:nth-child(5){width:7em}
-#sr-table th:nth-child(6){width:12.5em}
-/* 1行 = 1関数に固定する。概要や ISSUE 列が長いと1行が数行分の高さに伸び、
-   「件数のわりに数行しか見えない」状態になるため、既定では各セルを1行に収めて
-   はみ出しは … にする。全文はカーソルを載せた行だけ展開して読む */
-#sr-table td{vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sr-table tr:hover td{white-space:normal;overflow:visible;overflow-wrap:break-word;
-                      background:#f1f5f9}
+#sr-table td{vertical-align:top}
+/* 1行 = 1関数の高さを上限つきに固定する。要約や ISSUE 列が長いと1行が数行分に伸び、
+   「件数のわりに数行しか見えない」状態になるため、既定は2行までに切り詰める
+   （はみ出しは …）。カーソルを載せた行だけ開き、それでも上限を超える分は
+   行の中でスクロールさせる＝表全体の縦の伸びが行数に比例しなくなる */
+.sr-cell{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+         overflow:hidden;max-height:3.2em;line-height:1.6;overflow-wrap:break-word}
+#sr-table tr:hover td{background:#f1f5f9}
+#sr-table tr:hover .sr-cell{-webkit-line-clamp:unset;max-height:9em;overflow:auto}
 .sr-can{color:#166534;font-weight:600;font-size:.9em}
+.sr-hold{color:#854d0e;font-weight:600;font-size:.9em}
 .sr-wait{color:#9ca3af;font-size:.85em}
 .sr-msg{display:block;font-size:.8em;color:#166534;
         overflow:hidden;text-overflow:ellipsis}
@@ -665,6 +735,8 @@ SPEC_REVIEW_PAGE_JS = """\
 </style>
 <script>
 (function(){
+  var WIDTH = {"関数":"8em", "Confidence":"6em", "ケース":"4.5em", "⚠未確定":"5em",
+               "機械レビュー":"6.5em", "未確定(ISSUE)":"7em", "状態":"11em"};
   function setup(){
     var table = null;
     document.querySelectorAll("table").forEach(function(t){
@@ -673,17 +745,32 @@ SPEC_REVIEW_PAGE_JS = """\
     });
     if(!table) return;
     table.id = "sr-table";               // 列幅固定CSS（上の #sr-table）を効かせる
+    table.querySelectorAll("thead th").forEach(function(th){
+      var w = WIDTH[th.textContent.trim()];
+      if(w) th.style.width = w;          // 要約列だけ指定なし＝余り幅を全部もらう
+    });
     var wrap = document.createElement("div");   // 画面が狭いときは表だけ横スクロール
     wrap.className = "sr-scroll";
     table.parentNode.insertBefore(wrap, table);
     wrap.appendChild(table);
     var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"));
     rows.forEach(function(tr){
+      // セルの中身を1枚のブロックにまとめる（行の高さ上限を効かせるため。
+      // td 自体には max-height が効かない）
+      tr.querySelectorAll("td").forEach(function(td){
+        if(td.querySelector(".sr-can, .sr-hold, .sr-wait")) return;   // 状態列は1行なので素通し
+        var cell = document.createElement("div");
+        cell.className = "sr-cell";
+        while(td.firstChild) cell.appendChild(td.firstChild);
+        td.appendChild(cell);
+      });
       tr.dataset.app = tr.querySelector(".sr-can") ? "1" : "";
+      tr.dataset.hold = tr.querySelector(".sr-hold") ? "1" : "";
       tr.dataset.iss = /ISSUE-/.test(tr.textContent) ? "1" : "";
     });
-    var nApp = rows.filter(function(t){ return t.dataset.app === "1"; }).length;
-    var nIss = rows.filter(function(t){ return t.dataset.iss === "1"; }).length;
+    function count(k){ return rows.filter(function(t){ return t.dataset[k] === "1"; }).length; }
+    var nApp = count("app"), nHold = count("hold"), nIss = count("iss");
+    var nWait = rows.length - nApp - nHold;
     var bar = document.createElement("div");
     bar.className = "sr-bar";
     var cnt = document.createElement("span");
@@ -695,16 +782,19 @@ SPEC_REVIEW_PAGE_JS = """\
         var ok = true;
         if(state.mode === "app") ok = tr.dataset.app === "1";
         else if(state.mode === "iss") ok = tr.dataset.iss === "1";
-        else if(state.mode === "wait") ok = tr.dataset.app !== "1";
+        else if(state.mode === "hold") ok = tr.dataset.hold === "1";
+        else if(state.mode === "wait") ok = tr.dataset.app !== "1" && tr.dataset.hold !== "1";
         if(ok && state.q) ok = tr.textContent.toLowerCase().indexOf(state.q) >= 0;
         tr.style.display = ok ? "" : "none";
         if(ok) n++;
       });
       cnt.textContent = n + " / " + rows.length + " 件";
     }
-    [["all", "すべて"], ["app", "承認できる " + nApp],
-     ["iss", "ISSUEあり " + nIss], ["wait", "AI修正待ち " + (rows.length - nApp)]]
+    [["all", "すべて", rows.length], ["app", "承認できる " + nApp, nApp],
+     ["iss", "ISSUEあり " + nIss, nIss], ["hold", "⚠回答待ち " + nHold, nHold],
+     ["wait", "AI修正待ち " + nWait, nWait]]
       .forEach(function(cdef){
+        if(!cdef[2] && cdef[0] !== "all") return;      // 0件のチップは出さない
         var b = document.createElement("button");
         b.className = "sr-chip" + (cdef[0] === "all" ? " on" : "");
         b.textContent = cdef[1];
@@ -716,7 +806,7 @@ SPEC_REVIEW_PAGE_JS = """\
       });
     var inp = document.createElement("input");
     inp.className = "sr-search"; inp.type = "search";
-    inp.placeholder = "検索: 関数名・概要・ISSUE";
+    inp.placeholder = "検索: 関数名・要約・ISSUE";
     inp.addEventListener("input", function(){
       state.q = inp.value.trim().toLowerCase(); apply();
     });
@@ -744,7 +834,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["spec", "testspec", "all", "report", "template"])
-    ap.add_argument("func_id", nargs="?")
+    ap.add_argument("func_id", nargs="?", help="関数ID（report のときは spec / testspec）")
     ap.add_argument("--root", default=".")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -770,10 +860,16 @@ def main() -> None:
         sys.exit(0 if ng == 0 else 1)
 
     if args.cmd == "report":
-        res = make_report(args.root)
-        print(json.dumps(res, ensure_ascii=False) if args.json else
-              f"drafts={res['drafts']} 機械NG={res['machine_ng']} → {res['path']}")
-        sys.exit(0 if res["ok"] else 1)
+        kinds = [args.func_id] if args.func_id else list(REPORT_KINDS)
+        if any(k not in REPORT_KINDS for k in kinds):
+            sys.exit(f"error: report の対象は {' / '.join(REPORT_KINDS)}（省略時は両方）")
+        out = {k: make_report(args.root, k) for k in kinds}
+        if args.json:
+            print(json.dumps(out, ensure_ascii=False, indent=1))
+        else:
+            for k, res in out.items():
+                print(f"{k}: 待ち={res['drafts']} 機械NG={res['machine_ng']} → {res['path']}")
+        sys.exit(0 if all(r["ok"] for r in out.values()) else 1)
 
     if args.cmd == "all":
         res = check_all(args.root)

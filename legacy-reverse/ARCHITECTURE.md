@@ -75,7 +75,7 @@ MCP サーバ（mcp-servers/legacy-reverse-mcp）は scripts を型付きツー�
 |---|---|---|
 | **人だけが書く** | conventions.md / domain-knowledge.md / exception-policy.md / docs/templates/ / **docs/prompts/** / ISSUE 回答欄 / review-feedback.md | AI は読み・提案文の提示・シードの初期コピーまで。**書き込み・代筆はしない**（人の意思の一次記録を保つ） |
 | **AI が書く** | ①仕様書・②テスト仕様・③tests/・④src/・⑤結果・⑦analysis.md・ISSUE 本文 | パイプライン成果物。機械レビュー＋人の承認ゲートを通る |
-| **機械生成** | WBS・骨子・spec-review.md・completion-check.md・variables.qmd・data/*.json | 手編集禁止。再生成で消える |
+| **機械生成** | WBS・骨子・spec-review.md・testspec-review.md・completion-check.md・variables.qmd・data/*.json | 手編集禁止。再生成で消える |
 
 ## 5. 操作の入口（HTML は閲覧専用）
 

@@ -26,7 +26,7 @@ python <LR>/scripts/review_checks.py all --root .    # 成果物の健全性
 | ⓪ 解析 | `/legacy-0-analyze` | functions.json 確定・例外ポリシー決定済み | `extract_fortran.py --write`（Fortranは必ず機械抽出。再実行=マージで安全）＋ extract-report の突合ゼロ＋ `hazards.py status` の未決定ゼロ |
 | ⓪ 変数辞書 | `/legacy-0-dict` | 変数が approved（人がOK） | `variables.py verify-interp` が NGゼロ |
 | ① 仕様書 | `/legacy-1-spec F-xxxx`（「まとめてN件」でバッチ） | status: reviewed（人がOK。バッチは spec-review.md で一斉レビュー） | `review_checks.py spec F-xxxx` が NGゼロ（dict-gate: 語義が未承認の関数は①に進めない） |
-| ② テスト仕様 | `/legacy-2-testspec F-xxxx` | status: approved（人がOK・⚠未確定ゼロ） | `review_checks.py testspec F-xxxx` が NGゼロ |
+| ② テスト仕様 | `/legacy-2-testspec F-xxxx`（バッチは testspec-review.md で一斉レビュー） | status: approved（人がOK・⚠未確定ゼロ） | `review_checks.py testspec F-xxxx` が NGゼロ |
 | ③ テストコード | `/legacy-3-testcode F-xxxx` | `ledger freeze-tests` 済み | `pytest --collect-only` ＋ マーカー突合（exit 3 なら不整合） |
 | ④ 実装 | `/legacy-4-impl F-xxxx` | スタブゼロ | `check_stubs.py <module>` |
 | ⑤ テスト | `/legacy-5-test F-xxxx` | result: pass | `ledger verify` → pytest → `collect_results.py` |
@@ -134,8 +134,8 @@ python <LR>/scripts/pipeline.py priority F-0012                # ⭐優先ON（�
 python <LR>/scripts/pipeline.py priority F-0012 --off          # ⭐優先解除／引数なしで一覧
 ```
 
-どちらの方式でも draft は `spec-review.md`（一斉レビュー表）に溜まり、
-あなたは表を見て「全部OK」か「F-xxxx は修正: 〜」と返すだけ。
+どちらの方式でも承認待ちは一斉レビュー表（①は `spec-review.md`、②は `testspec-review.md`）に
+溜まり、あなたは表を見て「全部OK」か「F-xxxx は修正: 〜」と返すだけ。
 
 - **途中で止まっても同じコマンド/指示で再開できる**（書きかけ draft は機械NGとして
   検出され先に直される。処理済み draft は二重に書き直されない）
@@ -174,7 +174,8 @@ python <LR>/scripts/serve_site.py --root . --watch  # docs/ の編集を検知�
 | WBS | `/` | 進捗・要対応（⚠辞書stale もここ）・フロー別進捗。⑥⑦の時期が来たら実行方法の案内 |
 | 変数辞書 | `/variables.html` | 語義と根拠の一覧（未承認が残る間は承認方法の案内） |
 | 仕様書 | `/specs/F-xxxx.html` | 本文＋機械レビュー結果＋承認待ち/裁定待ちの案内パネル |
-| 一斉レビュー | `/spec-review.html` | draft の一覧（承認できる/AI修正待ちの状態・検索・フィルタ） |
+| ①一斉レビュー | `/spec-review.html` | ①draft の一覧（概要・Confidence・状態・検索・フィルタ） |
+| ②一斉レビュー | `/testspec-review.html` | ②generated の一覧（テスト方針・ケース数・⚠未確定・状態） |
 | バッチ状況 | `/pipeline.html` | 連続実行のライブ進捗・残タスク（実行順・人待ち）・失敗の内訳と応答ログ |
 | マニュアル | `/manual.html` | 操作マニュアル（本書の詳説版。EXE 配布にも同梱） |
 
