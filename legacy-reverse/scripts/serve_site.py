@@ -488,6 +488,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                          "application/json; charset=utf-8", code)
 
     @staticmethod
+    def _agent_log_404(d: Path, lp: Path) -> str:
+        """応答ログが見つからないときに、切り分けに要る事実だけを返す。"""
+        lines = [f"応答ログが見つかりません: {lp}", ""]
+        if not d.is_dir():
+            lines += [f"ログの置き場そのものがありません: {d}",
+                      "  - serve_site.py の --root が対象プロジェクトを指しているか",
+                      "  - 無人バッチ（pipeline.py）をまだ一度も実行していないか"]
+        else:
+            have = sorted(x.name for x in d.glob("*.txt"))
+            lines.append(f"この置き場にあるログ {len(have)} 件:")
+            lines += [f"  {n}" for n in have[:40]]
+            if len(have) > 40:
+                lines.append(f"  …ほか {len(have) - 40} 件")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
     def _mark_stale_status(body: bytes) -> bytes:
         """クラッシュ残骸の running を「停止（異常終了）」に補正して配る。
 
@@ -562,6 +578,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if lp.parent == d and lp.is_file():
                     self._send_bytes(lp.read_bytes(), "text/plain; charset=utf-8")
                     return
+                # 素の 404 だと「どこを探して無かったのか」が分からず、原因
+                # （--root 違い・skill の版が古い・そもそも未実行）を切り分けられない
+                self._send_bytes(self._agent_log_404(d, lp).encode("utf-8"),
+                                 "text/plain; charset=utf-8", 404)
+                return
             self.send_error(404)
             return
         super().do_GET()

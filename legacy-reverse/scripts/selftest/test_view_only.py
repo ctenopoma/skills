@@ -244,15 +244,20 @@ def test_agent_log_route():
             with urllib.request.urlopen(url) as r:
                 return r.status, r.read().decode("utf-8").strip()
         except urllib.error.HTTPError as e:
-            return e.code, ""
+            return e.code, e.read().decode("utf-8")
 
     try:
         assert get(label) == (200, "dict log body"), "辞書ラベルの応答ログが引けない"
         assert get("dict_V-0001_V-0040") == (200, "dict log body")   # 潰した名前でも可
         assert get("F-0001") == (200, "spec log")
-        assert get("F-9999")[0] == 404, "無いログが 404 になっていない"
+        code, body = get("F-9999")
+        assert code == 404, "無いログが 404 になっていない"
+        # 素の 404 に戻さない（どこを探したか・何があるかが切り分けの一次情報）
+        assert "応答ログが見つかりません" in body and "F-0001.txt" in body, body
         for bad in ("../secret", "../../etc/passwd", "..%2f..%2fsecret"):
-            assert get(bad)[0] == 404, f"ディレクトリ外に出られてしまう: {bad}"
+            code, body = get(bad)
+            assert code == 404, f"ディレクトリ外に出られてしまう: {bad}"
+            assert "SECRET" not in body, f"ディレクトリ外の中身が漏れている: {bad}"
     finally:
         httpd.shutdown()
         httpd.server_close()
