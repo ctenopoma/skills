@@ -1,0 +1,37 @@
+<mxfile host="app.diagrams.net" modified="2026-08-21T00:00:00.000Z" agent="GitHub Copilot" version="24.7.17">
+  <diagram id="project-structure" name="Page-1">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="&lt;project&gt;/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0b7285;strokeColor=#0b7285;fontColor=#ffffff;fontSize=26;fontStyle=1;spacingLeft=18;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="24" width="1720" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" value="&lt;b&gt;legacy/&lt;/b&gt;&lt;br&gt;レガシー原文&lt;br&gt;読めるのは ⓪ と ① のみ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f5ff;strokeColor=#74c0fc;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" value="&lt;b&gt;src/・tests/&lt;/b&gt;&lt;br&gt;【AI】④実装 / ③テストコード" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#ffa94d;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="330" y="120" width="260" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" value="&lt;b&gt;data/&lt;/b&gt;&lt;br&gt;【機械】functions.json&lt;br&gt;ledger.json / variables.json ほか" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebfbee;strokeColor=#69db7c;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="620" y="120" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" value="&lt;b&gt;docs/&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#868e96;fontSize=22;fontStyle=1;align=left;spacingLeft=18;" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="1720" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="7" value="&lt;b&gt;【人】が記述するもの&lt;/b&gt;&lt;br&gt;templates/&lt;br&gt;prompts/&lt;br&gt;conventions.md&lt;br&gt;domain-knowledge.md&lt;br&gt;exception-policy.md&lt;br&gt;review-feedback.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0f6;strokeColor=#faa2c1;fontSize=18;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="340" width="500" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" value="&lt;b&gt;【AI】が作る成果物&lt;/b&gt;&lt;br&gt;issues/ISSUE-xxx.md&lt;br&gt;specs/&lt;br&gt;test-specs/&lt;br&gt;test-results/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9db;strokeColor=#ffd43b;fontSize=18;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="620" y="340" width="500" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" value="&lt;b&gt;【機械】が生成するページ・レポート&lt;/b&gt;&lt;br&gt;index.qmd / wbs/&lt;br&gt;spec-review.md&lt;br&gt;testspec-review.md&lt;br&gt;variables.qmd&lt;br&gt;exception-queue.md&lt;br&gt;completion-check.md&lt;br&gt;_site/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f0ff;strokeColor=#b197fc;fontSize=18;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="340" width="560" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" value="凡例: 【人】= 人だけが記述 / 【AI】= AI が作成し人が承認 / 【機械】= 自動生成（手編集禁止）" style="whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;fontSize=18;fontColor=#495057;align=left;" vertex="1" parent="1">
+          <mxGeometry x="80" y="720" width="1640" height="100" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,37 @@
+<mxfile host="app.diagrams.net" modified="2026-08-21T00:00:00.000Z" agent="GitHub Copilot" version="24.7.17">
+  <diagram id="skill-structure" name="Page-1">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="legacy-reverse/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0b7285;strokeColor=#0b7285;fontColor=#ffffff;fontSize=26;fontStyle=1;spacingLeft=18;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="24" width="1520" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" value="&lt;b&gt;SKILL.md&lt;/b&gt;&lt;br&gt;全体管理（状況表示・次の一手・セットアップ）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f5ff;strokeColor=#74c0fc;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="40" y="118" width="350" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" value="&lt;b&gt;skills/&lt;/b&gt;&lt;br&gt;legacy-0-analyze&lt;br&gt;legacy-0-dict&lt;br&gt;legacy-1-spec&lt;br&gt;legacy-2-testspec&lt;br&gt;legacy-3-testcode&lt;br&gt;legacy-4-impl&lt;br&gt;legacy-5-test&lt;br&gt;legacy-6-check&lt;br&gt;legacy-7-analyze" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#ffa94d;fontSize=18;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="350" height="460" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" value="&lt;b&gt;references/&lt;/b&gt;&lt;br&gt;workflow.md&lt;br&gt;schema.md&lt;br&gt;graph-dict-design.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebfbee;strokeColor=#69db7c;fontSize=18;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="430" y="118" width="350" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" value="&lt;b&gt;scripts/&lt;/b&gt;&lt;br&gt;決定的な処理（LLM を使わない。単体でも動く）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f0ff;strokeColor=#b197fc;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="430" y="324" width="350" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="7" value="&lt;b&gt;hooks/&lt;/b&gt;&lt;br&gt;物理的な禁止（④⑤中の tests/ 編集拒否など）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0f6;strokeColor=#faa2c1;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="430" y="466" width="350" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" value="&lt;b&gt;assets/templates/&lt;/b&gt;&lt;br&gt;プロジェクトへ配るシード&lt;br&gt;（docs/templates・docs/prompts の元）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9db;strokeColor=#ffd43b;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="430" y="608" width="350" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" value="&lt;b&gt;付属文書&lt;/b&gt;&lt;br&gt;ARCHITECTURE.md / DESIGN.md / MANUAL.md / QUICKREF.md / slides/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f5;strokeColor=#adb5bd;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="820" y="118" width="740" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" value="全プロジェクト共通の資産。階層そのものより、用途ごとの区分を示す。" style="whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;fontSize=18;fontColor=#495057;align=left;" vertex="1" parent="1">
+          <mxGeometry x="820" y="260" width="740" height="120" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
