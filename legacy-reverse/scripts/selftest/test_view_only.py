@@ -192,7 +192,17 @@ def test_serve_site_read_only():
                 "/run-cancel", "/run-skip", "/batch-priority", "/run-analyze", "/run-check"):
         assert bad not in page, f"pipeline.html に {bad} が残っている"
     assert "pipeline.py run" in page               # CLI への案内はある
-    print("OK  (d) serve_site は GET のみ（表示専用の pipeline.html）")
+    # 実行・承認ボタンごと消えたのに残っていた CSS（押せない見た目だけの残骸）
+    for dead in (".btn.pri", ".btn.ap", ".btn.rj", ".btn.stop", ".btn.primary"):
+        assert dead not in page, f"pipeline.html に {dead} が残っている"
+    # 外部から実行を止める口（ブラウザの停止ボタン用だった）も持たない
+    import inspect
+
+    import pipeline
+    for fn in (pipeline.run_claude, pipeline.run_one):
+        params = inspect.signature(fn).parameters
+        assert "cancel_event" not in params, f"{fn.__name__} に cancel_event が残っている"
+    print("OK  (d) serve_site は GET のみ（表示専用の pipeline.html・実行系の残骸なし）")
 
 
 def test_navbar_entry():

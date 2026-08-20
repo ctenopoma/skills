@@ -251,14 +251,12 @@ def _kill_tree(proc: subprocess.Popen) -> None:
 
 
 def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
-               extra: list, timeout: int, cancel_event=None,
-               heartbeat: int = 0, label: str = "") -> dict:
+               extra: list, timeout: int, heartbeat: int = 0, label: str = "") -> dict:
     """headless Claude を1プロセス起動し、JSON 結果を返す。
 
-    cancel_event（threading.Event）が set されたらプロセスツリーごと止めて
-    {"canceled": True} を返す（外部からの中止用。CLI バッチは None のまま）。
     heartbeat（秒）を渡すと、待っている間その間隔で経過を1行ずつ出す
-    （無音のまま数十分待たせない。0 なら何も出さない＝従来と同じ）。
+    （無音のまま数十分待たせない。0 なら何も出さない）。
+    中断は Ctrl-C（＝実行の入口は CLI だけ。外部から止める口は持たない）。
     """
     cmd = claude_cmd + ["-p", prompt, "--output-format", "json",
                         "--max-turns", str(max_turns)] + extra
@@ -270,16 +268,14 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
     started = time.monotonic()
     deadline = started + timeout
     next_beat = (started + heartbeat) if heartbeat else None
-    stop = None                                    # None=完走 / "canceled" / "timeout"
+    stop = None                                    # None=完走 / "timeout"
     while True:
         try:
             stdout, stderr = proc.communicate(timeout=0.5)
             break
         except subprocess.TimeoutExpired:
             now = time.monotonic()
-            if cancel_event is not None and cancel_event.is_set():
-                stop = "canceled"
-            elif now >= deadline:
+            if now >= deadline:
                 stop = "timeout"
             else:
                 if next_beat is not None and now >= next_beat:
@@ -294,10 +290,6 @@ def run_claude(claude_cmd: list, prompt: str, root: Path, max_turns: int,
             except subprocess.TimeoutExpired:
                 stdout, stderr = "", ""
             break
-    if stop == "canceled":
-        return {"ok": False, "canceled": True, "cost_usd": 0.0,
-                "tail": "中止された", "err": "",
-                "stdout": stdout or "", "stderr": stderr or ""}
     if stop == "timeout":
         return {"ok": False, "timeout": True, "cost_usd": 0.0,
                 "tail": f"timeout {timeout}s", "err": "",
@@ -925,7 +917,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
            prompt_template: str, max_turns: int, timeout: int, retries: int,
            backoff_base: int, backoff_max: int, rate_wait_total: int,
            status: "RunStatus", cost_total: float, rate_waited: int,
-           verify_fn=verify_spec, cancel_event=None, phase: str = None) -> tuple:
+           verify_fn=verify_spec, phase: str = None) -> tuple:
     """1関数分の実行ループ（レート待機・リトライ・検証込み）。フェーズ非依存。
 
     cmd_spec（①無人バッチ）と cmd_run（①〜⑤の連続実行）が共用する。
@@ -934,10 +926,7 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
     ①以外のフェーズも同じループに乗る。
     戻り値: (ok, why, r, cost_total, rate_waited) — 呼び出し側の累計をこれで更新する。
     レート待機の累計上限超過は KeyboardInterrupt で呼び出し側に伝える（バッチの
-    安全停止と同じ扱い。単発実行側もこれを捕まえて「停止」として扱えばよい）。
-    cancel_event（threading.Event）が set されたら実行中の claude を止め、
-    レート待機も打ち切って (False, "中止された", ...) を返す。
-    モデルは指定しない（claude の既定モデルで回す）。
+    安全停止と同じ扱い）。モデルは指定しない（claude の既定モデルで回す）。
     """
     prompt = prompt_template.format(fid=fid)
     ok, why, r = False, "", {}
@@ -950,7 +939,6 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
         print(f"  ▶ {fid} 実行中"
               + (f"（試行 {attempt + 1}）" if attempt else "") + "…", flush=True)
         r = run_claude(claude_cmd, prompt, root, max_turns, extra, timeout,
-                       cancel_event=cancel_event,
                        heartbeat=HEARTBEAT_SEC, label=fid)
         cost_total += r.get("cost_usd") or 0.0
 
@@ -963,25 +951,10 @@ def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
             log_line(root, {"func_id": fid, "rate_limited": True, "wait_sec": wait,
                             "tail": r.get("tail", "")[:200]})
             status.waiting(wait, rate_waited + wait, r.get("tail", ""))
-            if cancel_event is not None and cancel_event.wait(wait):
-                r = dict(r, canceled=True)    # 待機中の中止 → 下の中止処理に合流
-            else:
-                if cancel_event is None:
-                    time.sleep(wait)
-                rate_waited += wait
-                backoff *= 2
-                continue                      # attempt は消費しない
-
-        if r.get("canceled"):
-            attempt += 1
-            ok, why = False, "中止された"
-            save_agent_log(root, fid, attempt, r)
-            log_line(root, {"func_id": fid, "attempt": attempt, "ok": False,
-                            "why": why, "canceled": True,
-                            "sec": round(time.time() - t0)})
-            status.result(fid, False, why, "中止", round(time.time() - t0),
-                          cost_total, r, attempt, phase=phase)
-            break
+            time.sleep(wait)
+            rate_waited += wait
+            backoff *= 2
+            continue                          # attempt は消費しない
 
         attempt += 1
         backoff = backoff_base

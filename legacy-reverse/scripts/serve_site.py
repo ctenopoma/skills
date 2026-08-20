@@ -30,8 +30,6 @@ import argparse
 import functools
 import http.server
 import json
-import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -178,12 +176,6 @@ a{color:#4f46e5}
 .grow{flex:1;min-width:0}
 .btn{border:1px solid #9ca3af88;background:transparent;border-radius:6px;color:inherit;
      padding:2px 10px;font-size:.8rem;cursor:pointer;white-space:nowrap;text-decoration:none}
-.btn.pri{border-color:#d97706;color:#d97706}
-.btn.pri.on{background:#d97706;color:#fff}
-.btn.ap{border-color:#16a34a;color:#16a34a}
-.btn.rj{border-color:#dc2626;color:#dc2626}
-.btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff;font-weight:600;padding:6px 16px;font-size:.9rem}
-.btn.stop{border-color:#991b1b;color:#991b1b;padding:6px 16px;font-size:.9rem}
 select,input[type=text],input[type=search]{padding:5px 8px;border:1px solid #9ca3af;border-radius:6px;
      background:transparent;color:inherit}
 .tag{font-size:.72rem;border-radius:4px;padding:1px 6px;font-weight:600;white-space:nowrap}
@@ -507,7 +499,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _mark_stale_status(body: bytes) -> bytes:
         """クラッシュ残骸の running を「停止（異常終了）」に補正して配る。
 
-        実行ボタン側（pipeline.current_run_state）は PID の死活で残骸を無視するが、
+        CLI 側（pipeline.current_run_state）は PID の死活で残骸を無視するが、
         /pipeline.html は状態ファイルをそのまま描くため、補正しないと画面だけが
         永遠に「実行中」に見える。ファイル自体は書き換えない（読み取り専用の補正）。
         EXE 等で pipeline を import できない場合はそのまま返す。
