@@ -58,6 +58,7 @@ ledger unblock F-xxxx                       # 裁定反映後のブロック解�
 ledger add NAME [--file legacy/x.f ...]     # 関数の後追い追加（→ skeletons → wbs）
 ledger init-templates                       # 人が書くファイル一式の雛形を配置（⓪の最初。既存は上書きしない）
 ledger migrate-specs [--dry-run]            # 旧世代の仕様書に「例外・数値特異点」節を後追い（本文は触らない）
+review_actions.py demote-ng spec [--dry-run]  # 機械レビューNGの承認済みだけ draft に戻す（版を上げたとき）
 ledger authored                             # 人が書くファイルの記入状況（未作成/未記入/記入途中/記入あり）
 ledger exclude F-xxxx --reason "..."        # 移植対象から外す（物理削除はしない。複数指定可）
 ledger exclude --dead                       # 到達不能な関数を一覧表示して一括除外

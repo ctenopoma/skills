@@ -477,6 +477,41 @@ python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by �
   アンカー（`#review-<fid>`）へ直接ジャンプする
 - **draft は再実行（書き直し）自由**。reviewed の書き直しは②が stale になるため人の了承を先に取る
 
+## skill の版を上げたあとのやり直し（派生物だけリセット）
+
+検査や契約見出しが増えた版に移行するとき、**①の成果物を捨てずに**状態だけ作り直す手順。
+
+**func_id は再抽出しても変わらない**。`extract_fortran.py` の merge は既存エントリを
+`(レガシーファイルのパス, ルーチン名)` で突合し（`_key`）、一致すれば既存の func_id を
+そのまま使う。既存の `inputs/outputs/globals` も「空のときだけ」入れ直すので、
+`variables.py propagate` が書いた `[V-xxxx]` 付きの desc も残る。
+**`data/functions.json` を消さない限り `docs/specs/*.md` は全部そのまま使える**。
+（消してしまった／レガシーのファイル名・ルーチン名を変えた場合だけ ID が変わる）
+
+```bash
+python <LR>/scripts/extract_fortran.py --root .        # 1. 台帳を最新ソースに合わせる（マージ）
+python <LR>/scripts/hazards.py match --root .          # 2. 例外ポリシーの突合をやり直す
+python <LR>/scripts/variables.py build --root .        # 3. 変数辞書（承認は維持。未使用なら飛ばす）
+python <LR>/scripts/variables.py propagate --root .    #    承認済みの語義を IO/globals へ転記
+python <LR>/scripts/variables.py page --root .
+python <LR>/scripts/ledger.py skeletons --root .       # 4. 骨子（既存の仕様書は上書きしない）
+python <LR>/scripts/ledger.py migrate-specs --root .   # 5. 後から入った契約見出しを既存①へ追加
+python <LR>/scripts/review_actions.py demote-ng spec --root . --dry-run
+python <LR>/scripts/review_actions.py demote-ng spec --root .   # 6. NGの承認済みだけ draft へ
+python <LR>/scripts/ledger.py wbs --root .             # 7. 反映
+python <LR>/scripts/render_site.py --root .
+```
+
+- **4 で `--force` を使わない**。骨子の再生成は書いた本文を捨てる
+- **5 → 6 の順を守る**。契約見出しを足す前に判定すると、足せば直るものまで差し戻す
+- 6 は機械レビューが **NG のものだけ** 承認前に戻し、承認情報（`reviewed-by` /
+  `reviewed-date`）も消す。OK のものは1バイトも触らない。差し戻した分は一斉レビュー表
+  （`docs/spec-review.md`）に載るので、人はそこだけ見ればよい
+- 消してよいのは生成物だけ（`docs/index.qmd` / `docs/variables.qmd` /
+  `docs/spec-review.md` / `docs/_site`）。**`data/functions.json`・`docs/specs/`・
+  人が書く MD（規約・業務知識・例外ポリシー・templates・prompts）は消さない**
+- 対象外にしたい関数があるなら 1 のあとに `ledger exclude --dead`（→ WBS から降りる）
+
 ## ④⑤ループと再開
 
 - attempt は「最後の裁定以降の⑤実行回数」。上限3

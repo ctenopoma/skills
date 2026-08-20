@@ -13,6 +13,7 @@ HTML サイトは**閲覧専用**（render_site.py が状態と返答方法の�
      python review_actions.py approve testspec F-0012 --by 山田 --root .
      python review_actions.py request-changes spec F-0012 --by 山田 --comment "…" --root .
      python review_actions.py adjudicate F-0012 --issue ISSUE-004 --by 山田 --comment "…" --root .
+     python review_actions.py demote-ng spec --root .   # 検査が増えた版へ移行するとき
 
 どの経路でも、承認は**サーバ側（このモジュール）で機械レビューを再検証してから**行う
 （NG付きの成果物を承認しない、という原則を入口によらず強制する）。
@@ -178,6 +179,58 @@ def refresh_site(root: str, kind: str) -> bool:
         return ok
 
 
+def demote_ng(root: str, kind: str = "spec", dry_run: bool = False) -> dict:
+    """機械レビューが通らない**承認済み**の成果物を、承認前の状態に戻す。
+
+    skill の版が上がって検査が増えたとき（契約見出しの追加・変数辞書の転記チェック等）、
+    以前の基準で承認された成果物は「承認済みなのに NG」という宙ぶらりんになる。
+    全部 draft に戻すとレビュー工数が跳ね上がり、放置すると NG のまま②以降へ流れる。
+    **NG のものだけ**承認前に戻して一斉レビュー表へ載せ直すのが折衷になる。
+
+    承認情報（reviewed-by / reviewed-date）も消す——「誰がいつ承認したか」は
+    その時点の内容に対する記録で、差し戻した後まで引き継ぐと嘘になるため。
+    """
+    cfg = KINDS[kind]
+    rootp = Path(root).resolve()
+    import pipeline
+    p = pipeline._project(rootp)
+    demoted, kept, checked = [], 0, 0
+    for f in p.funcs():
+        fid = f["func_id"]
+        path = _doc_path(root, kind, fid)
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        if parse_frontmatter(text).get("status") != cfg["approved_status"]:
+            continue
+        checked += 1
+        r = cfg["check"](root, fid)
+        if r["ok"]:
+            kept += 1
+            continue
+        demoted.append((fid, len(r["problems"])))
+        if dry_run:
+            continue
+        text = _set_field(text, "status", cfg["pending_status"])
+        text = _set_field(text, cfg["by_field"], "null")
+        text = _set_field(text, cfg["date_field"], "null")
+        path.write_text(text, encoding="utf-8")
+    verb = "戻せる" if dry_run else "戻した"
+    msg = (f"承認済み {checked} 件を検査し、NG の {len(demoted)} 件を "
+           f"{cfg['pending_status']} に{verb}（OK のまま維持: {kept} 件）")
+    if demoted:
+        msg += "\n  " + ", ".join(f"{fid}({n}件)" for fid, n in demoted[:20])
+        if len(demoted) > 20:
+            msg += f" ほか {len(demoted) - 20} 件"
+    if dry_run:
+        msg += "\n  （--dry-run。実行するにはこの指定を外す）"
+    elif demoted:
+        refresh_site(root, kind)
+        msg += "\n  一斉レビュー表・WBS を更新した。指摘の全文は各仕様書ページの案内パネルにある"
+    return {"ok": True, "message": msg, "demoted": [fid for fid, _ in demoted],
+            "kept": kept, "checked": checked}
+
+
 def approve(root: str, kind: str, fid: str, approver: str) -> dict:
     if kind not in KINDS:
         return {"ok": False, "message": f"不明な種別: {kind}"}
@@ -267,6 +320,13 @@ def main() -> None:
     rc.add_argument("--comment", required=True, help="修正してほしい内容")
     rc.add_argument("--root", default=".")
 
+    dn = sub.add_parser("demote-ng",
+                        help="機械レビューNGの承認済み成果物だけ承認前に戻す"
+                             "（検査が増えた版へ移行するとき）")
+    dn.add_argument("kind", nargs="?", default="spec", choices=sorted(KINDS))
+    dn.add_argument("--dry-run", action="store_true", help="書き換えず対象だけ表示")
+    dn.add_argument("--root", default=".")
+
     ad = sub.add_parser("adjudicate", help="⑤の裁定（ISSUEに回答を記入して unblock）")
     ad.add_argument("fid")
     ad.add_argument("--issue", required=True, help="ブロックしている ISSUE-xxx")
@@ -277,6 +337,8 @@ def main() -> None:
     args = ap.parse_args()
     if args.cmd == "approve":
         res = approve(args.root, args.kind, args.fid, args.by)
+    elif args.cmd == "demote-ng":
+        res = demote_ng(args.root, args.kind, args.dry_run)
     elif args.cmd == "request-changes":
         res = request_changes(args.root, args.kind, args.fid, args.by, args.comment)
     else:

@@ -184,6 +184,51 @@ def test_approve_and_request_changes():
 
 # ---------- (d) serve_site は閲覧専用 ----------
 
+def test_demote_ng():
+    """検査が増えた版へ移行するとき、NG の承認済みだけ承認前に戻せること。
+
+    機械レビュー本体（check_spec）の中身は test_variables / test_hazards が持つので、
+    ここは「NG だけ落とす・OK は1バイトも触らない・承認情報を消す」を見る。
+    """
+    root = prepared()
+    specs = root / "docs" / "specs"
+
+    def write(fid: str) -> None:
+        (specs / f"{fid}.md").write_text(
+            f'---\ntitle: "t"\nfunc-id: "{fid}"\nstatus: reviewed\n'
+            f'reviewed-by: 山田\nreviewed-date: "2026-01-01"\n---\n\n# 本文\n',
+            encoding="utf-8")
+
+    write("F-0001")
+    write("F-0002")
+    ok_before = (specs / "F-0001.md").read_text(encoding="utf-8")
+
+    orig = review_actions.KINDS["spec"]["check"]
+    review_actions.KINDS["spec"]["check"] = (
+        lambda root_, fid: {"ok": fid != "F-0002", "problems": ["だめ"] if fid == "F-0002" else []})
+    try:
+        with _Refresh():
+            r = review_actions.demote_ng(str(root), "spec", dry_run=True)
+        assert r["demoted"] == ["F-0002"] and r["kept"] == 1, r
+        assert "戻せる" in r["message"]
+        fm = render_site.parse_frontmatter((specs / "F-0002.md").read_text(encoding="utf-8"))
+        assert fm.get("status") == "reviewed", "--dry-run が書き換えている"
+
+        with _Refresh() as rf:
+            r = review_actions.demote_ng(str(root), "spec")
+        assert r["demoted"] == ["F-0002"] and r["kept"] == 1, r
+        assert rf.calls, "一斉レビュー表・WBS の更新が呼ばれていない"
+    finally:
+        review_actions.KINDS["spec"]["check"] = orig
+
+    fm = render_site.parse_frontmatter((specs / "F-0002.md").read_text(encoding="utf-8"))
+    assert fm.get("status") == "draft", fm
+    assert str(fm.get("reviewed-by")).lower() in ("null", "none"), fm
+    # OK だった承認済みは1バイトも触らない
+    assert (specs / "F-0001.md").read_text(encoding="utf-8") == ok_before
+    print("OK  demote-ng（NG の承認済みだけ差し戻す。OK は無傷）")
+
+
 def test_serve_site_read_only():
     assert not hasattr(serve_site.Handler, "do_POST"), "do_POST が残っている"
     assert not hasattr(serve_site.Handler, "WRITE_ROUTES"), "WRITE_ROUTES が残っている"
@@ -280,6 +325,7 @@ def main():
         test_dict_notice,
         test_review_notice,
         test_approve_and_request_changes,
+        test_demote_ng,
         test_serve_site_read_only,
         test_navbar_entry,
         test_agent_log_route,
