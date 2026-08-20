@@ -62,6 +62,7 @@ review_actions.py demote-ng spec [--dry-run]  # 機械レビューNGの承認済
 ledger authored                             # 人が書くファイルの記入状況（未作成/未記入/記入途中/記入あり）
 ledger exclude F-xxxx --reason "..."        # 移植対象から外す（物理削除はしない。複数指定可）
 ledger exclude --dead                       # 到達不能な関数を一覧表示して一括除外
+                                            #   → 対象外の成果物は render_site.py がサイトから落とす
 ledger include F-xxxx                       # 対象外からの復帰
 ledger flow add 月次バッチ --entry F-0000    # 作業スコープ（フロー）を定義
 ledger flow list / ledger flow rm 月次バッチ # 一覧（到達関数数つき）／削除

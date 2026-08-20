@@ -28,9 +28,15 @@
 注意: 差分レンダではサイト内検索の索引（search.json）は更新されない。
 検索に新ページを載せたくなったら --full を一度実行する。
 
+対象外（`ledger exclude`）にした関数の成果物（specs / test-specs / test-results）は
+**サイトに載せない**。仕様書を物理削除しない設計なので、載せると「対象外にしたのに
+画面に残る」うえ、大規模ほどレンダ時間の無駄になる。ISSUE は人の裁定の記録なので残す。
+--include-excluded で従来どおり全部載せられる。
+
 使い方:
   python render_site.py --root .            # → docs/_site/index.html（差分）
   python render_site.py --root . --full     # 全ページ再レンダリング
+  python render_site.py --root . --include-excluded   # 対象外の成果物も載せる
 """
 import argparse
 import hashlib
@@ -325,11 +331,31 @@ def transform_yml(text: str, has_variables: bool = False) -> str:
     return re.sub(r"(?m)^(\s*)type: website\s*$", r"\1type: website\n\1output-dir: ../_site", text)
 
 
-def build_shadow(docs: Path, work: Path) -> int:
+# 対象外（ledger exclude）の関数の成果物を置くディレクトリ。
+# issues/ は人の裁定の記録なので、対象外になっても残す（WBS の ISSUE 表から辿る）
+PER_FUNC_DIRS = ("specs", "test-specs", "test-results")
+
+
+def excluded_fids(root: Path) -> set:
+    """移植対象から外した関数（functions.json の excluded)。無い・壊れていれば空。"""
+    try:
+        data = json.loads((root / "data" / "functions.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return set()
+    return {f.get("func_id") for f in (data.get("functions") or []) if f.get("excluded")}
+
+
+def _excluded_artifact(rel: Path, excluded: set) -> bool:
+    """対象外の関数の成果物ページか。test-results は F-xxxx_日時 なので前半で判定する。"""
+    return (len(rel.parts) == 2 and rel.parts[0] in PER_FUNC_DIRS
+            and rel.stem.split("_", 1)[0] in excluded)
+
+
+def build_shadow(docs: Path, work: Path, excluded: set = frozenset()) -> int:
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
-    n = 0
+    n = skipped = 0
     for src in sorted(docs.rglob("*")):
         rel = src.relative_to(docs)
         if any(part.startswith(("_", ".")) for part in rel.parts):
@@ -337,6 +363,9 @@ def build_shadow(docs: Path, work: Path) -> int:
         if rel.parts and rel.parts[0] in ("templates", "prompts"):
             continue                                 # プロジェクト所有の設定（テンプレ・工程別
             #                                          プロンプト調整）はサイトには載せない
+        if _excluded_artifact(rel, excluded):
+            skipped += 1
+            continue                                 # 対象外の関数の成果物は載せない
         dst = work / rel
         if src.is_dir():
             dst.mkdir(parents=True, exist_ok=True)
@@ -362,6 +391,9 @@ def build_shadow(docs: Path, work: Path) -> int:
                              has_variables=(docs / "variables.qmd").exists())
     (work / "_quarto.yml").write_text(yml_text, encoding="utf-8", newline="\n")
     n += make_placeholders(work, yml_text)
+    if skipped:
+        print(f"note: 対象外（excluded）の関数の成果物 {skipped} ページはサイトに載せない"
+              "（--include-excluded で載せる）")
     return n
 
 
@@ -450,6 +482,8 @@ def main() -> None:
     ap.add_argument("--root", default=".", help="対象プロジェクトのルート")
     ap.add_argument("--full", action="store_true", help="差分を無視して全ページ再レンダリング")
     ap.add_argument("--keep-work", action="store_true", help="影コピー(_sitework)を残す（調査用）")
+    ap.add_argument("--include-excluded", action="store_true",
+                    help="対象外（ledger exclude）の関数の成果物ページもサイトに載せる")
     args = ap.parse_args()
 
     docs = Path(args.root).resolve() / "docs"
@@ -457,16 +491,28 @@ def main() -> None:
         sys.exit(f"error: {docs} がない")
     site = docs / "_site"
     work = docs / "_sitework"
-    n = build_shadow(docs, work)
+    excluded = set() if args.include_excluded else excluded_fids(docs.parent)
+    n = build_shadow(docs, work, excluded)
     pages = page_hashes(work)
     conf = config_hash(work)
     quarto = find_quarto()
 
     full, changed, removed = plan_render(site, pages, conf, args.full)
+    if full:
+        # 全体レンダは quarto が古い出力を消さない。前回の manifest と比べて
+        # 影コピーから消えたページ（＝対象外にした関数の成果物など）は自分で掃除する
+        try:
+            old_pages = json.loads(
+                (site / ".render-manifest.json").read_text(encoding="utf-8")).get("pages", {})
+            removed = [r for r in old_pages if r not in pages]
+        except (OSError, ValueError):
+            removed = []
     ok = True
     if full:
         ok = subprocess.run([quarto, "render", str(work)]).returncode == 0
-        done_msg = f"{n} ページ（全体）"
+        for rel in removed:
+            (site / rel).with_suffix(".html").unlink(missing_ok=True)
+        done_msg = f"{n} ページ（全体" + (f"・削除 {len(removed)}" if removed else "") + "）"
     else:
         for i, rel in enumerate(changed, 1):
             print(f"render [{i}/{len(changed)}] {rel}")

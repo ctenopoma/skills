@@ -229,6 +229,55 @@ def test_demote_ng():
     print("OK  demote-ng（NG の承認済みだけ差し戻す。OK は無傷）")
 
 
+def test_excluded_pages_are_not_rendered():
+    """対象外（ledger exclude）にした関数の成果物はサイトに載せないこと。
+
+    仕様書は物理削除しない設計なので、そのままだと render が全部描画してしまい、
+    対象外にしたのに閲覧サイトには残る（大規模ほどレンダ時間も無駄になる）。
+    ISSUE は人の裁定の記録なので、対象外になっても残す。
+    """
+    root = Path(tempfile.mkdtemp(prefix="lr-excluded-"))
+    _TMPDIRS.append(root)
+    docs = root / "docs"
+    for sub_ in ("specs", "test-specs", "test-results", "issues"):
+        (docs / sub_).mkdir(parents=True)
+    shutil.copy2(TEMPLATE_YML, docs / "_quarto.yml")
+    (docs / "index.qmd").write_text("---\ntitle: WBS\n---\n\nx\n", encoding="utf-8")
+    for fid in ("F-0000", "F-0042"):
+        for sub_ in ("specs", "test-specs"):
+            (docs / sub_ / f"{fid}.md").write_text(
+                f"---\ntitle: {fid}\n---\n\nbody\n", encoding="utf-8")
+    (docs / "test-results" / "F-0042_20260101-1000.md").write_text(
+        "---\ntitle: r\n---\n\nx\n", encoding="utf-8")
+    (docs / "issues" / "ISSUE-001.md").write_text(
+        "---\ntitle: i\nfunc-id: F-0042\n---\n\nx\n", encoding="utf-8")
+    (root / "data").mkdir()
+    (root / "data" / "functions.json").write_text(json.dumps({
+        "project": {"name": "p"},
+        "functions": [
+            {"func_id": "F-0000", "legacy": {"file": "a.f", "name": "MAIN"},
+             "new": {"module": "src/a.py"}},
+            {"func_id": "F-0042", "legacy": {"file": "b.f", "name": "OLD"},
+             "new": {"module": "src/b.py"}, "excluded": True}]},
+        ensure_ascii=False), encoding="utf-8")
+
+    assert render_site.excluded_fids(root) == {"F-0042"}
+    work = docs / "_sitework"
+    render_site.build_shadow(docs, work, render_site.excluded_fids(root))
+    got = {p.relative_to(work).as_posix() for p in work.rglob("*.qmd")}
+    assert "specs/F-0000.qmd" in got and "test-specs/F-0000.qmd" in got
+    for gone in ("specs/F-0042.qmd", "test-specs/F-0042.qmd",
+                 "test-results/F-0042_20260101-1000.qmd"):
+        assert gone not in got, f"対象外なのに載っている: {gone}"
+    assert "issues/ISSUE-001.qmd" in got, "ISSUE（人の裁定の記録）まで落としている"
+
+    # --include-excluded 相当（空集合）なら従来どおり全部載る
+    render_site.build_shadow(docs, work, set())
+    got = {p.relative_to(work).as_posix() for p in work.rglob("*.qmd")}
+    assert "specs/F-0042.qmd" in got and "test-results/F-0042_20260101-1000.qmd" in got
+    print("OK  対象外の関数の成果物はサイトに載せない（ISSUE は残す）")
+
+
 def test_serve_site_read_only():
     assert not hasattr(serve_site.Handler, "do_POST"), "do_POST が残っている"
     assert not hasattr(serve_site.Handler, "WRITE_ROUTES"), "WRITE_ROUTES が残っている"
@@ -326,6 +375,7 @@ def main():
         test_review_notice,
         test_approve_and_request_changes,
         test_demote_ng,
+        test_excluded_pages_are_not_rendered,
         test_serve_site_read_only,
         test_navbar_entry,
         test_agent_log_route,

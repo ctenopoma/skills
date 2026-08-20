@@ -568,6 +568,15 @@ python <LR>/scripts/render_site.py --root .
     serve_site.py は cwd を動かさないのでこの問題は起きない）
 - 成果物フロントマターに独自キーを足すときは Quarto 予約キーと衝突させない（coverage → tc-coverage の前例）
 
+### 対象外の関数はサイトに載せない
+
+`ledger exclude` した関数の成果物（`specs/` `test-specs/` `test-results/`）は
+`render_site.py` がサイトから落とす。仕様書は物理削除しない設計なので、載せると
+「対象外にしたのに画面に残る」うえ、大規模ほどレンダ時間の無駄になる。
+`docs/issues/` は人の裁定の記録なので、対象外になっても残す（WBS の ISSUE 表から辿る）。
+前回のサイトに残っている分は次の render で自動的に消える（全体レンダでも掃除する）。
+従来どおり全部載せたいときは `--include-excluded`。
+
 ### WBS の大規模対応（200関数超で自動分割）
 
 `ledger.py wbs` は 200 関数を超えると自動でページを分割する:
