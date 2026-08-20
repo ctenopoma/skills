@@ -65,6 +65,7 @@ legacy-reverse/
 1. このリポジトリの `legacy-reverse/` を対象プロジェクトの `.claude/skills/legacy-reverse` に配置
 2. `legacy-reverse/skills/legacy-*` を `.claude/skills/` 直下にもコピー（skill発見のため）
 3. `hooks/settings-example.json` を対象プロジェクトの `.claude/settings.json` にマージ
+   （`hooks` = tests/ 保護と JSON 破損検出、`permissions.allow` = 無人バッチの headless が使うツール）
 4. `.mcp.json` に `mcp-servers/legacy-reverse-mcp/server.py` を絶対パスで登録（推奨。元リポジトリを参照するので残しておく）
 5. Quarto を入れる（HTML サイト生成に必要。`quarto --version` が通ればよい）
 6. `ledger init-templates` で人が書くファイル一式（規約・業務知識・例外ポリシー・仕様書テンプレ・

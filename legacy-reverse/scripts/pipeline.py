@@ -52,8 +52,10 @@
 
 前提:
   - 対象プロジェクトに legacy-reverse の skill 一式が配置済み（.claude/skills/）
-  - headless では許可プロンプトに答えられないため、必要ツールを
-    .claude/settings.json で allow 済みにするか --skip-permissions を明示する
+  - headless では許可プロンプトに答えられず、未許可のツール呼び出しは黙って拒否
+    される（＝応答はあるのにファイルが更新されない）。対象プロジェクトの
+    .claude/settings.json に <LR>/hooks/settings-example.json の permissions.allow
+    をマージするか、--skip-permissions を明示する
 
 実行ログ:
   .legacy-reverse/pipeline-log.jsonl   1行1試行（結果・所要・コスト。失敗時は応答末尾も）

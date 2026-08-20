@@ -38,8 +38,9 @@ user-invocable: true
 ## セットアップ（新規プロジェクト）
 
 1. schema.md のプロジェクト構成でディレクトリを作る
-2. hook を登録: `<LR>/hooks/settings-example.json` の内容を対象プロジェクトの
-   `.claude/settings.json` にマージ（④⑤中の tests/ 編集をブロックする安全装置）
+2. hook と権限を登録: `<LR>/hooks/settings-example.json` の内容を対象プロジェクトの
+   `.claude/settings.json` にマージ（`hooks` = ④⑤中の tests/ 編集をブロックする
+   安全装置。`permissions.allow` = 無人バッチの headless が使うツール一式）
 3. `ledger init-templates` で**人が書くファイル一式**の雛形を配置し
    （conventions.md・domain-knowledge.md・exception-policy.md・docs/templates/・
    docs/prompts/。記入状況は `ledger authored`）、

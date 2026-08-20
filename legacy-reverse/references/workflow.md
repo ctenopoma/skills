@@ -267,7 +267,9 @@ python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（�
 - 中断（Ctrl-C・電源断）はどこでも安全。同じコマンドで続きから再開
 - 実行ログ: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト・所要）
 - 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
-  `.claude/settings.json` で allow（または `--skip-permissions` を明示）
+  `.claude/settings.json` で allow（`<LR>/hooks/settings-example.json` の
+  `permissions.allow` をマージする。または `--skip-permissions` を明示）。
+  未許可のツール呼び出しは headless では黙って拒否される
 - **`--flow <名前|FL-01>`**（spec / run / dict 共通）で対象をそのフロー到達集合に限定できる
   （`ledger flow add` で定義したもの。「このフローだけ今日やる」）
 - **モデル階層**: kind ごとに既定モデルを持てる（`pipeline.KINDS` の `model` キー）。
