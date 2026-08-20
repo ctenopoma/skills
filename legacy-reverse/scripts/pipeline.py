@@ -53,9 +53,13 @@
 前提:
   - 対象プロジェクトに legacy-reverse の skill 一式が配置済み（.claude/skills/）
   - headless では許可プロンプトに答えられず、未許可のツール呼び出しは黙って拒否
-    される（＝応答はあるのにファイルが更新されない）。対象プロジェクトの
-    .claude/settings.json に <LR>/hooks/settings-example.json の permissions.allow
-    をマージするか、--skip-permissions を明示する
+    される（＝応答はあるのにファイルが更新されない）。そのため無人バッチは
+    **既定で --dangerously-skip-permissions を付けて claude を起動する**。
+    許可で止めたい環境は --no-skip-permissions を付け、対象プロジェクトの
+    .claude/settings.json に <LR>/hooks/settings-example.json の
+    permissions.allow をマージしておくこと
+  - どちらで回す場合も hooks（guard_tests.py / guard_json.py）は必ず登録する。
+    ④⑤中の tests/ 保護と JSON 破損検出はこちらが担っている
 
 実行ログ:
   .legacy-reverse/pipeline-log.jsonl   1行1試行（結果・所要・コスト。失敗時は応答末尾も）
@@ -889,6 +893,24 @@ def log_line(root: Path, entry: dict) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def permission_args(args) -> list:
+    """許可まわりの起動引数。**既定で --dangerously-skip-permissions を付ける**。
+
+    headless（claude -p）は許可プロンプトに答えられず、未許可のツール呼び出しは
+    黙って拒否される。無人バッチはその場に人がいないので、既定が「聞く」だと
+    「応答はあるのにファイルが更新されない」失敗を工程ごとに繰り返すことになる
+    （しかも why はファイル状態の検証結果なので、原因が許可だと分からない）。
+    安全装置は許可プロンプトではなく hooks 側（guard_tests.py / guard_json.py）が
+    担う設計なので、既定を「聞かない」に倒す。--no-skip-permissions で外せる。
+    """
+    if args.skip_permissions:
+        return ["--dangerously-skip-permissions"]
+    print("permissions: --no-skip-permissions 指定。.claude/settings.json の "
+          "permissions.allow に不足があると、応答はあってもファイルが更新されない"
+          "（<LR>/hooks/settings-example.json を参照）")
+    return []
+
+
 def run_one(fid: str, claude_cmd: list, extra: list, root: Path,
            prompt_template: str, max_turns: int, timeout: int, retries: int,
            backoff_base: int, backoff_max: int, rate_wait_total: int,
@@ -992,8 +1014,7 @@ def cmd_spec(args) -> None:
     extra = []
     if args.model:
         extra += ["--model", args.model]
-    if args.skip_permissions:
-        extra += ["--dangerously-skip-permissions"]
+    extra += permission_args(args)
     extra += args.claude_args
 
     done = failed = 0
@@ -1158,8 +1179,7 @@ def cmd_run(args) -> None:
     extra = []
     if args.model:
         extra += ["--model", args.model]
-    if args.skip_permissions:
-        extra += ["--dangerously-skip-permissions"]
+    extra += permission_args(args)
     extra += args.claude_args
 
     # 1工程だけに限定しているときは、進捗ページにその工程名を出す
@@ -1411,9 +1431,7 @@ def cmd_dict(args) -> None:
 
     claude_cmd = find_claude(args.claude_cmd)
     preflight_claude(claude_cmd)
-    extra = []
-    if args.skip_permissions:
-        extra += ["--dangerously-skip-permissions"]
+    extra = permission_args(args)
     extra += args.claude_args
 
     store = json.loads((root / "data" / "variables.json").read_text(encoding="utf-8-sig"))
@@ -1488,11 +1506,10 @@ def cmd_dict(args) -> None:
               ".legacy-reverse/pipeline-log.jsonl に検証結果")
 
 
-def main() -> None:
-    # claude の応答やサブプロセスの stderr（絵文字・置換文字を含み得る）を print するため、
-    # cp932 コンソールでも UnicodeEncodeError で落ちないようにしておく
-    import serve_site
-    serve_site.use_utf8_console()
+def build_parser() -> argparse.ArgumentParser:
+    """CLI の引数定義。main() から分離してあるのは、既定値の契約
+    （--skip-permissions が既定 ON であること等）をセルフテストから検証するため。
+    """
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1521,8 +1538,13 @@ def main() -> None:
         s.add_argument("--pause", type=float, default=0,
                        help="関数間の予防的な待機秒（レートリミットに当たりやすい環境用）")
         s.add_argument("--model", default=None, help="claude に渡すモデル指定")
-        s.add_argument("--skip-permissions", action="store_true",
-                       help="--dangerously-skip-permissions を claude に渡す（信頼できる環境のみ）")
+        s.add_argument("--skip-permissions", dest="skip_permissions", action="store_true",
+                       default=True,
+                       help="--dangerously-skip-permissions を claude に渡す（既定。"
+                            "無人バッチは許可プロンプトに答えられる人がいないため）")
+        s.add_argument("--no-skip-permissions", dest="skip_permissions", action="store_false",
+                       help="許可をスキップしない。.claude/settings.json の permissions.allow "
+                            "だけで足りる環境向け（不足していると黙って拒否される）")
         s.add_argument("--claude-cmd", default=None, help="claude 実行ファイルのパス（既定: PATH から検索）")
         s.add_argument("--claude-args", nargs="*", default=[], help="claude へ追加で渡す引数")
         s.add_argument("--dry-run", action="store_true", help="実行せず対象とコマンドを表示")
@@ -1568,7 +1590,15 @@ def main() -> None:
     p.add_argument("--clear", action="store_true", help="⭐優先をすべて解除する")
     p.add_argument("--root", default=".")
 
-    args = ap.parse_args()
+    return ap
+
+
+def main() -> None:
+    # claude の応答やサブプロセスの stderr（絵文字・置換文字を含み得る）を print するため、
+    # cp932 コンソールでも UnicodeEncodeError で落ちないようにしておく
+    import serve_site
+    serve_site.use_utf8_console()
+    args = build_parser().parse_args()
     if args.cmd == "priority":
         # 設定ファイルを書くだけで実行スロットは使わない。バッチ実行中に
         # 割り込み順を変える用途がむしろ本命なので、ロックは取らない

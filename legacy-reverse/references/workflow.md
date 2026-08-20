@@ -266,10 +266,14 @@ python <LR>/scripts/pipeline.py priority F-0012                  # ⭐優先（�
   （Quarto を通さないポーリング表示。WBS の再生成は不要）
 - 中断（Ctrl-C・電源断）はどこでも安全。同じコマンドで続きから再開
 - 実行ログ: `.legacy-reverse/pipeline-log.jsonl`（関数別の結果・コスト・所要）
-- 前提: 対象プロジェクトに skill 配置済み、headless 用に必要ツールを
-  `.claude/settings.json` で allow（`<LR>/hooks/settings-example.json` の
-  `permissions.allow` をマージする。または `--skip-permissions` を明示）。
-  未許可のツール呼び出しは headless では黙って拒否される
+- 前提: 対象プロジェクトに skill 配置済み。**許可は既定でスキップする**
+  （`claude -p` に `--dangerously-skip-permissions` を付けて起動する）。
+  headless には許可プロンプトに答えられる人がいないため、既定が「聞く」だと
+  未許可のツール呼び出しが黙って拒否され、「応答はあるのにファイルが更新されない」
+  失敗を工程ごとに繰り返すことになる。安全装置は許可プロンプトではなく
+  hooks（`guard_tests.py` の tests/ 保護、`guard_json.py` の JSON 破損検出）が担う
+- 許可で止めたい環境は `--no-skip-permissions` を付け、`.claude/settings.json` に
+  `<LR>/hooks/settings-example.json` の `permissions.allow` をマージしておく
 - **`--flow <名前|FL-01>`**（spec / run / dict 共通）で対象をそのフロー到達集合に限定できる
   （`ledger flow add` で定義したもの。「このフローだけ今日やる」）
 - **モデル階層**: kind ごとに既定モデルを持てる（`pipeline.KINDS` の `model` キー）。

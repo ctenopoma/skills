@@ -1,6 +1,6 @@
 {
   "//": "対象プロジェクトの .claude/settings.json にマージする設定例（permissions と hooks）",
-  "//permissions": "無人バッチ（scripts/pipeline.py）は headless の claude -p を回す。headless は許可プロンプトに答えられず、未許可のツール呼び出しは黙って拒否される（＝応答はあるのにファイルが更新されない）。skill の手順が実際に叩くものを allow しておくこと。代わりに pipeline.py --skip-permissions を使うなら permissions は不要",
+  "//permissions": "対話（チャット）で skill を使うときの許可。無人バッチ（scripts/pipeline.py）は既定で --dangerously-skip-permissions を付けて claude を起動するので、バッチのためだけなら不要。pipeline.py --no-skip-permissions で許可を効かせる場合は必須で、不足していると headless は黙って拒否する（＝応答はあるのにファイルが更新されない）",
   "permissions": {
     "allow": [
       "Bash(python:*)",
@@ -12,7 +12,7 @@
       "Grep"
     ]
   },
-  "//hooks": "④⑤中の tests/ 編集をブロックし、data/*.json の破損を検出する安全装置。--skip-permissions で回す場合もこちらは必ず入れる",
+  "//hooks": "④⑤中の tests/ 編集をブロックし、data/*.json の破損を検出する安全装置。無人バッチは許可をスキップして回すため、実質これが唯一の安全装置になる。permissions を入れるかどうかに関わらず必ず登録すること",
   "hooks": {
     "PreToolUse": [
       {
