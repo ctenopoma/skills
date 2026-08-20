@@ -640,38 +640,6 @@ def cmd_wbs(p: Project, args) -> None:
     print(f"wrote {out}")
 
 
-def _sync_dict_hash(p: Project, path: Path, fid: str) -> int:
-    """既存の骨子（status: skeleton のまま＝①未着手）の dict-hash を現在値に合わせる。
-
-    辞書の承認は⓪の骨子生成より後に進む（承認 → propagate → skeletons の順で
-    review_actions が呼ぶ）。骨子を上書きしない既定のままだと、①が読む骨子の
-    dict-hash が「承認ゼロ時点の値」で固定され、①直後にいきなり stale になってしまう。
-    **①未着手の骨子だけ**を対象に、その場で dict-hash 行を差し替える
-    （draft / reviewed＝AI・人が書いた成果物には一切触れない）。戻り値は更新件数。
-    """
-    text = path.read_text(encoding="utf-8-sig")
-    if parse_frontmatter(text).get("status") != "skeleton":
-        return 0
-    line = f'dict-hash: "{p.dict_hash(fid)}"'
-    lines = text.splitlines()
-    fences = [i for i, l in enumerate(lines) if l.strip() == "---"][:2]
-    if len(fences) < 2:
-        return 0
-    start, end = fences
-    for i in range(start + 1, end):
-        if lines[i].startswith("dict-hash:"):
-            if lines[i] == line:
-                return 0
-            lines[i] = line
-            break
-    else:
-        anchor = next((i for i in range(start + 1, end) if lines[i].startswith("status:")), start)
-        lines.insert(anchor + 1, line)
-    path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") else ""),
-                    encoding="utf-8")
-    return 1
-
-
 # ---------- 仕様書テンプレート（固変分離） ----------
 #
 # **項目立て（節構成）と書き方ガイドはプロジェクトが所有する**（人が著者）:
@@ -911,7 +879,8 @@ def cmd_skeletons(p: Project, args) -> None:
         sys.exit(f"error: 仕様書テンプレ（{tpath}）が固定契約を満たしていない:\n  - "
                  + "\n  - ".join(bad)
                  + "\n  マーカーと契約見出しの説明は references/workflow.md「固定契約」を参照")
-    made = synced = 0
+    made = 0
+    regenerated: list = []
     hz_map = load_hazard_map(p.root)          # 適用EP は機械の突合結果をそのまま載せる
 
     # フロー所属（func_id -> [フロー名, ...]）。骨子の新規生成時のみフロントマターに載せる
@@ -930,9 +899,13 @@ def cmd_skeletons(p: Project, args) -> None:
         fid = f["func_id"]
         out = tdir / f"{fid}.md"
         if out.exists() and not args.force:
-            if p.has_dict():
-                synced += _sync_dict_hash(p, out, fid)
-            continue
+            # status: skeleton＝①未着手（人もAIも中身を書いていない）。機械生成ブロックは
+            # 辞書の承認・改訂や⓪の再抽出で変わるので、その場で作り直す。
+            # draft / reviewed（＝書かれた成果物）には一切触れない
+            if parse_frontmatter(out.read_text(encoding="utf-8-sig")).get("status") \
+                    != "skeleton":
+                continue
+            regenerated.append(fid)
         legacy_p = p.root / f["legacy"]["file"]
         lhash = sha8(legacy_p) if legacy_p.is_file() else ""   # 手動追加は file 未設定があり得る
         num = fid.replace("-", "")
@@ -1005,10 +978,16 @@ def cmd_skeletons(p: Project, args) -> None:
         text = text.replace("<!-- LR:IO-TABLES -->", "\n".join(io_lines))
         text = text.replace("<!-- LR:CALLS-TABLE -->", "\n".join(calls_lines))
         text = text.replace("<!-- LR:HAZARD-TABLE -->", "\n".join(haz_lines))
-        out.write_text("\n".join(body) + "\n" + text.rstrip("\n") + "\n", encoding="utf-8")
-        made += 1
-    print(f"skeletons: {made} 件生成（既存はスキップ、--force で上書き）"
-          + (f" / dict-hash 更新 {synced} 件（①未着手の骨子のみ）" if synced else ""))
+        new_text = "\n".join(body) + "\n" + text.rstrip("\n") + "\n"
+        if fid in regenerated and out.read_text(encoding="utf-8-sig") == new_text:
+            regenerated.remove(fid)                  # 中身が同じなら書かない（mtime を汚さない）
+            continue
+        out.write_text(new_text, encoding="utf-8")
+        if fid not in regenerated:
+            made += 1
+    print(f"skeletons: {made} 件生成（①着手済み＝draft/reviewed はスキップ、--force で上書き）"
+          + (f" / 未着手の骨子を作り直し {len(regenerated)} 件"
+             "（辞書の改訂・⓪の再抽出を反映）" if regenerated else ""))
 
 
 # ---------- 契約見出しの後追い（既存の仕様書の移行） ----------

@@ -336,6 +336,59 @@ def test_approve_and_propagate_idempotent():
     print("OK  approve / revise / propagate（転記書式と冪等性）")
 
 
+def test_revise_reaches_untouched_skeleton():
+    """人が辞書を直したら、①未着手の骨子まで反映されること。
+
+    語義の正は辞書。revise → propagate → skeletons の順で、
+      - IO 行（inputs/outputs/globals）の desc が差し替わる
+      - **COMMON ブロックの注記も差し替わる**（var_id の存在だけを見て冪等扱いすると
+        古い意味が残る。実際そうなっていた）
+      - status: skeleton の骨子は機械生成ブロックごと作り直され、①が読む IO 表が現在値になる
+      - draft / reviewed（書かれた成果物）は触らない
+    """
+    import subprocess
+
+    root, vid_rate, vid_amt = _approved_project()
+
+    def led(*a):
+        r = subprocess.run([sys.executable, str(SCRIPTS_DIR / "ledger.py"),
+                            "--root", str(root), *a],
+                           capture_output=True, text=True, encoding="utf-8")
+        assert r.returncode == 0, r.stderr
+        return r.stdout
+
+    assert run(root, "propagate")[0] == 0
+    led("skeletons")
+    reviewed_before = (root / "docs" / "specs" / "F-0001.md").read_text(encoding="utf-8")
+
+    def funcs():
+        return {f["func_id"]: f for f in json.loads(
+            (root / "data" / "functions.json").read_text(encoding="utf-8"))["functions"]}
+
+    g0 = funcs()["F-0000"]["globals"][0]["desc"]
+    assert f"RATE=年間税率(無次元(比率)) [{vid_rate}]" in g0, g0
+
+    # 人が語義を直す
+    rc, out, err = run(root, "revise", vid_rate, "--desc", "年利率（改訂）",
+                       "--unit", "％", "--by", "山田")
+    assert rc == 0, err
+    rc, out, err = run(root, "propagate")
+    assert rc == 0, err
+
+    g0 = funcs()["F-0000"]["globals"][0]["desc"]
+    assert f"RATE=年利率（改訂）(％) [{vid_rate}]" in g0, g0
+    assert "年間税率" not in g0, f"COMMON 注記に古い意味が残っている: {g0}"
+
+    out = led("skeletons")
+    assert "作り直し" in out, out
+    sk = (root / "docs" / "specs" / "F-0000.md").read_text(encoding="utf-8")
+    assert "年利率（改訂）" in sk, "①未着手の骨子に新しい語義が届いていない"
+    assert "年間税率" not in sk, "骨子に古い語義が残っている"
+    # 書かれた成果物（reviewed）は1バイトも触らない
+    assert (root / "docs" / "specs" / "F-0001.md").read_text(encoding="utf-8") == reviewed_before
+    print("OK  辞書の修正が①未着手の骨子まで届く（書かれた成果物は不変）")
+
+
 def test_spec_must_keep_dict_refs():
     """①が辞書からの転記（`… [V-xxxx]`）を書き換えたら機械レビューが NG にすること。
 
@@ -500,6 +553,7 @@ def main():
         test_verify_interp_ng,
         test_approve_and_propagate_idempotent,
         test_spec_must_keep_dict_refs,
+        test_revise_reaches_untouched_skeleton,
         test_rebuild_occurrence_added,
         test_rebuild_cluster_changed,
         test_list_targets,

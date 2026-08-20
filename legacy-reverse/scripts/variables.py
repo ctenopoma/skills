@@ -1158,10 +1158,19 @@ def cmd_propagate(root: Path, args) -> None:
                     continue
                 if not word_in(row.get("desc") or "", o["name"]):
                     continue
-                if ref in (row.get("desc") or ""):
+                cur = row.get("desc") or ""
+                if ref in cur:
+                    # 既に注記がある → **中身を差し替える**（人が revise で語義を直したとき、
+                    # var_id の存在だけを見て冪等扱いにすると古い意味が残り続ける）
+                    new_desc = re.sub(
+                        rf"{re.escape(o['name'])}=[^;]*{re.escape(ref)}",
+                        f"{o['name']}={text}", cur)
                     placed = True
-                    continue                          # 冪等（同じ参照が既にある）
-                row["desc"] = (row.get("desc") or "").rstrip() + f" ; {o['name']}={text}"
+                    if new_desc != cur:
+                        row["desc"] = new_desc
+                        n_glob += 1
+                    continue
+                row["desc"] = cur.rstrip() + f" ; {o['name']}={text}"
                 n_glob += 1
                 placed = True
             if not placed:

@@ -11,7 +11,8 @@ scripts/selftest/fixture_vars/ を毎回テンポラリにコピーし、variabl
   (b) 免除: spec が draft / reviewed の関数はゲート対象外
   (c) 後方互換: variables.json が無いプロジェクトの next / wbs 出力が
       **改修前（git HEAD）の ledger.py の出力とバイト一致**すること
-  (d) dict-hash: 骨子への記録と、承認後に desc を変えたときの dict_stale 検出
+  (d) dict-hash: 骨子への記録（①未着手の骨子は作り直しで現在値になる）と、
+      承認後に desc を変えたときの dict_stale 検出
       （verify のメッセージと exit / WBS の ⚠ 表示）
   (e) 旧骨子（dict-hash 行が無い spec）は stale 扱いにしない
   (f) pipeline._decide_kind のゲート（ledger 側の共通実装を参照していること）
@@ -265,7 +266,9 @@ def test_dict_hash_recorded_and_synced():
         approve(root, vid, f"{vid} の意味")
     rc, out, err = run_ledger(root, "skeletons")
     assert rc == 0, err
-    assert "dict-hash 更新" in out, out
+    # ①未着手（status: skeleton）の骨子は機械生成ブロックごと作り直される
+    # ＝dict-hash も IO 表の転記も現在値になる
+    assert "作り直し" in out, out
     h = spec_frontmatter(root, "F-0003")["dict-hash"]
     assert isinstance(h, str) and len(h) == 8, h
     # ①未着手（skeleton）の骨子だけが同期対象。reviewed の F-0001 は不変

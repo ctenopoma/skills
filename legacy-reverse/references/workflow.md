@@ -428,6 +428,21 @@ python <LR>/scripts/review_actions.py adjudicate F-0012 --issue ISSUE-004 --by �
   一斉レビュー表の「機械レビュー」列は仕様書ページの案内パネル（#review-<fid>）へ直接
   ジャンプするリンクになっており、❌の場合はその場で理由の全文が読める（件数だけで終わらない）
 
+### 辞書を直したときの反映範囲
+
+語義の正は辞書。人が `variables.py revise` で直したら **`propagate` → `ledger skeletons`**
+の順で回す。反映のされ方は仕様書の状態で変わる:
+
+| 仕様書の状態 | 反映 |
+|---|---|
+| 骨子も無い | 次の `skeletons` が新しい語義で骨子を作る。完全に反映 |
+| 骨子はある（`status: skeleton`＝①未着手） | `skeletons` が**機械生成ブロックごと作り直す**（IO 表・COMMON 注記・dict-hash が現在値になる） |
+| ①を書いた後（draft / reviewed） | **ファイルは触らない**。dict-hash が食い違い → WBS に「⚠ 辞書stale」・`ledger verify` が NG。①を再実行して直す |
+
+- `propagate` は IO 行だけでなく **COMMON ブロックの注記も差し替える**（var_id の有無だけを
+  見て冪等扱いにすると、改訂した意味が反映されずに古い意味が残る）
+- 書かれた成果物（draft / reviewed）を機械が書き換えることは無い。改訂の反映は①の再実行で行う
+
 ### 変数辞書の承認（チャット / CLI）
 
 `variables.py page` が生成する `docs/variables.qmd`（辞書ページ）は、
