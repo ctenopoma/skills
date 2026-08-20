@@ -39,6 +39,12 @@ func-id 省略時は `ledger next` の提案に従う。
    矛盾を見つけたら従わずに人へ報告する
 1. `docs/specs/<func-id>.md`（骨子, status: skeleton）と functions.json、
    `docs/domain-knowledge.md`、レガシー原文の該当範囲を読む。
+   **本文を書き始める前に、まず変数の語義を確認する**——骨子の IO 表・グローバル状態の
+   desc にある `… [V-xxxx]` は変数辞書（`data/variables.json`）から機械転記された
+   **確定済みの意味**で、レガシーの識別子を自力で読み解く前に参照すべき一次情報。
+   足りなければ `python <LR>/scripts/variables.py page --root .` で作った
+   `docs/variables.qmd`（辞書ページ）で該当 var_id を引く。
+   **辞書が正なので、この文言は書き換えない**（機械レビューが検査する。下記2）
    **項目立てと書き方の正はプロジェクトの `docs/templates/spec.md`（人が著者）**——
    骨子の節構成と記入ガイドコメントはそこから来ている。ガイドに従って充填し、
    充填し終えたガイドコメントは消す（残すと機械レビューが「省略」として NG にする）
@@ -60,7 +66,9 @@ func-id 省略時は `ledger next` の提案に従う。
    - IO表の Confidence を実際に確認して更新（⓪の機械抽出が間違っていたら
      functions.json も直して `ledger skeletons --force` ではなく該当箇所のみ手修正）。
      **desc にある `[V-xxxx]` は変数辞書からの機械転記なので書き換えない**
-     （辞書が正。意味が違うと思ったら人に報告し、辞書側を `variables.py revise` で直す）
+     （辞書が正。意味が違うと思ったら人に報告し、辞書側を `variables.py revise` で直す）。
+     落とす・言い換えるとどちらも機械レビューが NG にする
+     （「`V-xxxx` の語義が仕様書にない＝辞書からの転記を書き換えた/落とした」）
    - cc-rsg が導入済みならその調査フェーズを流用してよい。出力は必ずこのテンプレ形式に合わせる
 3. 🟡🔴 のうち、テストの期待値に影響しそうなものは ISSUE 起票
    （`ledger next-issue` で採番、**仮説＋Yes/Noの問い**の形式）

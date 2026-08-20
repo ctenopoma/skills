@@ -73,7 +73,7 @@ python <LR>/scripts/hazards.py add-policy --kind div_by_var \
        --decision guard_raise --by <承認者> --root .         #    → 決定を EP-xxx として登録
 python <LR>/scripts/variables.py build --root .              # 5. 変数辞書の構築
 #   → 解釈はチャットの /legacy-0-dict で（list-targets → verify-interp を小分けに）
-#   → 辞書ページで人が承認 → propagate は承認時に自動
+#   → 辞書ページで人が承認 → variables.py propagate で仕様書側へ転記
 ledger skeletons && ledger wbs                               # 6. 骨子・WBS
 ledger next                                                  #    → dict-gate が効いた状態で①へ
 ```

@@ -12,6 +12,7 @@ spec <func-id>      ①のレビュー:
   - 骨子プレースホルダの残存（= 記入の省略）・必須節の欠落・空の「副作用・例外」
   - フロントマター legacy.hash と原本の不一致（仕様書が古いソースに基づく）
   - ```{mermaid} の混入（render を落とす）
+  - 変数辞書: propagate が転記した語義（`… [V-xxxx]`）が書き換えられていないか
   - 例外・数値特異点: functions.json の hazards 全件が節に載っているか（検討漏れ）／
     引用 EP-ID が docs/exception-policy.md に実在するか（捏造）／
     ポリシー未決定の hazard を仕様化していないか（hazards が無い関数は素通り）
@@ -131,6 +132,7 @@ def _sections(text: str) -> list:
 HAZ_SECTION = re.compile(r"(?m)^(#{1,4})\s*例外[・･]数値特異点\s*$")
 RE_HZ_ID = re.compile(r"\bH-\d+-\d+\b")
 RE_EP_ID = re.compile(r"\bEP-\d+\b")
+RE_VAR_REF = re.compile(r"\[(V-\d+)\]")      # 変数辞書からの転記マーカー "<意味> [V-0001]"
 
 _FUNCS_CACHE: dict = {}          # {path: ((mtime_ns, size), {func_id: エントリ})}
 
@@ -356,6 +358,34 @@ def _check_citations(root: Path, body: str) -> tuple:
     return ok, problems
 
 
+def _check_dict_refs(rootp: Path, func_id: str, text: str) -> list:
+    """辞書からの転記（`… [V-xxxx]`）が仕様書に残っているかを見る。
+
+    語義の正は変数辞書で、`variables.py propagate` が承認済みの desc を
+    functions.json の IO / globals に機械転記する（書式は "<意味>(<単位>) [V-0001]"）。
+    骨子はそれをそのまま IO 表に載せるので、①が自分の推測で desc を書き換えると
+    **辞書と仕様書が食い違ったまま**②以降へ流れる。同じ間違いを何度も指摘せずに
+    済ませるため、機械で見て NG にする（＝pipeline のリトライループに乗る）。
+
+    対象は「機械が実際に転記した変数」だけ——propagate が置けなかった変数
+    （IO にも globals にも現れないローカル変数など）は要求しない。
+    """
+    f = _functions_index(rootp).get(func_id) or {}
+    expected: dict = {}
+    for field in ("inputs", "outputs", "globals"):
+        for row in f.get(field) or []:
+            desc = row.get("desc") or ""
+            for vid in RE_VAR_REF.findall(desc):
+                expected[vid] = (row.get("name") or "", desc.strip())
+    if not expected:
+        return []
+    have = set(RE_VAR_REF.findall(text))
+    return [f"{vid}（{name}）の語義が仕様書にない＝辞書からの転記を書き換えた/落とした。"
+            f"辞書が正なので、この文言のまま載せる: 「{desc}」"
+            "（意味が違うと思うなら書き換えず `variables.py revise` で辞書側を直す）"
+            for vid, (name, desc) in sorted(expected.items()) if vid not in have]
+
+
 def check_spec(root: str, func_id: str) -> dict:
     rootp = Path(root).resolve()
     path = rootp / "docs" / "specs" / f"{func_id}.md"
@@ -390,6 +420,7 @@ def check_spec(root: str, func_id: str) -> dict:
         res["problems"].append("「副作用・例外」が空欄（なければ「なし」と明記する規則）")
     if res["status"] != "skeleton":
         res["problems"] += _check_hazards(rootp, func_id, text, res)
+        res["problems"] += _check_dict_refs(rootp, func_id, text)
 
     spec_items = [(sid, head, body) for sid, head, body in _sections(text)
                   if sid and sid.startswith("SPEC-")]

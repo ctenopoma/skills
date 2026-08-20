@@ -336,6 +336,56 @@ def test_approve_and_propagate_idempotent():
     print("OK  approve / revise / propagate（転記書式と冪等性）")
 
 
+def test_spec_must_keep_dict_refs():
+    """①が辞書からの転記（`… [V-xxxx]`）を書き換えたら機械レビューが NG にすること。
+
+    語義の正は辞書側。指摘を人が毎回繰り返さずに済むよう、pipeline のリトライ
+    ループに乗る形（＝review_checks の problems）で機械が見る。
+    """
+    import review_checks
+
+    root, vid_rate, vid_amt = _approved_project()
+    assert run(root, "propagate")[0] == 0
+    spec_dir = root / "docs" / "specs"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    sp = spec_dir / "F-0001.md"
+
+    fmap = {f["func_id"]: f for f in json.loads(
+        (root / "data" / "functions.json").read_text(encoding="utf-8"))["functions"]}
+    glob_desc = fmap["F-0001"]["globals"][0]["desc"]     # COMMON 擬似エントリ（注記つき）
+
+    def write(desc_cell: str) -> None:
+        sp.write_text(
+            "---\ntitle: t\nfunc-id: \"F-0001\"\nstatus: draft\n---\n\n"
+            "# 概要\n\nx\n\n## 入力\n\n"
+            "| # | 名前 | 説明 |\n|---|------|------|\n"
+            f"| 1 | A | {desc_cell} |\n\n## グローバル状態\n\n"
+            "| 名前 | 説明 |\n|------|------|\n"
+            f"| {fmap['F-0001']['globals'][0]['name']} | {glob_desc} |\n", encoding="utf-8")
+
+    # 転記をそのまま載せている → この検査は何も言わない
+    write(f"課税対象額(円) [{vid_amt}]")
+    assert review_checks._check_dict_refs(root, "F-0001", sp.read_text(encoding="utf-8")) == []
+
+    # ①が自分の言葉で書き換えた → NG（期待する文言をそのまま示す）
+    write("入力の金額")
+    problems = review_checks._check_dict_refs(root, "F-0001", sp.read_text(encoding="utf-8"))
+    assert problems, "辞書の転記を書き換えても素通りしている"
+    assert vid_amt in problems[0] and "課税対象額(円)" in problems[0], problems
+    assert "revise" in problems[0], "辞書側を直す導線が案内されていない"
+
+    # check_spec 経由でも同じ指摘が出る（pipeline の検証はこちらを通る）
+    assert any(vid_amt in x for x in review_checks.check_spec(str(root), "F-0001")["problems"])
+
+    # propagate が置けていない変数は要求しない（誤検知を作らない）
+    funcs = root / "data" / "functions.json"
+    funcs.write_text(funcs.read_text(encoding="utf-8").replace(f" [{vid_amt}]", "")
+                     .replace(f" [{vid_rate}]", ""), encoding="utf-8")
+    review_checks._FUNCS_CACHE.clear()
+    assert review_checks._check_dict_refs(root, "F-0001", sp.read_text(encoding="utf-8")) == []
+    print("OK  ①は辞書の転記を書き換えられない（機械レビューで NG）")
+
+
 # ---------- 再 build（P4: 後発合流） ----------
 
 def test_rebuild_occurrence_added():
@@ -449,6 +499,7 @@ def main():
         test_verify_interp_rubric,
         test_verify_interp_ng,
         test_approve_and_propagate_idempotent,
+        test_spec_must_keep_dict_refs,
         test_rebuild_occurrence_added,
         test_rebuild_cluster_changed,
         test_list_targets,
