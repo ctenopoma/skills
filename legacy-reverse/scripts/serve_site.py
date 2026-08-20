@@ -40,7 +40,7 @@ import time
 import webbrowser
 import zlib
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # 隣の *.py を import できるように
 
@@ -252,6 +252,12 @@ details summary{cursor:pointer;font-size:.8rem;color:#9ca3af}
 
 <script>
 const esc = s => (s??"").toString().replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// 識別子は関数ID（F-0001）とは限らない。辞書バッチは "dict:V-0001〜V-0040" のように
+// URLに直接置けない文字を含み、仕様書ページも持たない（正は辞書ページ）。
+// リンクの組み立てはこの2つに集約する（生の識別子をURLに埋めると 404 になる）
+const logHref  = fid => "/agent-logs/" + encodeURIComponent(fid) + ".txt";
+const pageHref = fid => String(fid).startsWith("dict:")
+  ? "/variables.html" : "/specs/" + encodeURIComponent(fid) + ".html";
 const fmtEta = s => s==null ? "--" : (s>=3600 ? Math.floor(s/3600)+"時間"+Math.round(s%3600/60)+"分" : Math.round(s/60)+"分");
 const STATES = {running:["実行中","running"], waiting_rate:["レート待機中","waiting"],
                 stopped:["停止","stopped"], finished:["完了","finished"], not_running:["未実行","none"]};
@@ -318,7 +324,7 @@ function renderNow(d){
   const ph = PHASES[(it||{}).kind] || null;
   const el = Math.max(0, Math.round((Date.now() - new Date(d.current.started_at))/1000));
   document.getElementById("nowmain").innerHTML =
-    `▶ <a href="/specs/${esc(fid)}.html"><b>${esc(fid)}</b></a>` +
+    `▶ <a href="${pageHref(fid)}"><b>${esc(fid)}</b></a>` +
     (ph ? ` ${ph[0]}${ph[1]}` : "") +
     ` <span class="muted">${it ? esc(it.name + " / " + it.file) + "・" : ""}試行${d.current.attempt}</span>`;
   const med = medianSec || 120;
@@ -328,7 +334,7 @@ function renderNow(d){
   document.getElementById("nowela").textContent =
     `経過 ${Math.floor(el/60)}分${el%60}秒` + (medianSec ? `（中央値 ${Math.round(med)}s）` : "") +
     (el > med*2 ? "・長引いています" : "");
-  document.getElementById("nowlog").href = "/agent-logs/" + esc(fid) + ".txt";
+  document.getElementById("nowlog").href = logHref(fid);
 }
 
 // ---- 残タスク（表示時・検索時・操作後だけ取得。ポーリングには載せない） ----
@@ -428,7 +434,7 @@ function renderResults(recent){
     const rid = r.func_id + "|" + (r.at || i);
     const ph = PHASES[r.phase] || null;
     const head = (r.ok ? '<span class="ok">OK</span>' : '<span class="ng">NG</span>')
-      + ` <a href="/specs/${esc(r.func_id)}.html"><b>${esc(r.func_id)}</b></a>`
+      + ` <a href="${pageHref(r.func_id)}"><b>${esc(r.func_id)}</b></a>`
       + (ph ? ` ${ph[0]}${ph[1]}` : "")
       + (!r.ok && r.kind ? ` — ${esc(r.kind)}` : "")
       + ` <span class="meta">${esc((r.at||"").slice(11))}` +
@@ -443,7 +449,7 @@ function renderResults(recent){
       : (r.why ? `<div class="ngdetail">${esc(r.why)}</div>` : "");
     return `<div class="resrow">${head}${ngbox}
       <div class="actions">
-        <a class="btn" href="/agent-logs/${esc(r.func_id)}.txt" target="_blank">応答ログ</a>
+        <a class="btn" href="${logHref(r.func_id)}" target="_blank">応答ログ</a>
         <details${openIds.has(rid) ? " open" : ""} data-rid="${esc(rid)}">
           <summary>応答の末尾</summary><pre>${esc(r.tail || "(応答記録なし)")}</pre></details>
       </div></div>`;
@@ -543,10 +549,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, res)
             return
         if self.path.startswith("/agent-logs/"):
-            name = self.path.rsplit("/", 1)[-1]
-            if self.state_root and re.fullmatch(r"[\w.\-]+\.txt", name):
-                lp = self.state_root / ".legacy-reverse" / "agent-logs" / name
-                if lp.is_file():
+            # 識別子は生のまま来る（"dict:V-0001〜V-0040" のようにファイル名に
+            # 使えない文字を含む）。pipeline.agent_log_name と同じ規則で潰してから
+            # 引き当てる。この関数は区切り文字（/ \\）を必ず _ にするので、
+            # 潰した後の名前でディレクトリを跨ぐことはできない
+            import pipeline
+            raw = unquote(urlsplit(self.path).path.rsplit("/", 1)[-1])
+            stem = raw[:-4] if raw.lower().endswith(".txt") else raw
+            if self.state_root and stem:
+                d = (self.state_root / ".legacy-reverse" / "agent-logs").resolve()
+                lp = (d / pipeline.agent_log_name(stem)).resolve()
+                if lp.parent == d and lp.is_file():
                     self._send_bytes(lp.read_bytes(), "text/plain; charset=utf-8")
                     return
             self.send_error(404)

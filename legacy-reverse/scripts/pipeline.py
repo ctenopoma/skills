@@ -852,6 +852,17 @@ class RunStatus:
         self.save()
 
 
+def agent_log_name(fid: str) -> str:
+    """識別子 → 応答ログのファイル名。
+
+    F-xxxx はそのまま。辞書バッチの識別子（"dict:V-0001〜V-0040"）のように
+    ファイル名に使えない文字を含むものだけ潰す（Windows の ':' で落ちないように）。
+    **serve_site.py の /agent-logs/ ルートが同じ規則で引き当てる**ので、
+    片側だけ変えないこと（画面のリンクが 404 になる）。
+    """
+    return re.sub(r"[^\w.\-]", "_", fid) + ".txt"
+
+
 def save_agent_log(root: Path, fid: str, attempt: int, r: dict) -> Path:
     """エージェント（headless claude）の応答全文を関数ごとのファイルに残す。
 
@@ -859,9 +870,7 @@ def save_agent_log(root: Path, fid: str, attempt: int, r: dict) -> Path:
     """
     d = root / ".legacy-reverse" / "agent-logs"
     d.mkdir(parents=True, exist_ok=True)
-    # F-xxxx はそのまま。辞書バッチの識別子（"dict:V-0001〜V-0040"）のように
-    # ファイル名に使えない文字を含むものだけ潰す（Windows の ':' で落ちないように）
-    p = d / (re.sub(r"[^\w.\-]", "_", fid) + ".txt")
+    p = d / agent_log_name(fid)
     with p.open("a", encoding="utf-8") as f:
         f.write(f"\n===== attempt {attempt} "
                 f"{datetime.datetime.now().isoformat(timespec='seconds')} "

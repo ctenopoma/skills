@@ -204,6 +204,62 @@ def test_navbar_entry():
     print("OK  ナビバー（変数辞書エントリの有無）")
 
 
+def test_agent_log_route():
+    """/agent-logs/ が pipeline.agent_log_name と同じ規則で引き当てること。
+
+    辞書バッチの識別子は "dict:V-0001〜V-0040" のようにファイル名に使えない文字を
+    含む。画面は生の識別子でリンクを作るので、ルート側が同じ規則で潰さないと
+    応答ログが必ず 404 になる（＝失敗の一次情報に到達できない）。
+    """
+    import functools
+    import threading
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    import pipeline
+
+    root = Path(tempfile.mkdtemp(prefix="lr-agentlog-"))
+    _TMPDIRS.append(root)
+    logs = root / ".legacy-reverse" / "agent-logs"
+    logs.mkdir(parents=True)
+    site = root / "docs" / "_site"
+    site.mkdir(parents=True)
+    (site / "index.html").write_text("x", encoding="utf-8")
+    (root / "secret.txt").write_text("SECRET", encoding="utf-8")
+    label = "dict:V-0001〜V-0040"
+    (logs / pipeline.agent_log_name(label)).write_text("dict log body", encoding="utf-8")
+    (logs / "F-0001.txt").write_text("spec log", encoding="utf-8")
+
+    old_root = serve_site.Handler.state_root
+    serve_site.Handler.state_root = root
+    httpd = serve_site.bind_server(
+        "127.0.0.1", 0, functools.partial(serve_site.Handler, directory=str(site)))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+
+    def get(name: str) -> tuple:
+        url = f"http://127.0.0.1:{port}/agent-logs/{urllib.parse.quote(name)}.txt"
+        try:
+            with urllib.request.urlopen(url) as r:
+                return r.status, r.read().decode("utf-8").strip()
+        except urllib.error.HTTPError as e:
+            return e.code, ""
+
+    try:
+        assert get(label) == (200, "dict log body"), "辞書ラベルの応答ログが引けない"
+        assert get("dict_V-0001_V-0040") == (200, "dict log body")   # 潰した名前でも可
+        assert get("F-0001") == (200, "spec log")
+        assert get("F-9999")[0] == 404, "無いログが 404 になっていない"
+        for bad in ("../secret", "../../etc/passwd", "..%2f..%2fsecret"):
+            assert get(bad)[0] == 404, f"ディレクトリ外に出られてしまう: {bad}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        serve_site.Handler.state_root = old_root
+    print("OK  応答ログのルート（辞書ラベル・ディレクトリ外拒否）")
+
+
 def main():
     tests = [
         test_dict_notice,
@@ -211,6 +267,7 @@ def main():
         test_approve_and_request_changes,
         test_serve_site_read_only,
         test_navbar_entry,
+        test_agent_log_route,
     ]
     try:
         for t in tests:
