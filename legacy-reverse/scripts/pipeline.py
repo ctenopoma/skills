@@ -241,6 +241,33 @@ def preflight_claude(claude_cmd: list, timeout: int = 120) -> None:
     print(f"claude: {' '.join(claude_cmd)}（{(r.stdout or '').strip().splitlines()[0] if r.stdout.strip() else 'version不明'}）")
 
 
+def preflight_model(claude_cmd: list, model: str, extra: list, timeout: int = 120) -> None:
+    """`--model <値>` で実際に起動できるかを、ループに入る前に1回だけ実測する。
+
+    dict は工程の中で唯一 --model を既定で付ける（DICT_MODEL_DEFAULT）。この指定が
+    通らない環境だと、claude は何も書かずに終わり、チャンク（変数40件）を丸ごと
+    捨ててから「data/interpretations.json が作られていない」という、原因の読めない
+    検証NGとして表面化する。**同じ引数で最小のプロンプトを1回投げて先に落とす**。
+    引数は本番と揃える（extra に --dangerously-skip-permissions 等が入っている）。
+    """
+    cmd = claude_cmd + ["-p", "ok", "--model", model, "--max-turns", "1"] + extra
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"error: --model {model} の起動確認が {timeout}s で返らない。"
+                 "モデル指定を変えるか --model で明示する")
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + " " + (r.stdout or "")).strip()[-300:]
+        sys.exit(f"error: --model {model} で claude を起動できない（exit={r.returncode}）\n"
+                 f"  {tail}\n"
+                 f"  → 使えるモデル名を確認して --model <値> で指定する"
+                 "（dict の既定は DICT_MODEL_DEFAULT）")
+    print(f"model: {model} で起動できることを確認した")
+
+
 # レートリミット・過負荷・利用枠上限の検知（これらは「失敗」でなく「待って再試行」）
 RATE_LIMIT_PAT = re.compile(
     r"rate.?limit|too many requests|\b429\b|overloaded|\b529\b|usage limit"
@@ -1037,6 +1064,9 @@ def cmd_spec(args) -> None:
         extra += ["--model", args.model]
     extra += permission_args(args)
     extra += args.claude_args
+    if args.model and claude_cmd:
+        preflight_model(claude_cmd, args.model,
+                        [a for a in extra if a not in ("--model", args.model)])
 
     done = failed = 0
     consecutive_fail = 0
@@ -1202,6 +1232,9 @@ def cmd_run(args) -> None:
         extra += ["--model", args.model]
     extra += permission_args(args)
     extra += args.claude_args
+    if args.model and claude_cmd:
+        preflight_model(claude_cmd, args.model,
+                        [a for a in extra if a not in ("--model", args.model)])
 
     # 1工程だけに限定しているときは、進捗ページにその工程名を出す
     # （「連続実行」と出ると②だけ回しているのか工程横断なのか区別が付かないため）
@@ -1454,6 +1487,7 @@ def cmd_dict(args) -> None:
     preflight_claude(claude_cmd)
     extra = permission_args(args)
     extra += args.claude_args
+    preflight_model(claude_cmd, model, extra)     # dict だけが --model を既定で付ける
 
     store = json.loads((root / "data" / "variables.json").read_text(encoding="utf-8-sig"))
     total = sum(1 for v in store.get("variables", []) if v.get("status") == "unreviewed")
