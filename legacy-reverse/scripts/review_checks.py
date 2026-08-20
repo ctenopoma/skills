@@ -582,6 +582,8 @@ def make_report(root: str) -> dict:
             "（`review_actions.py approve spec F-xxxx --by 名前`）、"
             "または docs/review-feedback.md への記入で（すべて同格）。"
             "❌ は AI が自己修正するまで承認できません。", "",
+            "各行は1行の高さに揃えてあります（はみ出しは …）。"
+            "**全文は行にカーソルを載せると開きます**。", "",
             "| 関数 | 概要 | Confidence | 機械レビュー | 未確定(ISSUE) | 状態 |",
             "|------|------|:---:|:---:|------|------|"] + [r for _, r in rows]
         lines += ["", "```{=html}", SPEC_REVIEW_PAGE_JS, "```"]
@@ -608,12 +610,16 @@ SPEC_REVIEW_PAGE_JS = """\
 #sr-table th:nth-child(4){width:6.5em}
 #sr-table th:nth-child(5){width:7em}
 #sr-table th:nth-child(6){width:12.5em}
-#sr-table td{overflow-wrap:break-word;vertical-align:top}
-#sr-table td:nth-child(1){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sr-table td:nth-child(3),#sr-table td:nth-child(4){white-space:nowrap}
+/* 1行 = 1関数に固定する。概要や ISSUE 列が長いと1行が数行分の高さに伸び、
+   「件数のわりに数行しか見えない」状態になるため、既定では各セルを1行に収めて
+   はみ出しは … にする。全文はカーソルを載せた行だけ展開して読む */
+#sr-table td{vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sr-table tr:hover td{white-space:normal;overflow:visible;overflow-wrap:break-word;
+                      background:#f1f5f9}
 .sr-can{color:#166534;font-weight:600;font-size:.9em}
 .sr-wait{color:#9ca3af;font-size:.85em}
-.sr-msg{display:block;font-size:.8em;color:#166534}
+.sr-msg{display:block;font-size:.8em;color:#166534;
+        overflow:hidden;text-overflow:ellipsis}
 .sr-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
 .sr-chip{border:1px solid #9ca3af66;background:transparent;border-radius:999px;
          padding:2px 12px;font-size:.85em;cursor:pointer;color:inherit}

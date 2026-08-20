@@ -1183,6 +1183,32 @@ def _sort_key(v: dict):
     return (-nfunc, RANK_ORDER.get(v.get("rank"), 0), _var_num(v["var_id"]))
 
 
+# 辞書ページのスタイル。docs/wbs.css ではなくページに焼き込むのは、
+# 既存プロジェクトの docs/wbs.css は skill 更新時に差し替わらないため
+# （ページ自体は variables.py page で作り直されるので、必ず新しい版が載る）。
+DICT_PAGE_CSS = """\
+```{=html}
+<style>
+/* 1行 = 1変数に固定する。意味・出現（関数リンクの羅列）が長いと1行が数行分の
+   高さに伸び、「件数のわりに数行しか見えない」状態になる。既定では各セルを
+   1行に収めてはみ出しは … にし、全文はカーソルを載せた行だけ展開して読む */
+.lr-dict{overflow-x:auto}
+.lr-dict table{table-layout:fixed;width:100%;min-width:64em}
+.lr-dict th:nth-child(1){width:7em}     /* var_id */
+.lr-dict th:nth-child(2){width:12em}    /* 名前（別名） */
+.lr-dict th:nth-child(4){width:7em}     /* 単位 */
+.lr-dict th:nth-child(5){width:4em}     /* rank */
+.lr-dict th:nth-child(6){width:7em}     /* status */
+.lr-dict th:nth-child(7){width:14em}    /* 出現 */
+.lr-dict th:nth-child(8){width:9em}     /* フラグ */
+.lr-dict td{vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lr-dict tr:hover td{white-space:normal;overflow:visible;overflow-wrap:break-word;
+                     background:#f1f5f9}
+</style>
+```
+"""
+
+
 def _row(v: dict) -> str:
     names = v["canonical_name"]
     others = [a for a in v["aliases"] if a != v["canonical_name"]]
@@ -1215,26 +1241,35 @@ def cmd_page(root: Path, args) -> None:
            "各行の var_id には #dict-V-xxxx のアンカーがある（案内・リンクの着地点）。",
            "-->", "",
            f"変数 {len(variables)}件（承認済み {len(approved)} / 確認待ち {len(queue)} / "
-           f"一括承認候補 {len(batch)}）", ""]
+           f"一括承認候補 {len(batch)}）", "",
+           "各行は1行の高さに揃えてあります（はみ出しは …）。"
+           "**全文は行にカーソルを載せると開きます**。", "",
+           DICT_PAGE_CSS]
 
-    out += ["# 確認待ち（rank C/D・未判定）", "",
-            "<!-- 根拠が弱く、人が1件ずつ desc/unit を確定させる対象 -->", ""]
-    out += [head] + [_row(v) for v in queue] if queue else ["（なし）"]
-    out += ["", "# 一括承認候補（rank A/B）", "",
-            "<!-- 明示的な根拠（コメント・FORMAT・初期値・ドメイン知識）がある対象 -->", ""]
-    out += [head] + [_row(v) for v in batch] if batch else ["（なし）"]
-    out += ["", "# 承認済み", ""]
-    out += [head] + [_row(v) for v in approved] if approved else ["（なし）"]
+    def section(title: str, note: str, items: list) -> list:
+        block = ["", f"# {title}", "", f"<!-- {note} -->", ""]
+        if not items:
+            return block + ["（なし）"]
+        return block + ["::: {.lr-dict}"] + [head] + [_row(v) for v in items] + [":::"]
+
+    out += section("確認待ち（rank C/D・未判定）",
+                   "根拠が弱く、人が1件ずつ desc/unit を確定させる対象", queue)
+    out += section("一括承認候補（rank A/B）",
+                   "明示的な根拠（コメント・FORMAT・初期値・ドメイン知識）がある対象", batch)
+    out += section("承認済み", "確定した語義。propagate で仕様書の IO/globals に転記される",
+                   approved)
 
     collide = [v for v in variables if "name_collision" in v.get("flags", [])]
     if collide:
         out += ["", "# 同名別義（name_collision）", "",
                 "<!-- 名前は同じだが機械的根拠では別実体と判定されたもの。併記して取り違えを防ぐ -->",
-                "", "| 名前 | var_id | 意味 | 出現 |", "|---|---|---|---|"]
+                "", "::: {.lr-dict}",
+                "| 名前 | var_id | 意味 | 出現 |", "|---|---|---|---|"]
         for v in sorted(collide, key=lambda x: (x["canonical_name"], _var_num(x["var_id"]))):
             fids = ", ".join(sorted({o["func_id"] for o in v["occurrences"]}))
             out.append(f"| {v['canonical_name']} | {v['var_id']} | "
                        f"{(v.get('desc') or '—')} | {fids} |")
+        out.append(":::")
     out.append("")
 
     dest = root / "docs" / "variables.qmd"
