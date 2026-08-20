@@ -466,6 +466,24 @@ def _transform_md(text: str, strip_numbers: bool = False) -> str:
     return _pin_anchors(text)
 
 
+def _shadow_frontmatter(title: str, output_file: str, lines: list[str]) -> str:
+    """shadow .qmd 用の frontmatter を組み立てる。"""
+    min_level, in_fence = None, False
+    for line in lines:
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        m = None if in_fence else HEADING.match(line)
+        if m:
+            level = len(m.group(1))
+            min_level = level if min_level is None else min(min_level, level)
+
+    shift = ""
+    if min_level and min_level > 1:
+        shift = f"shift-heading-level-by: {1 - min_level}\n"
+    return f'---\ntitle: "{title}"\noutput-file: "{output_file}"\n{shift}---\n\n'
+
+
 def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
     """GitHub互換の .md から Quarto 用の shadow .qmd を作る(元ファイルは変更しない)。"""
     text = src.read_text(encoding="utf-8")
@@ -478,7 +496,8 @@ def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
         if len(parts) >= 3:
             text = parts[2].lstrip("\n")
 
-    title, lines = front.get("title") or src.stem, text.splitlines()
+    front_title = (front.get("title") or "").strip()
+    title, lines = front_title or src.stem, text.splitlines()
     for i, line in enumerate(lines):
         # 冒頭にバッジや中央寄せロゴの生 HTML を置く書き方は多い。
         # そこで打ち切ると H1 を見つけられずファイル名が題になってしまう。
@@ -486,16 +505,17 @@ def make_shadow(src: Path, strip_numbers: bool = False) -> Path:
             continue
         m = re.match(r"^#\s+(.+)$", line)
         if m:
-            # 先頭 H1 は title へ昇格させる(frontmatter の title があればそちらを優先)
-            if not front.get("title"):
-                title = m.group(1).strip()
-            lines = lines[:i] + lines[i + 1:]
+            heading_title = m.group(1).strip()
+            # 先頭 H1 が文書タイトルのときだけ本文から外す。
+            if not front_title or heading_title == front_title:
+                if not front_title:
+                    title = heading_title
+                lines = lines[:i] + lines[i + 1:]
         break
 
     shadow = src.with_name(src.stem + "__pdf.qmd")
     shadow.write_text(
-        f'---\ntitle: "{title}"\noutput-file: "{src.stem}.pdf"\n'
-        "shift-heading-level-by: -1\n---\n\n"
+        _shadow_frontmatter(title, f"{src.stem}.pdf", lines)
         + _transform_md("\n".join(lines), strip_numbers),
         encoding="utf-8", newline="\n")
     return shadow
