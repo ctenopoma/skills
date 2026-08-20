@@ -61,7 +61,7 @@ HTML サイト（render_site.py → serve_site.py）は**見せるだけ**で、
 | 対象 | 契約 |
 |---|---|
 | ① 置換マーカー | `LR:IO-TABLES`（IO表）・`LR:CALLS-TABLE`（呼出表）・`LR:HAZARD-TABLE`（hazard表）。機械が functions.json から生成して差し込む |
-| ① 契約見出し | `# 機能詳細`（SPEC-ID・Confidence・根拠 file:lines）／`# 副作用・例外`＋`## 例外・数値特異点`／`# 未確定事項` |
+| ① 契約見出し | `# 機能詳細`（SPEC-ID・Confidence・根拠 file:lines）／`# 副作用・例外`＋`## 例外・数値特異点`／`# 未確定事項`。**契約見出しは skill の版が上がると増えることがある**（`## 例外・数値特異点` は hazard 機構と一緒に後から入った）。旧世代の仕様書で機械レビューが全関数「節がない」を出すときは `ledger migrate-specs` で枠だけ後追いする（本文は触らない。骨子の `--force` 再生成は書いた本文を捨てるので使わない） |
 | ① フロントマター | status / dict-hash / legacy.hash / reviewed-by 等（機械が生成・更新） |
 | ② 契約 | `# トレーサビリティマトリクス`・ケースID `<func_num>-TC-NNN`・「対応仕様」「期待値の根拠」行と根拠語彙 |
 

@@ -9,6 +9,8 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   wbs                        docs/index.qmd を再生成
   skeletons [--force]        functions.json から docs/specs/ の骨子を生成
                              （項目立ては docs/templates/spec.md が正。無ければ同梱シード）
+  migrate-specs [--dry-run]  既存の仕様書に、後から入った契約見出し「例外・数値特異点」を
+                             追加する（本文は触らない。旧世代の仕様書の救済）
   init-templates             人が書くファイル一式の雛形を配置（規約・業務知識・例外ポリシー・
                              仕様書テンプレ・工程別プロンプト。既存は上書きしない）
   authored [--json]          人が書くファイルの記入状況を一覧
@@ -728,6 +730,19 @@ def template_body(tpath: Path) -> str:
         return text
 
 
+def hazard_table_lines(f: dict) -> list:
+    """LR:HAZARD-TABLE に差し込む hazard 表（⓪が検知した数値特異点の一覧）。
+
+    骨子生成（cmd_skeletons）と、後から契約見出しを足す移行（cmd_migrate_specs）で
+    同じ表を作る。適用EP・仕様記述の欄は空のまま——埋めるのは①の仕事。
+    """
+    rows = [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:"
+            f"{h.get('line', '')} | | |" for h in f.get("hazards", [])]
+    return (["| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
+             "|--------|------|------|--------|----------|"]
+            + (rows or ["| 該当なし | | | | |"]))
+
+
 def spec_template_problems(body: str) -> list:
     """①テンプレが固定契約を満たしているかの検証（不足の一覧を返す）。"""
     problems = [f"置換マーカーがない: {m}" for m in SPEC_TEMPLATE_MARKERS if m not in body]
@@ -959,10 +974,7 @@ def cmd_skeletons(p: Project, args) -> None:
                        "| 名前 | func-id | 用途 |", "|------|---------|------|"]
         calls_lines += [f"| | {c} | |" for c in f.get("calls", [])] or ["| （なし） | | |"]
 
-        haz_lines = ["| hazard | 種別 | 箇所 | 適用EP | 仕様記述 |",
-                     "|--------|------|------|--------|----------|"]
-        haz_lines += [f"| {h['hz_id']} | {h['kind']} | {f['legacy'].get('file', '')}:{h.get('line', '')} | | |"
-                      for h in f.get("hazards", [])] or ["| 該当なし | | | | |"]
+        haz_lines = hazard_table_lines(f)
 
         # テンプレ本文（プロジェクト所有）にプレースホルダと機械ブロックを差し込む。
         # LR:TEMPLATE-NOTE コメント（テンプレ自身の説明書き）は骨子には写さない
@@ -979,6 +991,88 @@ def cmd_skeletons(p: Project, args) -> None:
         made += 1
     print(f"skeletons: {made} 件生成（既存はスキップ、--force で上書き）"
           + (f" / dict-hash 更新 {synced} 件（①未着手の骨子のみ）" if synced else ""))
+
+
+# ---------- 契約見出しの後追い（既存の仕様書の移行） ----------
+#
+# SPEC_CONTRACT_HEADS は skill の版が上がると増えることがある（実例:「## 例外・数値特異点」は
+# hazard 機構と一緒に後から入った。それ以前の「# 副作用・例外」は改名ではなく別の節）。
+# 骨子生成はテンプレの契約違反を弾くが、**既に書かれた仕様書は誰も直さない**ため、
+# 新しい版の機械レビューが全関数で「節がない」を出し続ける。--force での再生成は
+# 書いた本文を捨てるので使えない。本文に一切触れず、足りない節だけを挿し込む。
+
+HAZ_HEAD = "## 例外・数値特異点"
+HAZ_NOTE = ("<!-- ⓪が検知した hazard を1件ずつ書く。適用EP は docs/exception-policy.md に"
+            "実在する EP-ID だけを引用する（未決定なら docs/exception-queue.md で決めてから）。"
+            "この節は後から入った契約見出しで、ledger migrate-specs が枠だけ置いた -->")
+
+
+def _insert_haz_section(text: str, f: dict) -> str:
+    """「## 例外・数値特異点」節を、本文を壊さずに挿し込んだ全文を返す。
+
+    置き場所は上から順に: `# 副作用・例外` 節の末尾 → `# 未確定事項` の直前 → 文末。
+    （`##` なので `# 副作用・例外` の配下に入るのが正。テンプレの並びと同じにする）
+    """
+    block = "\n".join([HAZ_HEAD, "", HAZ_NOTE, ""] + hazard_table_lines(f)) + "\n"
+    lines = text.splitlines(keepends=True)
+
+    def head_index(pat: str):
+        for i, l in enumerate(lines):
+            if re.match(pat, l):
+                return i
+        return None
+
+    at = head_index(r"^#\s*副作用・例外\s*$")
+    if at is not None:                       # その節の末尾（次の `# ` 見出しの直前）
+        pos = len(lines)
+        for i in range(at + 1, len(lines)):
+            if re.match(r"^#\s+\S", lines[i]):
+                pos = i
+                break
+    else:
+        pos = head_index(r"^#\s*未確定事項\s*$")
+        if pos is None:
+            pos = len(lines)
+    body = "".join(lines[:pos]).rstrip("\n")
+    rest = "".join(lines[pos:])
+    return body + "\n\n" + block + ("\n" + rest if rest.strip() else "")
+
+
+def cmd_migrate_specs(p: Project, args) -> None:
+    added, already, missing, reviewed_touched = [], [], [], []
+    for f in p.funcs():
+        fid = f["func_id"]
+        sp = p.docs / "specs" / f"{fid}.md"
+        if not sp.exists():
+            missing.append(fid)
+            continue
+        text = sp.read_text(encoding="utf-8-sig")
+        if re.search(r"(?m)^#{1,4}\s*例外[・･]数値特異点\s*$", text):
+            already.append(fid)
+            continue
+        added.append(fid)
+        if parse_frontmatter(text).get("status") == "reviewed":
+            reviewed_touched.append(fid)
+        if not args.dry_run:
+            sp.write_text(_insert_haz_section(text, f), encoding="utf-8")
+
+    verb = "追加できる" if args.dry_run else "追加した"
+    print(f"migrate-specs: {len(added)} 件に「例外・数値特異点」節を{verb}"
+          f"（既にある {len(already)} 件 / 仕様書なし {len(missing)} 件）")
+    if added:
+        print("  " + ", ".join(added[:20]) + (" ほか" if len(added) > 20 else ""))
+    if reviewed_touched:
+        print(f"warn: 承認済み（reviewed）の仕様書 {len(reviewed_touched)} 件を書き換える"
+              "＝②の spec-hash が古くなる（WBS に「⚠ ②stale」が出る）: "
+              + ", ".join(reviewed_touched[:10]))
+    if args.dry_run:
+        print("  （--dry-run。実行するにはこの指定を外す）")
+        return
+    if added:
+        print("next: 枠を置いただけで中身は空。①で埋める"
+              "（/legacy-1-spec <func-id> か pipeline.py spec）。"
+              "EP 未決定の hazard は docs/exception-queue.md で先に決める")
+        print("      反映: ledger wbs → render_site.py")
 
 
 def cmd_hash(p: Project, args) -> None:
@@ -1439,6 +1533,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("wbs")
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
+    s = sub.add_parser("migrate-specs",
+                       help="既存の仕様書に、後から入った契約見出し「例外・数値特異点」を追加する（本文は触らない）")
+    s.add_argument("--dry-run", action="store_true", help="書き換えず対象だけ表示")
     sub.add_parser("init-templates", help="人が書くファイル（規約・業務知識・例外ポリシー・仕様書テンプレ・工程別プロンプト）の雛形を一式配置（既存は上書きしない）")
     s = sub.add_parser("authored", help="人が書くファイルの記入状況を一覧（未作成/未記入/記入途中/記入あり）")
     s.add_argument("--json", action="store_true")
@@ -1485,7 +1582,8 @@ def main() -> None:
     if args.cmd == "flow":
         {"add": cmd_flow_add, "rm": cmd_flow_rm, "list": cmd_flow_list}[args.flow_cmd](p, args)
         return
-    {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "init-templates": cmd_init_templates,
+    {"wbs": cmd_wbs, "skeletons": cmd_skeletons, "migrate-specs": cmd_migrate_specs,
+     "init-templates": cmd_init_templates,
      "authored": cmd_authored,
      "hash": cmd_hash, "verify": cmd_verify,
      "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,

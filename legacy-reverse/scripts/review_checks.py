@@ -270,7 +270,9 @@ def _check_hazards(rootp: Path, func_id: str, text: str, res: dict) -> list:
         ids = ", ".join(h["hz_id"] for h in hazards[:5])
         more = " ほか" if len(hazards) > 5 else ""
         return [f"「例外・数値特異点」節がない（⓪が検知した hazard が {len(hazards)} 件ある: "
-                f"{ids}{more}）＝例外の検討漏れ"]
+                f"{ids}{more}）＝例外の検討漏れ。この節は hazard 機構と一緒に後から入った"
+                "契約見出しなので、旧世代の仕様書で全関数に出ている場合は "
+                "`ledger migrate-specs` で枠を追加してから①で埋める"]
     mentioned = set(RE_HZ_ID.findall(body))
     for h in hazards:
         if h["hz_id"] not in mentioned:

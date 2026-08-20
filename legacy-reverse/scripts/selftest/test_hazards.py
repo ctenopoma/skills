@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -488,12 +489,48 @@ def test_backward_compat_old_functions_json(tmp: Path):
     print("OK  後方互換（hazards 無しの旧データ・excluded 関数）")
 
 
+def test_migrate_specs_adds_contract_head(tmp: Path):
+    """旧世代の仕様書（節が無い）に、本文を壊さず契約見出しを足せること。
+
+    「## 例外・数値特異点」は hazard 機構と一緒に**後から**入った契約見出しなので、
+    それ以前に書かれた仕様書は全関数で「節がない」を出し続ける。骨子の再生成
+    （--force）は書いた本文を捨てるため使えない＝機械的な後追いが要る。
+    """
+    import ledger
+    root = review_project(tmp, "rv_migrate", "")
+    sp = root / "docs" / "specs" / "F-0001.md"
+    before = sp.read_text(encoding="utf-8")
+    r = review_checks.check_spec(str(root), "F-0001")
+    assert any("「例外・数値特異点」節がない" in x for x in r["problems"]), r["problems"]
+
+    prj = ledger.Project(root)
+    ledger.cmd_migrate_specs(prj, types.SimpleNamespace(dry_run=True))
+    assert sp.read_text(encoding="utf-8") == before, "--dry-run が書き換えている"
+
+    ledger.cmd_migrate_specs(prj, types.SimpleNamespace(dry_run=False))
+    after = sp.read_text(encoding="utf-8")
+    assert "## 例外・数値特異点" in after
+    assert "H-0001-01" in after and "H-0001-02" in after, "hazard 表が入っていない"
+    for keep in ("# 概要", "A を B で割って結果を返す。", "# 機能詳細",
+                 "# 副作用・例外", "# 未確定事項", "| 1 | A | REAL |"):
+        assert keep in after, f"本文が壊れた: {keep}"
+    assert (after.index("# 副作用・例外") < after.index("## 例外・数値特異点")
+            < after.index("# 未確定事項")), "挿入位置がテンプレの並びと違う"
+
+    r2 = review_checks.check_spec(str(root), "F-0001")
+    assert not any("節がない" in x for x in r2["problems"]), r2["problems"]
+
+    ledger.cmd_migrate_specs(prj, types.SimpleNamespace(dry_run=False))
+    assert sp.read_text(encoding="utf-8") == after, "2回目で二重に入っている（冪等でない）"
+    print("OK  migrate-specs（旧世代の仕様書に契約見出しを後追い・冪等）")
+
+
 def main() -> int:
     tests = [test_detectors, test_merge_overwrites_hazards, test_match_precedence,
              test_queue, test_add_policy, test_review_ok, test_review_missing_section,
              test_review_missing_row, test_review_fabricated_ep, test_review_undecided,
              test_review_no_map_is_warning, test_review_function_without_hazards,
-             test_backward_compat_old_functions_json]
+             test_backward_compat_old_functions_json, test_migrate_specs_adds_contract_head]
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         test_detector_table_is_extensible()
