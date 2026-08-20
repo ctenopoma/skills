@@ -9,8 +9,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   wbs                        docs/index.qmd を再生成
   skeletons [--force]        functions.json から docs/specs/ の骨子を生成
                              （項目立ては docs/templates/spec.md が正。無ければ同梱シード）
-  migrate-specs [--dry-run]  既存の仕様書に、後から入った契約見出し「例外・数値特異点」を
-                             追加する（本文は触らない。旧世代の仕様書の救済）
+  migrate-specs [--dry-run]  既存の仕様書の「例外・数値特異点」節を機械が維持する。
+                             節の追加（旧世代の救済）・⓪の再抽出で増えた hazard 行の追加・
+                             空欄の適用EPの転記。**本文と記入済みの欄は触らない**
   init-templates             人が書くファイル一式の雛形を配置（規約・業務知識・例外ポリシー・
                              仕様書テンプレ・工程別プロンプト。既存は上書きしない）
   authored [--json]          人が書くファイルの記入状況を一覧
@@ -1056,33 +1057,67 @@ def _insert_haz_section(text: str, f: dict, hz_map: dict = None) -> str:
 
 
 RE_HAZ_ROW = re.compile(r"^\|\s*(H-\d+-\d+)\s*\|")
+RE_HAZ_HEAD_LINE = re.compile(r"(?m)^#{1,4}\s*例外[・･]数値特異点\s*$")
 
 
-def _fill_eps(text: str, hz_map: dict) -> tuple:
-    """既にある hazard 表の「適用EP」欄が空なら、突合結果の EP-ID を入れる。
+def _sync_haz_table(text: str, f: dict, hz_map: dict) -> tuple:
+    """既にある「例外・数値特異点」節の表を、機械が決まる範囲だけ最新化する。
 
-    例外ポリシーは節を足したあとに決まることが多い（決定 → add-policy → match）。
-    節があるだけで migrate をスキップすると、EP が決まっても表は空のままになるので、
-    **空欄だけ**を後から埋める。人や①が書いた値は上書きしない。
+    この節の中身は**全部が機械由来**——hazard は⓪の検出結果、適用EP は人が
+    exception-policy.md で決めた内容を hazards.py match が突合した結果。人（①）が
+    書くのは「仕様記述」欄だけで、そこは機械レビューの対象外。したがって節の維持を
+    人にやらせる理由がなく、次の2つを機械が面倒を見る:
+
+      - **足りない hazard 行を足す**（⓪の再抽出で hazard が増えると、既存の仕様書は
+        「hz_id が節に無い＝検討漏れ」で NG になる。人が手で足す作業だった）
+      - **空欄の適用EPを埋める**（例外ポリシーは節を足したあとに決まることが多い）
+
+    行の削除・書かれた値の上書きはしない（人と①の記入を壊さないため）。
+    戻り値: (新しい全文, EPを埋めた hz_id, 行を足した hz_id)
     """
-    out, filled = [], []
-    for line in text.splitlines(keepends=True):
-        m = RE_HAZ_ROW.match(line)
-        cells = line.rstrip("\n").split("|") if m else []
+    m = RE_HAZ_HEAD_LINE.search(text)
+    if not m:
+        return text, [], []
+    level = len(text[m.start():m.end()].split()[0])
+    rest = text[m.end():]
+    nxt = re.search(r"(?m)^#{1,%d}\s+\S" % level, rest)
+    sec_end = m.end() + (nxt.start() if nxt else len(rest))
+    head, body, tail = text[:m.end()], text[m.end():sec_end], text[sec_end:]
+
+    lines = body.splitlines(keepends=True)
+    filled, present, last_row = [], set(), None
+    for i, line in enumerate(lines):
+        hm = RE_HAZ_ROW.match(line)
+        if not hm:
+            continue
+        present.add(hm.group(1))
+        last_row = i
         # "| a | b | c | d | e |" → ['', ' a ', ' b ', ' c ', ' d ', ' e ', '']
-        if m and len(cells) >= 6 and not cells[4].strip():
-            ep = (hz_map.get(m.group(1)) or {}).get("ep")
+        cells = line.rstrip("\n").split("|")
+        if len(cells) >= 6 and not cells[4].strip():
+            ep = (hz_map.get(hm.group(1)) or {}).get("ep")
             if ep:
                 cells[4] = f" {ep} "
-                line = "|".join(cells) + "\n"
-                filled.append(m.group(1))
-        out.append(line)
-    return "".join(out), filled
+                lines[i] = "|".join(cells) + "\n"
+                filled.append(hm.group(1))
+
+    missing = [h for h in f.get("hazards") or [] if h["hz_id"] not in present]
+    if missing:
+        rows = hazard_table_lines({**f, "hazards": missing}, hz_map)[2:]   # ヘッダ2行を除く
+        block = "".join(r + "\n" for r in rows)
+        if last_row is not None:
+            lines.insert(last_row + 1, block)
+        else:
+            # 表が無い（「該当なし」も無い）節 → 表ごと置く
+            lines.append("\n" + "\n".join(hazard_table_lines(f, hz_map)) + "\n")
+        # 「該当なし」のプレースホルダ行は実データが入ったら消す
+        lines = [l for l in lines if not re.match(r"^\|\s*該当なし\s*\|", l)]
+    return head + "".join(lines) + tail, filled, [h["hz_id"] for h in missing]
 
 
 def cmd_migrate_specs(p: Project, args) -> None:
     hz_map = load_hazard_map(p.root)
-    added, already, missing, reviewed_touched, ep_filled = [], [], [], [], []
+    added, already, missing, reviewed_touched, ep_filled, row_added = [], [], [], [], [], []
     undecided: set = set()
     for f in p.funcs():
         fid = f["func_id"]
@@ -1093,11 +1128,13 @@ def cmd_migrate_specs(p: Project, args) -> None:
         text = sp.read_text(encoding="utf-8-sig")
         if re.search(r"(?m)^#{1,4}\s*例外[・･]数値特異点\s*$", text):
             already.append(fid)
-            new_text, filled = _fill_eps(text, hz_map)
+            new_text, filled, added_rows = _sync_haz_table(text, f, hz_map)
             if filled:
                 ep_filled.append((fid, len(filled)))
-                if not args.dry_run:
-                    sp.write_text(new_text, encoding="utf-8")
+            if added_rows:
+                row_added.append((fid, len(added_rows)))
+            if new_text != text and not args.dry_run:
+                sp.write_text(new_text, encoding="utf-8")
             continue
         added.append(fid)
         undecided |= {h["hz_id"] for h in f.get("hazards") or []
@@ -1112,6 +1149,10 @@ def cmd_migrate_specs(p: Project, args) -> None:
           f"（既にある {len(already)} 件 / 仕様書なし {len(missing)} 件）")
     if added:
         print("  " + ", ".join(added[:20]) + (" ほか" if len(added) > 20 else ""))
+    if row_added:
+        n = sum(k for _, k in row_added)
+        print(f"  既存の節に hazard 行 {n} 件を{'足せる' if args.dry_run else '足した'}"
+              f"（{len(row_added)} 関数。⓪の再抽出で増えた分）")
     if ep_filled:
         n = sum(k for _, k in ep_filled)
         print(f"  既存の節の「適用EP」空欄 {n} 件を{'埋められる' if args.dry_run else '埋めた'}"
@@ -1134,7 +1175,7 @@ def cmd_migrate_specs(p: Project, args) -> None:
     if added:
         print("next: 置いたのは枠と機械が決まる欄（hazard・適用EP）だけ。"
               "「仕様記述」は①で埋める（/legacy-1-spec <func-id> か pipeline.py spec）")
-    if added or ep_filled:
+    if added or ep_filled or row_added:
         print("      反映: ledger wbs → render_site.py")
 
 
@@ -1597,7 +1638,8 @@ def main() -> None:
     sub.add_parser("wbs")
     s = sub.add_parser("skeletons"); s.add_argument("--force", action="store_true")
     s = sub.add_parser("migrate-specs",
-                       help="既存の仕様書に、後から入った契約見出し「例外・数値特異点」を追加する（本文は触らない）")
+                       help="既存の仕様書の「例外・数値特異点」節を機械が維持する"
+                            "（節の追加・増えた hazard 行の追加・空欄の適用EPの転記。本文は触らない）")
     s.add_argument("--dry-run", action="store_true", help="書き換えず対象だけ表示")
     sub.add_parser("init-templates", help="人が書くファイル（規約・業務知識・例外ポリシー・仕様書テンプレ・工程別プロンプト）の雛形を一式配置（既存は上書きしない）")
     s = sub.add_parser("authored", help="人が書くファイルの記入状況を一覧（未作成/未記入/記入途中/記入あり）")

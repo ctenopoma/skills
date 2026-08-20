@@ -563,13 +563,54 @@ def test_migrate_specs_fills_ep_later(tmp: Path):
     print("OK  migrate-specs（例外ポリシーを後から決めても適用EPが埋まる）")
 
 
+def test_migrate_specs_syncs_new_hazards(tmp: Path):
+    """⓪の再抽出で hazard が増えても、機械が節に行を足して指摘を消せること。
+
+    節の中身は全部が機械由来（hazard は⓪の検出、適用EP は match の突合結果）。
+    人が書くのは「仕様記述」欄だけで機械レビューの対象外なので、節の維持を人に
+    やらせる理由がない。**書かれた欄は壊さない**ことが条件。
+    """
+    import ledger
+    root = review_project(tmp, "rv_grow", "")
+    sp = root / "docs" / "specs" / "F-0001.md"
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    # ①が仕様記述を書いた状態にする
+    sp.write_text(sp.read_text(encoding="utf-8").replace(
+        "| H-0001-01 | div_by_var | legacy/haz.f:10 | EP-001 | |",
+        "| H-0001-01 | div_by_var | legacy/haz.f:10 | EP-001 | B=0 で ZeroDivisionError |"),
+        encoding="utf-8")
+    assert review_checks.check_spec(str(root), "F-0001")["ok"]
+
+    # ⓪の再抽出で hazard が1件増えた
+    fp = root / "data" / "functions.json"
+    data = json.loads(fp.read_text(encoding="utf-8"))
+    data["functions"][0]["hazards"].append(
+        {"hz_id": "H-0001-03", "kind": "div_by_var", "line": 25, "expr": "C / D",
+         "vars": ["D"]})
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    hazards.match_hazards(root, write=True)
+    r = review_checks.check_spec(str(root), "F-0001")
+    assert any("H-0001-03" in x and "節に無い" in x for x in r["problems"]), r["problems"]
+
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    after = sp.read_text(encoding="utf-8")
+    assert "H-0001-03" in after and "| EP-001 |" in after
+    assert "B=0 で ZeroDivisionError" in after, "①が書いた仕様記述を壊した"
+    assert review_checks.check_spec(str(root), "F-0001")["ok"], \
+        review_checks.check_spec(str(root), "F-0001")["problems"]
+
+    ledger.cmd_migrate_specs(ledger.Project(root), types.SimpleNamespace(dry_run=False))
+    assert sp.read_text(encoding="utf-8") == after, "冪等でない（行が二重に増える）"
+    print("OK  migrate-specs（増えた hazard に追随。記入済みの欄は壊さない）")
+
+
 def main() -> int:
     tests = [test_detectors, test_merge_overwrites_hazards, test_match_precedence,
              test_queue, test_add_policy, test_review_ok, test_review_missing_section,
              test_review_missing_row, test_review_fabricated_ep, test_review_undecided,
              test_review_no_map_is_warning, test_review_function_without_hazards,
              test_backward_compat_old_functions_json, test_migrate_specs_adds_contract_head,
-             test_migrate_specs_fills_ep_later]
+             test_migrate_specs_fills_ep_later, test_migrate_specs_syncs_new_hazards]
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         test_detector_table_is_extensible()

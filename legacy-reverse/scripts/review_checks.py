@@ -281,7 +281,9 @@ def _check_hazards(rootp: Path, func_id: str, text: str, res: dict) -> list:
             problems.append(
                 f"{h['hz_id']}（{h.get('kind', '')} {f.get('legacy', {}).get('file', '')}:"
                 f"{h.get('line', '')} `{h.get('expr', '')}`）が"
-                "「例外・数値特異点」節に無い＝検討漏れ")
+                "「例外・数値特異点」節に無い＝検討漏れ。"
+                "⓪の再抽出で hazard が増えた場合は `ledger migrate-specs` が"
+                "行を足す（本文と記入済みの欄は触らない）")
 
     eps = _policy_eps(rootp)
     for ep in sorted(set(RE_EP_ID.findall(body))):
