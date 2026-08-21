@@ -82,7 +82,12 @@ func-id 省略時は `ledger next` の提案に従う。
    hazard の検討漏れ・EP-ID の捏造・ポリシー未決定のまま仕様化
 5. **人へレビュー依頼**（単発モードのみ）: 変更点サマリ＋🟡🔴一覧＋open ISSUE を提示
    （人は CLI `review_actions.py approve/request-changes` で直接返してもよい。
-   その場合は反映まで CLI 側で完結する）
+   その場合は反映まで CLI 側で完結する）。
+   提示の前に一斉レビュー表を作り直す。**この表は `render_site.py` では更新されない**
+   （render は Markdown を HTML にするだけで、表の中身は report が作る）:
+   ```bash
+   python <LR>/scripts/review_checks.py report spec --root .   # docs/spec-review.md
+   ```
 6. 人のOKが出たら `review_actions.py approve spec <func-id> --by <名前>` 相当で
    status: reviewed に反映（機械レビューの再検証込み）→ `ledger wbs`
    （CLI で承認済みの場合この更新は不要）

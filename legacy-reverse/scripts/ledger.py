@@ -21,6 +21,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   next [--flow <name|id>] [--no-dict-gate]
                              次に着手すべき関数を提案（トポロジカル順。--flow でフロー到達集合に限定。
                              既定では変数辞書に未承認の語義が残る関数の①を除外＝dict-gate）
+  audit [--flow <name>] [--json]
+                             WBS の関数数と①バッチの対象件数が合わない原因を内訳で出す
+                             （骨子なし・dict-gate・blocked・draft 待ちの件数と func_id）
   next-issue                 次の ISSUE 番号を表示
   flow add <name> --entry F-xxxx[,F-yyyy...] [--desc ...]
                              フロー（作業スコープ）を追加。flow rm <name|id> / flow list
@@ -1310,6 +1313,98 @@ def cmd_next(p: Project, args) -> None:
         print(f"{todo[0][0]} → 次フェーズ: {todo[0][1]}")
 
 
+AUDIT_TARGET = "① 未着手（バッチの対象）"
+
+
+def audit_buckets(p: Project, flow_fids=None) -> tuple:
+    """全関数を「なぜ①の対象に入らないか」で分類する。
+
+    WBS の関数数（＝ excluded を除いた数）と、バッチが見ている対象件数が合わない
+    ときの内訳。分類の順序は actionable() が対象から外す順序と同じにしてあり、
+    「バッチはこう判断している」をそのまま数え直したものになる（別の判定を
+    書き起こすと必ずずれるので、判定は Project の同じメソッドを呼ぶ）。
+
+    戻り値は (fid -> 分類名, 分類名 -> [fid...])。
+    """
+    st = {f["func_id"]: p.status_of(f) for f in p.funcs()}
+
+    def bucket(fid: str) -> str:
+        s = st[fid]
+        if flow_fids is not None and fid not in flow_fids:
+            return "flow の到達集合の外"
+        if s["blocked_by"]:
+            return f"blocked（{s['blocked_by']} の裁定待ち）"
+        if s["spec"] == "reviewed":
+            return "① 完了（reviewed）"
+        if s["spec"] == "draft":
+            return "① draft（人のレビュー待ち。バッチは触らない）"
+        if p.dict_gate_blockers(fid, spec_status=s["spec"]):
+            return "dict-gate（語義が未承認）"
+        if s["spec"] == "-":
+            return "骨子なし（docs/specs/<fid>.md が無い）"
+        return AUDIT_TARGET
+
+    by_fid = {fid: bucket(fid) for fid in st}
+    groups: dict = {}
+    for fid, name in by_fid.items():
+        groups.setdefault(name, []).append(fid)
+    return by_fid, groups
+
+
+def cmd_audit(p: Project, args) -> None:
+    flow_fids = resolve_flow_fids(p, args.flow) if getattr(args, "flow", None) else None
+    funcs = p.funcs()
+    excluded = [f["func_id"] for f in p.all_funcs() if f.get("excluded")]
+    _, groups = audit_buckets(p, flow_fids)
+
+    gated: list = []
+    todo = actionable(p, phase="1", skip_wait=True, flow_fids=flow_fids, gated=gated)
+
+    on_disk = sorted(q.stem for q in (p.docs / "specs").glob("F-*.md"))
+    known = {f["func_id"] for f in funcs}
+    orphan = [fid for fid in on_disk if fid not in known]
+    missing = sorted(groups.get("骨子なし（docs/specs/<fid>.md が無い）", []))
+
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "all": len(p.all_funcs()), "excluded": excluded, "wbs_n": len(funcs),
+            "buckets": {k: sorted(v) for k, v in groups.items()},
+            "actionable_phase1": [fid for fid, _ in todo],
+            "dict_gated": [fid for fid, _ in gated],
+            "spec_files_on_disk": len(on_disk), "orphan_spec_files": orphan,
+            "missing_skeletons": missing,
+        }, ensure_ascii=False, indent=1))
+        return
+
+    print(f"functions.json の全関数   : {len(p.all_funcs())}")
+    print(f"  対象外（excluded）      : {len(excluded)}")
+    print(f"  WBS の「関数数」        : {len(funcs)}  ← excluded は既に引かれている")
+    for name in sorted(groups, key=lambda k: -len(groups[k])):
+        print(f"    {len(groups[name]):6d}  {name}")
+    print(f"\n①バッチの対象（actionable）: {len(todo)}")
+    print(f"  dict-gate で外れた関数   : {len(gated)}")
+    print(f"docs/specs/ の .md         : {len(on_disk)}")
+
+    if orphan:
+        in_excl = [fid for fid in orphan if fid in set(excluded)]
+        print(f"\n! functions.json に無い/対象外の仕様書が {len(orphan)} 件"
+              f"（うち excluded {len(in_excl)}）: {', '.join(orphan[:20])}"
+              + ("…" if len(orphan) > 20 else ""))
+        print("  「作った件数」にこれが混ざると WBS の母数と合わなくなる")
+    if missing:
+        print(f"\n! 骨子が無い関数が {len(missing)} 件: {', '.join(missing[:20])}"
+              + ("…" if len(missing) > 20 else ""))
+        print("  → `ledger skeletons` で作られる（⓪の再抽出で関数が増えた後に"
+              "流し直していないとこうなる）")
+        print("  → この状態の関数は `pipeline.py run` の対象にならない"
+              "（spec ファイルが無いと次工程を決められないため）。"
+              "`pipeline.py spec` は対象にする")
+    if gated:
+        print(f"\n! dict-gate: {', '.join(fid for fid, _ in gated[:10])}"
+              + ("…" if len(gated) > 10 else ""))
+        print("  → `/legacy-0-dict` で語義を承認するか `ledger next --no-dict-gate`")
+
+
 def cmd_next_issue(p: Project, args) -> None:
     nums = [int(m.group(1)) for f in (p.docs / "issues").glob("ISSUE-*.md")
             if (m := re.match(r"ISSUE-(\d+)", f.name))]
@@ -1635,6 +1730,9 @@ def main() -> None:
     s = sub.add_parser("verify"); s.add_argument("func_id")
     s = sub.add_parser("status"); s.add_argument("func_id", nargs="?"); s.add_argument("--json", action="store_true"); s.add_argument("--summary", action="store_true")
     s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）"); s.add_argument("--flow", default=None, help="フロー名 or flow_id で対象をそのフロー到達集合に限定"); s.add_argument("--no-dict-gate", dest="dict_gate", action="store_false", default=True, help="変数辞書のゲートを解除（既定は ON: 未承認の語義が残る関数の①を除外）")
+    s = sub.add_parser("audit", help="WBS の関数数と①バッチの対象件数が合わない原因を内訳で出す")
+    s.add_argument("--flow", default=None, help="バッチに --flow を付けているなら同じ値を指定")
+    s.add_argument("--json", action="store_true")
     sub.add_parser("next-issue")
     s = sub.add_parser("flow", help="フロー（作業スコープ）の管理")
     flow_sub = s.add_subparsers(dest="flow_cmd", required=True)
@@ -1678,7 +1776,8 @@ def main() -> None:
      "init-templates": cmd_init_templates,
      "authored": cmd_authored,
      "hash": cmd_hash, "verify": cmd_verify,
-     "status": cmd_status, "next": cmd_next, "next-issue": cmd_next_issue,
+     "status": cmd_status, "next": cmd_next, "audit": cmd_audit,
+     "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,
      "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,
      "phase-start": cmd_phase_start, "phase-end": cmd_phase_end, "check": cmd_check,

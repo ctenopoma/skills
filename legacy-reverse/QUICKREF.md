@@ -53,6 +53,8 @@ ledger next --flow 月次バッチ                # フロー到達集合だけ�
 ledger next --no-dict-gate                  # 変数辞書のゲートを解除（既定は ON）
 ledger verify F-xxxx                        # ハッシュ連鎖検証（②stale・③改変・辞書stale・blocked）
 ledger wbs                                  # WBS再生成（200関数超は自動でページ分割）
+ledger audit [--flow N] [--json]            # ①の対象件数が WBS と合わないときの内訳
+                                            #   （骨子なし/dict-gate/blocked/draft待ち別に func_id を出す）
 ledger next-issue                           # 次の ISSUE 番号
 ledger unblock F-xxxx                       # 裁定反映後のブロック解除
 ledger add NAME [--file legacy/x.f ...]     # 関数の後追い追加（→ skeletons → wbs）
@@ -113,7 +115,9 @@ python <LR>/scripts/hazards.py add-policy --kind div_by_var --decision guard_rai
 ```bash
 python <LR>/scripts/review_checks.py spec F-xxxx --root .      # ①: 引用実在・🟢根拠・省略
 python <LR>/scripts/review_checks.py testspec F-xxxx --root .  # ②: トレーサビリティ・捏造SPEC
-python <LR>/scripts/review_checks.py report --root .           # ①draft の一斉レビュー表を生成
+python <LR>/scripts/review_checks.py report spec --root .      # ①draft の一斉レビュー表を生成
+python <LR>/scripts/review_checks.py report testspec --root .  # ②generated の一斉レビュー表
+#   一斉レビュー表と WBS は render_site.py では更新されない（render は HTML 化だけ）
 python <LR>/scripts/review_checks.py all --root . [--json]     # 総点検（⑥前・再開時）
 ```
 

@@ -410,6 +410,9 @@ python <LR>/scripts/build_viewer.py --root .           # レビューアへ配�
   render_site.py は `_sitework/` に `.qmd` の影コピーを作ってからレンダリングする
 - 人の対応が要るページには、**案内パネル**（機械レビューの結果と「どう返答するか」）を
   本文の先頭に焼き込む。ボタンではなく案内だけであるため、画面は閲覧専用のままである
+- **render_site.py が作るのは HTML だけ**である。WBS（`docs/index.qmd`）は `ledger wbs`、
+  一斉レビュー表（`docs/spec-review.md` / `docs/testspec-review.md`）は
+  `review_checks.py report` が作る。元の Markdown が古ければ HTML も古いまま出る
 - `docs/templates/` と `docs/prompts/` は掲載しない（成果物ではなく設定のため）
 - ④の docstring は Sphinx で「新コード詳細(API)」として `docs/_site/api` に、
   種別ごとの合本 PDF は `pdf_book.py` で別に作る（§8.7）
@@ -456,6 +459,7 @@ ledger next --flow 月次バッチ --skip-draft   # フローに絞り、人の�
 ledger authored                             # 人が書くファイルの記入状況（§4.1）
 ledger verify F-0012                        # ハッシュ連鎖（①→②、③）の検証
 ledger wbs                                  # docs/index.qmd を作り直す
+ledger audit                                # ①の対象件数が WBS と合わないときの内訳
 ```
 
 - **対象の増減**: `ledger add <名前>` で後追い追加、`ledger exclude F-0012 --reason "…"` で
@@ -464,6 +468,10 @@ ledger wbs                                  # docs/index.qmd を作り直す
 - **作業スコープ**: `ledger flow add <名前> --entry F-0001` でフローを定義すると、
   `ledger next --flow` と `pipeline.py --flow` の対象がその到達集合に限定される
 - **停止と再開**: ⑤で裁定待ちになった関数は `ledger unblock F-0012` で再開する
+- **数が合わないとき**: `ledger audit` が全関数を「なぜ①の対象に入らないか」で
+  分類して数える（骨子なし・dict-gate・blocked・draft 待ち・reviewed）。
+  判定はバッチと同じ実装を呼ぶので、内訳とバッチの見え方は必ず一致する。
+  WBS の「関数数」は excluded を**引いた後**の数なので、除外分を足すと二重に数えることになる
 - `ledger check` が⑥完了検証で、不備があれば exit 1 を返す
 - テンプレートを直した後の既存仕様書の救済は `ledger migrate-specs --dry-run` で影響を
   確かめてから実行する（本文と記入済みの欄は触らない）
@@ -501,6 +509,9 @@ python <LR>/scripts/review_checks.py template --root .         # テンプレー
 
 - `report` は人の承認待ちを1枚にまとめる（① → `docs/spec-review.md`、
   ② → `docs/testspec-review.md`）。バッチ実行後にまとめてレビューするときの入口である
+- **この表は `render_site.py` では更新されない**。render は Markdown を HTML にするだけで、
+  表の中身を作るのは `report` である（ほかに `review_actions.py` の承認・修正依頼と
+  `pipeline.py` が自動で呼ぶ）。仕様書を1件書いてレンダリングしただけでは表は古いまま残る
 - 落とす内容は §6.1 の表のとおりで、根拠 `file:lines` の実在検証、🟢 の根拠の有無、
   必須節の欠落、hazard の検討漏れ、②のトレーサビリティなどを見る
 

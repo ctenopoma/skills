@@ -54,6 +54,8 @@ legacy/・src/・tests/ は読まない**（触れたくなったら仕様の穴
    （人は CLI `review_actions.py approve testspec <func-id> --by <名前>` や
    `request-changes` で直接返してもよい。
    その場合は反映まで CLI 側で完結する）。
+   単発でも、提示の前に一斉レビュー表を作り直す。**この表は `render_site.py` では
+   更新されない**（render は Markdown を HTML にするだけで、表の中身は report が作る）。
    **複数関数をまとめて処理したときは一斉レビュー表で依頼する**:
    ```bash
    python <LR>/scripts/review_checks.py report testspec --root .   # docs/testspec-review.md
