@@ -670,7 +670,12 @@ def _queue_entry(root: Path, p: Project, f: dict) -> dict | None:
     """1関数の残タスク（/batch-queue 表示の1行）。
 
     自動実行待ちは kind=spec〜test、人待ちは approve-spec / approve-testspec /
-    adjudicate。どちらでもない（完了・⓪未了）は None。
+    adjudicate / dict-gate。どちらでもない（完了・⓪未了）は None。
+
+    dict-gate の関数を黙って落とさないのが大事——落とすと画面が「残タスクなし」に
+    見え、実際には語義の承認待ちで①が止まっている状態を人が見失う（CLI を
+    --no-dict-gate で回しているときは逆に、実行されているのに画面に出ない）。
+    画面は閲覧専用なので、ここでは「何件未承認か」だけを持たせる。
     """
     fid = f["func_id"]
     kind = _decide_kind(root, fid, include_rerun=True)
@@ -680,6 +685,11 @@ def _queue_entry(root: Path, p: Project, f: dict) -> dict | None:
     if not sp.exists():
         return None
     st = parse_frontmatter(sp.read_text(encoding="utf-8-sig")).get("status")
+    if st == "skeleton":
+        # kind が空の骨子＝dict-gate で①の対象から外れている
+        blockers = p.dict_gate_blockers(fid, spec_status=st)
+        return ({"func_id": fid, "kind": "dict-gate", "auto": False,
+                 "unapproved": len(blockers)} if blockers else None)
     if st == "draft":
         return {"func_id": fid, "kind": "approve-spec", "auto": False}
     if st != "reviewed":

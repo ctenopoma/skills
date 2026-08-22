@@ -415,6 +415,34 @@ def test_decide_kind_no_dict_gate():
     print("OK  (f) pipeline --no-dict-gate でゲートを解除できる")
 
 
+def test_batch_queue_shows_dict_gate():
+    """バッチ処理画面（/batch-queue）に dict-gate の関数が「人待ち」として出る。
+
+    黙って落とすと画面が「残タスクなし」に見え、①が語義の承認待ちで
+    止まっていることを人が見失う（CLI を --no-dict-gate で回していると、
+    実行されているのに画面に出ない、という食い違いにもなる）。
+    """
+    root = make_project()
+    assert run_ledger(root, "skeletons")[0] == 0
+    pipeline._PROJECT_CACHE.clear()
+
+    d = pipeline.batch_queue(str(root))
+    gated = [e for e in d["items"] if e["kind"] == "dict-gate"]
+    assert gated, d["items"]
+    assert all(e["auto"] is False and e["unapproved"] > 0 for e in gated), gated
+    assert d["counts"].get("human", 0) >= len(gated), d["counts"]
+
+    # 承認すれば自動実行待ち（①の作成）へ移る
+    fid = gated[0]["func_id"]
+    for vid in vars_of(root, fid):
+        approve(root, vid, f"{vid} の意味")
+    pipeline._PROJECT_CACHE.clear()
+    d2 = pipeline.batch_queue(str(root))
+    row = next(e for e in d2["items"] if e["func_id"] == fid)
+    assert row["kind"] == "spec" and row["auto"] is True, row
+    print("OK  (f) batch_queue が dict-gate を保留行として見せる")
+
+
 def test_decide_kind_without_dict():
     root = make_project(with_dict=False)
     assert run_ledger(root, "skeletons")[0] == 0
@@ -492,6 +520,7 @@ def main() -> None:
         test_old_spec_without_dict_hash_is_not_stale,
         test_decide_kind_gate,
         test_decide_kind_no_dict_gate,
+        test_batch_queue_shows_dict_gate,
         test_decide_kind_without_dict,
         test_run_one_no_model_argument,
     ]

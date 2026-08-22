@@ -255,7 +255,8 @@ const STATES = {running:["実行中","running"], waiting_rate:["レート待機�
                 stopped:["停止","stopped"], finished:["完了","finished"], not_running:["未実行","none"]};
 const PHASES = {spec:["①","仕様書"], testspec:["②","テスト仕様書"], testcode:["③","テストコード"],
                 impl:["④","実装"], test:["⑤","テスト"]};
-const HUMANS = {"approve-spec":["①","仕様書の承認待ち","wait"],
+const HUMANS = {"dict-gate":["⓪","変数辞書の語義が未承認（①はここで止まる）","wait"],
+                "approve-spec":["①","仕様書の承認待ち","wait"],
                 "approve-testspec":["②","テスト仕様書の承認待ち","wait"],
                 "adjudicate":["⑤","裁定待ち","block"]};
 const CHIP_ORDER = ["spec","testspec","testcode","impl","test"];
@@ -387,6 +388,9 @@ function rowHtml(it){
     tag = ` <span class="tag ${h[2]}">人待ち</span>`;
     if(it.kind === "adjudicate"){
       act = `<a class="btn" href="/issues/${esc(it.issue||"")}.html" target="_blank">${esc(it.issue||"ISSUE")}</a>`;
+    } else if(it.kind === "dict-gate"){
+      if(it.unapproved) label += `：未承認 ${it.unapproved} 件`;
+      act = `<a class="btn" href="/variables.html" target="_blank">辞書を開く（返答方法はページ先頭の案内）</a>`;
     } else {
       const openHref = it.kind === "approve-testspec" ? `/test-specs/${esc(it.func_id)}.html` : specHref;
       act = `<a class="btn" href="${openHref}" target="_blank">開く（返答方法はページ先頭の案内）</a>`;
