@@ -51,7 +51,7 @@ ledger status [F-xxxx] [--json|--summary]   # 状況（--summary は要約JSON�
 ledger next [--all --limit N]               # 次の一手（--all で一覧）
 ledger next --flow 月次バッチ                # フロー到達集合だけに絞る
 ledger next --no-dict-gate                  # 変数辞書のゲートを解除（既定は ON。その1回だけ効く）
-ledger set-test-file F-xxxx [PATH]          # ③のテストファイルを登録（省略時は @pytest.mark.tc から自動判定）
+ledger set-test-file F-xxxx [PATH]          # ③の書き先を登録（未作成のパスも可。省略時は @pytest.mark.tc から自動判定）
 ledger freeze-tests F-xxxx [PATH]           # ③のテストコードを freeze（test_file 未設定ならその場で確定）
 ledger verify F-xxxx                        # ハッシュ連鎖検証（②stale・③改変・辞書stale・blocked）
 ledger wbs                                  # WBS再生成（200関数超は自動でページ分割）

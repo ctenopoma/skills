@@ -24,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "legacy-reverse" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from ledger import Project, parse_frontmatter  # noqa: E402
+from ledger import Project, parse_frontmatter, test_file_of  # noqa: E402
 import extract_c  # noqa: E402
 import extract_fortran  # noqa: E402
 import review_checks  # noqa: E402
@@ -472,7 +472,9 @@ def generate_skeletons(root: str = ".", force: bool = False) -> dict:
 def set_test_file(root: str, func_id: str, path: str = "") -> dict:
     """③のテストファイルを functions.json の test_file に登録する。
 
+    **まだ存在しないパスも登録できる**（③はこれから書くので、②の直後に使える）。
     path 省略時は②のケースIDの @pytest.mark.tc を持つファイルから自動判定する。
+    `new.test_file` に入っている旧データは関数直下（正の位置）へ移す。
     """
     args = ["set-test-file", func_id] + ([path] if path else [])
     return _ledger(root, *args)
@@ -537,7 +539,7 @@ def run_tests(root: str, func_id: str) -> dict:
     if not v["ok"]:
         return {"result": "verify_ng", "detail": v["output"]}
     p = Project(rootp)
-    tf = p.func(func_id).get("test_file")
+    tf = test_file_of(p.func(func_id))
     t = _run([sys.executable, "-m", "pytest", tf, "-q", "-p", "tc_report_plugin"],
              cwd=str(rootp), env_add={"PYTHONPATH": str(SCRIPTS)})
     c = _run([sys.executable, str(SCRIPTS / "collect_results.py"), func_id, "--root", root])

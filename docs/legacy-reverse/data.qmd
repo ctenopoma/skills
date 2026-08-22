@@ -144,7 +144,10 @@ date: 2026-08-09
 - `unresolved_calls`(任意)は抽出時に解決できなかった呼び出し名。**別言語の抽出が
   走った時点で自動的に解決されて `calls` に移る**ので、抽出の実行順を問わない
 - `test_file` は⓪では省略可。③が確定させる（`ledger set-test-file <func-id> [<path>]`。
-  パス省略時は②のケースIDの `@pytest.mark.tc` から自動判定）
+  パス省略時は②のケースIDの `@pytest.mark.tc` から自動判定）。
+  **置き場所は関数直下**（`new` の下ではない）。読み取りは `new.test_file` も
+  拾うが、`ledger set-test-file` が関数直下へ寄せる。③に入る時点では
+  ファイルがまだ無いので、**未作成のパスを先に登録してよい**
 
 ## ⓪拡張のフィールド(call_sites / hazards / flows)
 

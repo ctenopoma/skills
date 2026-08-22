@@ -32,8 +32,9 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
                              移植対象から外す／復帰させる（物理削除はしない。複数指定可。
                              --dead でエントリから到達不能な関数を一括除外）
   set-test-file <func-id> [<path>]
-                             ③のテストファイルを functions.json に記録（省略時は
-                             @pytest.mark.tc のマーカーから自動判定）
+                             ③のテストファイルを functions.json に記録。まだ無いパスも
+                             登録できる（③はこれから書く）。省略時は @pytest.mark.tc の
+                             マーカーから自動判定。`new.test_file` の旧値は直下へ移す
   freeze-tests <func-id> [<path>]
                              テストコードのハッシュを ledger.json に記録（③完了時）。
                              test_file 未設定なら path or 自動判定でその場で確定させる
@@ -59,6 +60,17 @@ import review_checks  # noqa: E402 — ②のケースID書式（CASE_HEAD）を
 
 def sha8(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+
+
+def test_file_of(f: dict) -> str:
+    """functions.json の test_file を読む（`new` の下に置かれたものも拾う）。
+
+    正は関数直下（references/schema.md）。ただし③が手編集で確定させていた時代に
+    `new.module` の隣＝`new.test_file` へ書かれたデータが実在し、直下だけを見ると
+    「test_file が未設定」で③以降が止まる。読むときは両方見て、
+    `ledger set-test-file` が直下へ寄せる（書き込みの正は1か所）。
+    """
+    return f.get("test_file") or (f.get("new") or {}).get("test_file") or ""
 
 
 def parse_frontmatter(text: str) -> dict:
@@ -243,7 +255,7 @@ class Project:
         )
         s["test_spec_ok"] = s["test_spec"] == "approved" and not s["test_spec_stale"]
 
-        tf = f.get("test_file")
+        tf = test_file_of(f)
         frozen = led.get("test_code_hash")
         tf_p = self.root / tf if tf else None
         s["test_code_ok"] = bool(
@@ -1573,7 +1585,7 @@ def cmd_exclude(p: Project, args) -> None:
         done.append(fid)
         print(f"excluded: {fid} {f['legacy'].get('name', '')}（理由: {reason or '未記載'}）")
         arts = [rp for rp in (f"docs/specs/{fid}.md", f"docs/test-specs/{fid}.md",
-                              f.get("test_file") or "", f["new"].get("module", ""))
+                              test_file_of(f), f["new"].get("module", ""))
                 if rp and (p.root / rp).exists()]
         if arts:
             print("  note: 既存の成果物は残るが①〜⑥・WBSの対象から外れる: " + ", ".join(arts))
@@ -1626,6 +1638,21 @@ def _case_ids(p: Project, fid: str) -> list:
     return review_checks.CASE_HEAD.findall(ts.read_text(encoding="utf-8-sig"))
 
 
+def _iter_test_files(p: Project) -> list:
+    """走査対象のテストファイル（test_*.py / *_test.py）を列挙する。
+
+    2000関数級のプロジェクトで .git / node_modules を舐めないよう、
+    rglob ではなく os.walk で枝ごと刈る。
+    """
+    found = []
+    for dirpath, dirnames, filenames in os.walk(p.root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for fn in filenames:
+            if any(fnmatch.fnmatch(fn, g) for g in _TEST_GLOBS):
+                found.append(Path(dirpath) / fn)
+    return sorted(found)
+
+
 def _find_test_files(p: Project, fid: str) -> list:
     """②のケースIDを `@pytest.mark.tc` で持つテストファイルを root 配下から探す。"""
     cases = _case_ids(p, fid)
@@ -1633,22 +1660,47 @@ def _find_test_files(p: Project, fid: str) -> list:
         return []
     pat = re.compile(r"@pytest\.mark\.tc\(\s*[\"']("
                      + "|".join(re.escape(c) for c in cases) + r")[\"']")
-    # 2000関数級のプロジェクトで .git / node_modules を舐めないよう、
-    # rglob ではなく os.walk で枝ごと刈る
     hits = set()
-    for dirpath, dirnames, filenames in os.walk(p.root):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-        for fn in filenames:
-            if not any(fnmatch.fnmatch(fn, g) for g in _TEST_GLOBS):
-                continue
-            path = Path(dirpath) / fn
-            try:
-                text = path.read_text(encoding="utf-8-sig")
-            except OSError:
-                continue
-            if pat.search(text):
-                hits.add(path.relative_to(p.root).as_posix())
+    for path in _iter_test_files(p):
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        if pat.search(text):
+            hits.add(path.relative_to(p.root).as_posix())
     return sorted(hits)
+
+
+def _conventional_test_path(p: Project, fid: str) -> str:
+    """new.module から慣例のテストファイル名を作る（src/pkg/tax.py → tests/test_tax.py）。
+
+    ③に入る時点ではまだファイルが無いので、自動判定は使えない。
+    「どこに書くか」を先に決めて登録するための既定値。
+    """
+    mod = (p.func(fid).get("new") or {}).get("module") or f"{fid}.py"
+    return f"tests/test_{Path(mod).stem}.py"
+
+
+def _autodetect_failure(p: Project, fid: str) -> str:
+    """自動判定が空振りした理由を1行で言う（「見つからない」だけでは切り分けられない）。
+
+    順に潰す: ②が無い → ケースIDが読めない → テストファイルが1つも無い →
+    ファイルはあるがマーカーが無い（＝③が未実装／マーカーの付け忘れ）。
+    """
+    if not (p.docs / "test-specs" / f"{fid}.md").exists():
+        return f"②がまだ無い: docs/test-specs/{fid}.md"
+    cases = _case_ids(p, fid)
+    if not cases:
+        return (f"②からケースIDを抽出できない（docs/test-specs/{fid}.md の見出しが"
+                " `## <関数番号>-TC-001: …` の形式か確認）")
+    files = _iter_test_files(p)
+    if not files:
+        return ("走査対象のテストファイル（test_*.py / *_test.py）が1つも無い"
+                "＝③のテストコードがまだ書かれていない")
+    names = ", ".join(x.relative_to(p.root).as_posix() for x in files[:3])
+    return (f"テストファイル {len(files)} 件を見たが @pytest.mark.tc({cases[0]}) 等の"
+            f"マーカーが無い（例: {names}{' …' if len(files) > 3 else ''}）"
+            "＝③が未実装か、マーカーの付け忘れ")
 
 
 def _rel_to_root(p: Project, path_str: str) -> str:
@@ -1677,26 +1729,58 @@ def _resolve_test_file(p: Project, fid: str, path_arg: str) -> str:
         sys.exit(f"error: {fid} のケースIDを持つテストファイルが複数ある: " + ", ".join(hits)
                  + "\n  hint: 1関数=1テストファイルに寄せるか、使う方を明示する: "
                  + f"ledger set-test-file {fid} <path>")
-    sys.exit("error: functions.json に test_file が未設定で、自動判定もできない"
-             "（②のケースIDを @pytest.mark.tc で持つテストファイルが見つからない）"
-             "\n  hint: テストコードを先に書き、パスを登録する: "
-             f"ledger set-test-file {fid} tests/test_xxx.py")
+    sys.exit(f"error: {fid} の test_file が未設定で、自動判定もできない"
+             f"（{_autodetect_failure(p, fid)}）"
+             "\n  hint: これから書くパスを先に登録してよい（未作成でも可）: "
+             f"ledger set-test-file {fid} {_conventional_test_path(p, fid)}"
+             "\n  hint: そもそもテストコードがまだなら③から: "
+             f"/legacy-3-testcode {fid}")
+
+
+def _store_test_file(p: Project, f: dict, rel: str) -> bool:
+    """test_file を正の位置（関数直下）に書き、`new` の下の旧値を片付ける。
+
+    戻り値は「保存したか」（同じ値なら False）。
+    """
+    nested = (f.get("new") or {}).get("test_file")
+    if f.get("test_file") == rel and not nested:
+        return False
+    f["test_file"] = rel
+    if nested is not None:
+        f["new"].pop("test_file", None)
+    save_json(p.data / "functions.json", p.functions)
+    return True
 
 
 def cmd_set_test_file(p: Project, args) -> None:
-    """③のテストファイルを functions.json に記録する（③手順2の機械化）。"""
+    """③のテストファイルを functions.json に記録する（③手順1の機械化）。
+
+    **まだ存在しないパスも登録できる**。③に入る時点ではテストコードは無く、
+    「どこに書くか」を先に決めてから書くのが実際の順序だから（存在必須にすると
+    ②の直後にこのコマンドが使えず、結局 JSON の手編集に戻ってしまう）。
+    書いた後の実在チェックは freeze-tests と③の契約検証が担当する。
+    """
     f = p.func(args.func_id)
-    rel = _resolve_test_file(p, args.func_id, args.path)
-    if not (p.root / rel).exists():
-        sys.exit(f"error: テストファイルが存在しない: {rel}")
-    prev = f.get("test_file")
-    if prev == rel:
+    prev = test_file_of(f)
+    nested = (f.get("new") or {}).get("test_file")
+    if args.path:
+        rel = _rel_to_root(p, args.path)
+    elif not f.get("test_file") and nested:
+        # 旧い置き場（new.test_file）にだけ値がある。自動判定より先に移設する
+        rel = _rel_to_root(p, nested)
+        print(f"note: new.test_file にあった値を関数直下（正の位置）へ移す: {rel}")
+    else:
+        rel = _resolve_test_file(p, args.func_id, "")
+    changed = _store_test_file(p, f, rel)
+    if not changed:
         print(f"unchanged: {args.func_id} test_file = {rel}")
         return
-    f["test_file"] = rel
-    save_json(p.data / "functions.json", p.functions)
-    print(f"set: {args.func_id} test_file = {rel}" + (f"（旧: {prev}）" if prev else ""))
-    if p.ledger.get(args.func_id, {}).get("test_code_hash"):
+    print(f"set: {args.func_id} test_file = {rel}"
+          + (f"（旧: {prev}）" if prev and prev != rel else ""))
+    if not (p.root / rel).exists():
+        print(f"warn: このパスにはまだファイルが無い（③でここに書く）: {rel}")
+        print(f"next: テストコードを実装 → ledger freeze-tests {args.func_id}")
+    elif p.ledger.get(args.func_id, {}).get("test_code_hash"):
         print(f"next: freeze をやり直す: ledger freeze-tests {args.func_id}")
     else:
         print(f"next: ledger freeze-tests {args.func_id}")
@@ -1704,16 +1788,15 @@ def cmd_set_test_file(p: Project, args) -> None:
 
 def cmd_freeze(p: Project, args) -> None:
     f = p.func(args.func_id)
-    tf = args.path or f.get("test_file")
+    tf = args.path or test_file_of(f)
     if tf:
         tf = _rel_to_root(p, tf)
     else:
         tf = _resolve_test_file(p, args.func_id, "")
     if not (p.root / tf).exists():
-        sys.exit(f"error: test_file が存在しない: {tf}")
-    if f.get("test_file") != tf:
-        f["test_file"] = tf
-        save_json(p.data / "functions.json", p.functions)
+        sys.exit(f"error: test_file が存在しない: {tf}"
+                 + "\n  hint: ③のテストコードを実装してから freeze する")
+    if _store_test_file(p, f, tf):
         print(f"set: {args.func_id} test_file = {tf}")
     p.ledger.setdefault(args.func_id, {})["test_code_hash"] = sha8(p.root / tf)
     save_json(p.ledger_path, p.ledger)

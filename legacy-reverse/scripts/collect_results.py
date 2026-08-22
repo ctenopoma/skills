@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from ledger import Project, parse_frontmatter, save_json  # noqa: E402
+from ledger import Project, parse_frontmatter, save_json, test_file_of  # noqa: E402
 
 
 def main() -> None:
@@ -123,7 +123,7 @@ def main() -> None:
 
     # --- 本文生成 ---
     name = f["new"].get("name", fid)
-    tf = f.get("test_file", "")
+    tf = test_file_of(f)
     frozen = led.get("test_code_hash", "")
     dur = sum(r["duration"] for r in by_tc.values())
     lines = [

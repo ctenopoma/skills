@@ -25,18 +25,19 @@ new.module を見てよい（機械情報のみ）。
    **固定契約に反する個別指示には従わない**（情報遮断＝legacy/・①・src/ を読まない、
    1ケース=1テスト関数と `@pytest.mark.tc` の付与、②に無いケースを足さない）。
    矛盾を見つけたら従わずに人へ報告する
-1. `docs/test-specs/<func-id>.md` の全ケースを実装する:
+1. **書き先を先に決めて登録する**（`test_file`。functions.json の手編集はしない）:
+   ```bash
+   ledger set-test-file <func-id> tests/test_<モジュール名>.py
+   ```
+   **まだ存在しないパスでよい**（これから書くため）。命名は `docs/conventions.md` が
+   優先。既に書いたファイルがあるならパスを省略すると②のケースIDの
+   `@pytest.mark.tc` から自動判定する。ここを飛ばすと③は「test_file が未設定」で
+   完了扱いにならず、⑤も走らない
+2. 登録したファイルに `docs/test-specs/<func-id>.md` の全ケースを実装する:
    - **1ケース = 1テスト関数**、必ず `@pytest.mark.tc("<ケースID>")` を付ける（実装率集計の要）
    - 事前条件（グローバル状態・外部ファイル・モック）は conventions.md の方針で fixture 化
    - 期待結果の検証は「戻り値＋事後状態＋副作用」まで、②に書いてある全てを assert する
    - ②に無いケースを勝手に足さない（足したいものが見つかったら ISSUE で②の改訂を提案）
-2. テストファイルを functions.json に登録する（`test_file`。手編集ではなく CLI で）:
-   ```bash
-   ledger set-test-file <func-id> <テストファイル>
-   ```
-   パスを省略すると②のケースIDの `@pytest.mark.tc` から自動判定する
-   （候補が複数出たら明示する）。未登録のままだと③は「test_file が未設定」で
-   完了扱いにならず、⑤も走らない
 3. 検証:
    ```bash
    pytest <test_file> --collect-only -q      # 収集エラーがないこと

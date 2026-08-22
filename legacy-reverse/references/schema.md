@@ -92,7 +92,10 @@
   候補が複数見つかった場合は最初の1件が F-0000、残りは通常採番＋警告（⓪で確認）。
   コールグラフの根になるため、推奨着手順では最後に回る
 - `test_file` は ⓪では省略可。③が確定させる（`ledger set-test-file <func-id> [<path>]`。
-  パス省略時は②のケースIDの `@pytest.mark.tc` から自動判定）
+  パス省略時は②のケースIDの `@pytest.mark.tc` から自動判定）。
+  **置き場所は関数直下**（`new` の下ではない）。読み取りは `new.test_file` も
+  拾うが、`ledger set-test-file` が関数直下へ寄せる。③に入る時点では
+  ファイルがまだ無いので、**未作成のパスを先に登録してよい**
 - `unresolved_calls`（任意）— 抽出時に functions.json 内で解決できなかった呼び出し名。
   別言語の抽出（extract_c.py 等）が走った時点で自動解決されて calls に移る
   （Fortran↔C のアンダースコア規約 `foo`/`foo_` も突合される）。

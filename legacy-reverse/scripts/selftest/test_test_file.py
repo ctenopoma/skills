@@ -113,14 +113,52 @@ def test_set_test_file_accepts_explicit_path():
         print("OK  set-test-file: 明示パス（ファイル名が test_*.py でなくても可）")
 
 
-def test_set_test_file_rejects_missing_file():
+def test_set_test_file_accepts_not_yet_created_path():
+    """③に入る時点ではテストファイルはまだ無い。先に「どこに書くか」を登録できること。"""
+    with tempfile.TemporaryDirectory() as td:
+        root = setup_project(Path(td), test_code_at="")
+        rc, out, err = run_ledger(root, "set-test-file", "F-0123", "tests/test_tax.py")
+        assert rc == 0, out + err
+        assert saved_test_file(root) == "tests/test_tax.py", out
+        assert "まだファイルが無い" in out, "未作成であることを警告していない: " + out
+        print("OK  set-test-file: 未作成のパスも登録できる（②の直後に使える）")
+
+
+def test_freeze_rejects_missing_file():
+    """freeze はハッシュを取るので実在必須（登録と freeze で要件が違う）。"""
+    with tempfile.TemporaryDirectory() as td:
+        root = setup_project(Path(td), test_code_at="")
+        assert run_ledger(root, "set-test-file", "F-0123", "tests/test_tax.py")[0] == 0
+        rc, out, err = run_ledger(root, "freeze-tests", "F-0123")
+        assert rc == 1, out + err
+        assert "存在しない" in (out + err), out + err
+        print("OK  freeze-tests: 実在しないパスは freeze しない")
+
+
+def test_reads_and_migrates_test_file_under_new():
+    """`new.test_file` に入っていても「未設定」にせず読み、正の位置へ寄せること。
+
+    ③が手編集で確定させていた時代のデータが実在する（new.module の隣に書かれる）。
+    直下だけを見ていると③以降が「test_file が未設定」で止まってしまう。
+    """
     with tempfile.TemporaryDirectory() as td:
         root = setup_project(Path(td))
-        before = load_data(root)
-        rc, out, err = run_ledger(root, "set-test-file", "F-0123", "tests/nope.py")
-        assert rc == 1, out + err
-        assert load_data(root) == before, "エラー時に functions.json が変化してはいけない"
-        print("OK  set-test-file: 存在しないパスはエラーで functions.json 不変")
+        data = load_data(root)
+        data["functions"][0]["new"]["test_file"] = "tests/test_tax.py"
+        (root / "data" / "functions.json").write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        # 読み取り: 「未設定」ではなく freeze 未実行として扱われる
+        ok, why, _ = pipeline.verify_testcode(str(root), "F-0123")
+        assert not ok and "未設定" not in why, why
+
+        # 書き込み: 直下へ移して new からは消す
+        rc, out, err = run_ledger(root, "set-test-file", "F-0123")
+        assert rc == 0, out + err
+        f = load_data(root)["functions"][0]
+        assert f.get("test_file") == "tests/test_tax.py", f
+        assert "test_file" not in f["new"], f["new"]
+        print("OK  new.test_file: 読めるし、正の位置へ移設される")
 
 
 def test_set_test_file_reports_no_candidate_with_hint():
@@ -131,6 +169,33 @@ def test_set_test_file_reports_no_candidate_with_hint():
         msg = out + err
         assert "test_file" in msg and "set-test-file" in msg, msg
         print("OK  set-test-file: 候補ゼロは直し方つきのエラー")
+
+
+def test_no_candidate_message_names_the_cause():
+    """空振りの理由を4通りに切り分けて言うこと（「見つからない」だけだと直せない）。"""
+    cases = [
+        # (プロジェクトの作り方, メッセージに出るべき語)
+        ("no_testspec", "②がまだ無い"),
+        ("bad_heading", "ケースIDを抽出できない"),
+        ("no_test_files", "1つも無い"),
+        ("no_marker", "マーカーが無い"),
+    ]
+    for kind, expected in cases:
+        with tempfile.TemporaryDirectory() as td:
+            root = setup_project(Path(td), test_code_at="")
+            if kind == "no_testspec":
+                (root / "docs" / "test-specs" / "F-0123.md").unlink()
+            elif kind == "bad_heading":
+                (root / "docs" / "test-specs" / "F-0123.md").write_text(
+                    "---\nstatus: approved\n---\n\n# ケース一覧\n", encoding="utf-8")
+            elif kind == "no_marker":
+                (root / "tests").mkdir(exist_ok=True)
+                (root / "tests" / "test_tax.py").write_text(
+                    "def test_normal():\n    assert True\n", encoding="utf-8")
+            rc, out, err = run_ledger(root, "set-test-file", "F-0123")
+            assert rc == 1, out + err
+            assert expected in (out + err), f"[{kind}] 理由が出ていない: {out + err}"
+        print(f"OK  自動判定の空振り理由: {kind}")
 
 
 def test_set_test_file_reports_multiple_candidates():
@@ -183,9 +248,12 @@ def main() -> None:
     tests = [
         test_set_test_file_autodetects_from_markers,
         test_set_test_file_accepts_explicit_path,
-        test_set_test_file_rejects_missing_file,
+        test_set_test_file_accepts_not_yet_created_path,
+        test_freeze_rejects_missing_file,
+        test_reads_and_migrates_test_file_under_new,
         test_set_test_file_reports_no_candidate_with_hint,
         test_set_test_file_reports_multiple_candidates,
+        test_no_candidate_message_names_the_cause,
         test_freeze_tests_sets_test_file_when_unset,
         test_freeze_tests_accepts_path_argument,
         test_verify_testcode_message_tells_how_to_fix,

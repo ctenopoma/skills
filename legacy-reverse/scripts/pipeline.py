@@ -75,7 +75,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ledger import Project, actionable, parse_frontmatter, resolve_flow_fids  # noqa: E402
+from ledger import (Project, actionable, parse_frontmatter,  # noqa: E402
+                    resolve_flow_fids, test_file_of)
 import check_stubs  # noqa: E402
 import review_checks  # noqa: E402
 import review_actions  # noqa: E402  修正依頼(pending)の検出・チャンク境界のサイト更新に使う
@@ -361,7 +362,7 @@ def verify_testcode(root: str, fid: str) -> tuple:
         f = p.func(fid)
     except SystemExit:
         return False, f"{fid} が functions.json に存在しない", []
-    tf = f.get("test_file")
+    tf = test_file_of(f)
     if not tf:
         return False, "functions.json に test_file が未設定（ledger set-test-file で登録する）", []
     tf_p = rootp / tf
