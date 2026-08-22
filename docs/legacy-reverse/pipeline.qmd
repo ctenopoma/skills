@@ -57,7 +57,7 @@ desc を埋めさせない**ため。引用は ev_id でしか行えず、実在
 
 | 仕組み | 効果 | 解除・指定 |
 |--------|------|-----------|
-| **dict-gate**(既定 ON) | その関数の変数に approved でない語義が残っている間、①の対象から除外する。判定の唯一の実装は `ledger.Project.dict_gate_blockers` で、`ledger next` とブラウザの実行ボタンが共有する | `ledger next --no-dict-gate`。免除は ①辞書の無いプロジェクト ②spec が既に draft / reviewed の関数 |
+| **dict-gate**(既定 ON) | その関数の変数に approved でない語義が残っている間、①の対象から除外する。判定の唯一の実装は `ledger.Project.dict_gate_blockers` で、`ledger next` とブラウザの実行ボタンが共有する | `--no-dict-gate`(`ledger next` / `ledger audit` / `pipeline.py spec` / `pipeline.py run` に共通。その1回の実行にだけ効き、辞書の status は変えない)。免除は ①辞書の無いプロジェクト ②spec が既に draft / reviewed の関数 |
 | **--flow** | 対象をそのフローの到達集合に限定する(「このフローだけ今日やる」) | `ledger next --flow <名前\|FL-01>` / `pipeline.py spec\|run\|dict --flow …` |
 : ①の対象選定に効く 2 つの絞り込み {#tbl-pipe-gates}
 

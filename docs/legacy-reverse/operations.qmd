@@ -466,6 +466,7 @@ conventions.md を途中で変更した場合、skill が変更を検知して
 | WBS に stale⚠ | ①改訂で②が古い | `/legacy-2-testspec` で再生成 → 再承認 |
 | WBS に 辞書⚠(辞書stale) | 承認後に語義が改訂され、①生成時の dict-hash とずれた | `variables.py conflicts` の docs/dict-conflicts.md を読み、**直すかどうかは人が決める**(reviewed 済みは自動修正しない) |
 | `ledger next` が「対象なし(dict-gate で N 関数を除外)」 | 語義が未承認の関数は①に進めない(正常動作) | 辞書ページで承認を進める。急ぐときだけ `--no-dict-gate` |
+| `--no-dict-gate` を打ったのに `audit` や `pipeline.py spec` がまだ止まっていると出る | フラグは**その1回の実行にだけ**効き、辞書の status は変えない。付けなかった入口は既定(ゲート ON)で判定する | 解除運用中は `ledger next` / `ledger audit` / `pipeline.py spec` / `pipeline.py run` の**すべてに毎回**付ける |
 | ①の機械レビューが「未決定のまま仕様化」NG | その関数の hazard に EP が割り当たっていない | docs/exception-queue.md で決定 → `hazards.py add-policy` → 自動で再突合 → ①を再実行 |
 | ①の機械レビューが「EP-ID の捏造」NG | 登録簿に無い EP-ID を仕様書が引用した | 実在する EP を引くか、必要なら `add-policy` で登録してから引用させる |
 | 辞書バッチが全件 NG | 対象 var_id 集合との不一致 or ev_id の捏造(verify-interp が全件差し戻し) | `.legacy-reverse/agent-logs/dict_*.txt` を読む。**根拠が無いものは desc「不明」で返すのが正しい**(rank D で人のキューに回る) |

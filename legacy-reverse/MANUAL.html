@@ -3433,7 +3433,7 @@ code { font-size: .92em; }
 <span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/variables.py conflicts <span class="at">--root</span> .                    <span class="co"># 仕様書と辞書の矛盾候補</span></span></code></pre></div><button title="コピー" class="code-copy-button"><i class="bi"></i></button></div>
 <ul>
 <li>再 <code>build</code> は常にマージであり、<code>V-xxxx</code> は不変、承認済みの語義も保たれる</li>
-<li>未承認の語義が残る関数は①に進めない（dict-gate）。外すなら <code>ledger next --no-dict-gate</code></li>
+<li>未承認の語義が残る関数は①に進めない（dict-gate）。辞書の整理を後回しにして①を 先に進めるなら <code>--no-dict-gate</code> を付ける。<code>ledger next</code> / <code>ledger audit</code> / <code>pipeline.py spec</code> / <code>pipeline.py run</code> のどれにも同じフラグがある。 <strong>フラグはその1回の実行にだけ効き、辞書の status は変えない</strong>ので、 解除して回すなら毎回付ける（<code>audit</code> に付け忘れると件数が食い違って見える）</li>
 </ul>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/hazards.py status <span class="at">--root</span> .    <span class="co"># 決定済み/未決定の件数</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="op">&lt;</span>LR<span class="op">&gt;</span>/scripts/hazards.py match <span class="at">--root</span> .     <span class="co"># 突合し、未決定を docs/exception-queue.md へ</span></span>

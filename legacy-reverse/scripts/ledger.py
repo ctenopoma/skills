@@ -1358,7 +1358,9 @@ def cmd_audit(p: Project, args) -> None:
     _, groups = audit_buckets(p, flow_fids)
 
     gated: list = []
-    todo = actionable(p, phase="1", skip_wait=True, flow_fids=flow_fids, gated=gated)
+    dict_gate = getattr(args, "dict_gate", True)
+    todo = actionable(p, phase="1", skip_wait=True, flow_fids=flow_fids,
+                      dict_gate=dict_gate, gated=gated)
 
     on_disk = sorted(q.stem for q in (p.docs / "specs").glob("F-*.md"))
     known = {f["func_id"] for f in funcs}
@@ -1382,7 +1384,9 @@ def cmd_audit(p: Project, args) -> None:
     for name in sorted(groups, key=lambda k: -len(groups[k])):
         print(f"    {len(groups[name]):6d}  {name}")
     print(f"\n①バッチの対象（actionable）: {len(todo)}")
-    print(f"  dict-gate で外れた関数   : {len(gated)}")
+    print(f"  dict-gate で外れた関数   : {len(gated)}"
+          + ("" if dict_gate else "  ← 解除中なので 0"
+                                  "（未承認の語義自体は残っている）"))
     print(f"docs/specs/ の .md         : {len(on_disk)}")
 
     if orphan:
@@ -1402,7 +1406,11 @@ def cmd_audit(p: Project, args) -> None:
     if gated:
         print(f"\n! dict-gate: {', '.join(fid for fid, _ in gated[:10])}"
               + ("…" if len(gated) > 10 else ""))
-        print("  → `/legacy-0-dict` で語義を承認するか `ledger next --no-dict-gate`")
+        print("  → `/legacy-0-dict` で語義を承認するか、"
+              "`--no-dict-gate` を付けて先に①を進める"
+              "（`ledger next` / `pipeline.py spec` / `pipeline.py run` と "
+              "この `audit` のすべてに同じフラグがある。"
+              "フラグはその1回の実行にだけ効き、辞書の status は変えない）")
 
 
 def cmd_next_issue(p: Project, args) -> None:
@@ -1732,6 +1740,9 @@ def main() -> None:
     s = sub.add_parser("next"); s.add_argument("--all", action="store_true"); s.add_argument("--limit", type=int, default=20); s.add_argument("--phase", help="1〜5 でフェーズ絞り込み（バッチ実行の対象選定用）"); s.add_argument("--skip-draft", action="store_true", help="人のレビュー/承認待ち（①draft・②generated）を除外（バッチ再開用）"); s.add_argument("--flow", default=None, help="フロー名 or flow_id で対象をそのフロー到達集合に限定"); s.add_argument("--no-dict-gate", dest="dict_gate", action="store_false", default=True, help="変数辞書のゲートを解除（既定は ON: 未承認の語義が残る関数の①を除外）")
     s = sub.add_parser("audit", help="WBS の関数数と①バッチの対象件数が合わない原因を内訳で出す")
     s.add_argument("--flow", default=None, help="バッチに --flow を付けているなら同じ値を指定")
+    s.add_argument("--no-dict-gate", dest="dict_gate", action="store_false", default=True,
+                   help="バッチに --no-dict-gate を付けているなら同じ指定にする"
+                        "（付けないと解除運用中でも「dict-gate で外れた」と出て件数が食い違う）")
     s.add_argument("--json", action="store_true")
     sub.add_parser("next-issue")
     s = sub.add_parser("flow", help="フロー（作業スコープ）の管理")
@@ -1767,6 +1778,11 @@ def main() -> None:
     sub.add_parser("phase-end")
     sub.add_parser("check")
     sub.add_parser("sphinx-index")
+    # ①⑥⓪ や絵文字を print するので、cp932 コンソールや
+    # パイプへの出力で UnicodeEncodeError で落ちないようにしておく
+    # （特に ⓪ は cp932 に無い。audit / status がこれで落ちていた）
+    import serve_site
+    serve_site.use_utf8_console()
     args = ap.parse_args()
     p = Project(Path(args.root).resolve())
     if args.cmd == "flow":

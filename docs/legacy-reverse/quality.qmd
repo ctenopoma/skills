@@ -67,7 +67,10 @@ rank A / B は一括承認候補、C / D は人が 1 件ずつ確定させる。
   連続実行の対象選定(`pipeline._decide_kind`)が共有する
 - 免除は 2 つ — ①data/variables.json が無いプロジェクト(従来どおり)
   ②spec が既に **draft / reviewed** の関数(仕様化済みを今更止めても意味がない)
-- 解除は `--no-dict-gate`。除外された関数と未承認の var_id は理由つきで表示される
+- 解除は `--no-dict-gate`(`ledger next` / `ledger audit` / `pipeline.py spec` /
+  `pipeline.py run` に共通)。除外された関数と未承認の var_id は理由つきで表示される
+- フラグは**その1回の実行にだけ**効く。辞書の status は書き換えないので、
+  解除運用中は各入口に毎回付ける(`audit` に付け忘れると件数が食い違って見える)
 - ゲートに掛かったら**辞書の承認を進めるのが正しい対処**(解除は例外運用)
 
 ## dict-hash(承認後の語義改訂の検知)

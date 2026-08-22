@@ -176,7 +176,11 @@ python <LR>/scripts/variables.py conflicts --root .      # docs/dict-conflicts.m
   連続実行の対象選定（`pipeline._decide_kind`）が共有する
 - 免除: ①data/variables.json が無いプロジェクト（従来どおり）
   ②spec が既に **draft / reviewed** の関数（仕様化済みを今更止めても意味がない）
-- 解除: `ledger next --no-dict-gate`。除外された関数と未承認 var_id は next が理由つきで表示する
+- 解除: `--no-dict-gate`。`ledger next` / `ledger audit` / `pipeline.py spec` /
+  `pipeline.py run` のどれにも同じフラグがある。除外された関数と未承認 var_id は
+  理由つきで表示される
+- **フラグは1回の実行にだけ効き、辞書の status は書き換えない**。解除運用中は
+  すべての入口に毎回付ける（`audit` に付け忘れると「まだ止まっている」ように見える）
 - ゲートに掛かったら、辞書の承認を進めるのが正しい対処（解除は例外運用）
 
 ### フロー（作業スコープ）

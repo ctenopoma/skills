@@ -509,12 +509,15 @@ def _rerun_wanted(root: Path, fid: str, kind: str) -> bool:
     return not check(str(root), fid)["ok"]
 
 
-def _decide_kind(root: Path, fid: str, include_rerun: bool = False) -> str | None:
+def _decide_kind(root: Path, fid: str, include_rerun: bool = False,
+                 dict_gate: bool = True) -> str | None:
     """この関数について①〜⑤のうち次に着手すべき工程を1つ返す（無ければ None）。
 
     ①draft中・②generated中は人の承認待ちなので通常は対象外。
     include_rerun=True のとき（連続実行バッチ）は、修正依頼(pending)・
     機械レビューNGが残る draft/generated の再実行も許可する（自動修復）。
+    dict_gate=False は変数辞書のゲートを解除する（`--no-dict-gate`。
+    辞書の整理を後回しにして①を先に進める運用。CLI の `ledger next` と同じ意味）。
     """
     sp = root / "docs" / "specs" / f"{fid}.md"
     if not sp.exists():
@@ -525,7 +528,7 @@ def _decide_kind(root: Path, fid: str, include_rerun: bool = False) -> str | Non
         # dict-gate（設計 P2）: 変数の語義が未承認のまま①を書かせない。
         # 判定は ledger.Project.dict_gate_blockers が唯一の実装（CLI の
         # `ledger next` と共有）。辞書が無いプロジェクトでは常に空＝従来どおり
-        if _project(root).dict_gate_blockers(fid, spec_status=status):
+        if dict_gate and _project(root).dict_gate_blockers(fid, spec_status=status):
             return None
         return "spec"
     if status == "draft":
@@ -633,11 +636,12 @@ def prioritize(root: str, fid: str, on: bool = True) -> dict:
     return {"ok": True, "message": msg}
 
 
-def _scan_targets(root: Path, skip: set, flow_fids=None) -> list:
+def _scan_targets(root: Path, skip: set, flow_fids=None, dict_gate: bool = True) -> list:
     """次に着手できる (func_id, kind) の一覧（承認待ち等を除いた自動実行対象）。
 
     flow_fids（set|None）を渡すと、その集合に無い func_id を除く
     （`run --flow` がこの引数で対象を絞る）。
+    dict_gate=False で変数辞書のゲートを解除する（`run --no-dict-gate`）。
     """
     # ⭐優先の retry 分は失敗スキップを解除してから走査する（skip を直接削る。
     # ワンショット消費なので保存し直す）
@@ -653,7 +657,7 @@ def _scan_targets(root: Path, skip: set, flow_fids=None) -> list:
         fid = f["func_id"]
         if flow_fids is not None and fid not in flow_fids:
             continue
-        kind = _decide_kind(root, fid, include_rerun=True)
+        kind = _decide_kind(root, fid, include_rerun=True, dict_gate=dict_gate)
         if kind and (fid, kind) not in skip:
             out.append((fid, kind))
     # ⭐優先を先頭へ（⭐順）。それ以外は functions.json 順のまま（安定ソート）
@@ -1016,12 +1020,15 @@ def cmd_spec(args) -> None:
                  if f not in skip and (flow_fids is None or f in flow_fids)]
         gated: list = []
         fresh = [fid for fid, _ in actionable(Project(root), phase="1", skip_wait=True,
-                                              flow_fids=flow_fids, gated=gated)
+                                              flow_fids=flow_fids,
+                                              dict_gate=getattr(args, "dict_gate", True),
+                                              gated=gated)
                  if fid not in skip]
         if gated:
             # dict-gate（設計 P2）。変数辞書が無いプロジェクトでは常に空＝従来どおり
             print(f"dict-gate: 未承認の語義が残る {len(gated)} 関数を①の対象から外した"
-                  "（チャットで `/legacy-0-dict` → 辞書ページで承認 → 再実行）")
+                  "（チャットで `/legacy-0-dict` → 辞書ページで承認 → 再実行。"
+                  "辞書を後回しにして①を先に進めるなら --no-dict-gate）")
         return repair + fresh
 
     todo = targets()
@@ -1139,7 +1146,8 @@ def cmd_run(args) -> None:
         print("工程を限定: " + "・".join(label(k) for k in KINDS if k in only))
 
     def scan(skip: set) -> list:
-        t = _scan_targets(root, skip, flow_fids=flow_fids)
+        t = _scan_targets(root, skip, flow_fids=flow_fids,
+                          dict_gate=getattr(args, "dict_gate", True))
         return [x for x in t if x[1] in only] if only else t
 
     targets = scan(set())
@@ -1322,6 +1330,10 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--flow", default=None,
                        help="フロー名 or flow_id で対象をそのフロー到達集合に限定"
                             "（ledger flow add で定義したもの。人が「このフローだけ作業」と指定できる）")
+        s.add_argument("--no-dict-gate", dest="dict_gate", action="store_false", default=True,
+                       help="変数辞書のゲートを解除（既定は ON: 未承認の語義が残る関数の①を除外）。"
+                            "辞書の整理を後回しにして①を先に進めるとき。"
+                            "`ledger next --no-dict-gate` と同じ意味")
 
     s = sub.add_parser("spec", help="①仕様書を全件 draft まで無人実行（→ 人が一斉レビュー）")
     add_driver_args(s, chunk_default=10)

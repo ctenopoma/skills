@@ -529,7 +529,11 @@ python <LR>/scripts/variables.py conflicts --root .                    # 仕様�
 ```
 
 - 再 `build` は常にマージであり、`V-xxxx` は不変、承認済みの語義も保たれる
-- 未承認の語義が残る関数は①に進めない（dict-gate）。外すなら `ledger next --no-dict-gate`
+- 未承認の語義が残る関数は①に進めない（dict-gate）。辞書の整理を後回しにして①を
+  先に進めるなら `--no-dict-gate` を付ける。`ledger next` / `ledger audit` /
+  `pipeline.py spec` / `pipeline.py run` のどれにも同じフラグがある。
+  **フラグはその1回の実行にだけ効き、辞書の status は変えない**ので、
+  解除して回すなら毎回付ける（`audit` に付け忘れると件数が食い違って見える）
 
 ```bash
 python <LR>/scripts/hazards.py status --root .    # 決定済み/未決定の件数

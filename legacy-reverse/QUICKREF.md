@@ -50,10 +50,10 @@ ISSUE に回答 → AIが反映 → `ledger unblock F-xxxx` → `/legacy-5-test 
 ledger status [F-xxxx] [--json|--summary]   # 状況（--summary は要約JSON）
 ledger next [--all --limit N]               # 次の一手（--all で一覧）
 ledger next --flow 月次バッチ                # フロー到達集合だけに絞る
-ledger next --no-dict-gate                  # 変数辞書のゲートを解除（既定は ON）
+ledger next --no-dict-gate                  # 変数辞書のゲートを解除（既定は ON。その1回だけ効く）
 ledger verify F-xxxx                        # ハッシュ連鎖検証（②stale・③改変・辞書stale・blocked）
 ledger wbs                                  # WBS再生成（200関数超は自動でページ分割）
-ledger audit [--flow N] [--json]            # ①の対象件数が WBS と合わないときの内訳
+ledger audit [--flow N] [--no-dict-gate] [--json]   # ①の対象件数が WBS と合わないときの内訳
                                             #   （骨子なし/dict-gate/blocked/draft待ち別に func_id を出す）
 ledger next-issue                           # 次の ISSUE 番号
 ledger unblock F-xxxx                       # 裁定反映後のブロック解除
