@@ -255,7 +255,7 @@ const STATES = {running:["実行中","running"], waiting_rate:["レート待機�
                 stopped:["停止","stopped"], finished:["完了","finished"], not_running:["未実行","none"]};
 const PHASES = {spec:["①","仕様書"], testspec:["②","テスト仕様書"], testcode:["③","テストコード"],
                 impl:["④","実装"], test:["⑤","テスト"]};
-const HUMANS = {"dict-gate":["⓪","変数辞書の語義が未承認（①はここで止まる）","wait"],
+const HUMANS = {"dict-gate":["①","変数辞書の語義が未承認のため保留（承認すると①へ進む）","wait"],
                 "approve-spec":["①","仕様書の承認待ち","wait"],
                 "approve-testspec":["②","テスト仕様書の承認待ち","wait"],
                 "adjudicate":["⑤","裁定待ち","block"]};
@@ -350,13 +350,15 @@ function renderQueue(d, q){
   queueItems = d.items || [];
   document.getElementById("qtotal").textContent = d.total.toLocaleString() + "件";
   const c = d.counts || {};
-  const autoTotal = d.total - (c.human||0);
+  const gateN = c["dict-gate"]||0;
+  const autoTotal = d.total - (c.human||0) - gateN;   // 保留は解除しない限り実行されない
   const allOpt = document.querySelector("#bmax option[value='0']");
   if(allOpt) allOpt.textContent = `全部（残り${autoTotal.toLocaleString()}件）`;
   document.getElementById("qchips").innerHTML =
     [`<button class="tab${chipK===""?" on":""}" onclick="setChip('')">すべて</button>`]
-    .concat(CHIP_ORDER.filter(k=>c[k]).map(k =>
-      `<button class="tab${chipK===k?" on":""}" onclick="setChip('${k}')">${PHASES[k][0]}${c[k]}</button>`))
+    .concat(CHIP_ORDER.filter(k=>c[k]||(k==="spec"&&gateN)).map(k =>
+      `<button class="tab${chipK===k?" on":""}" onclick="setChip('${k}')">${PHASES[k][0]}${c[k]||0}` +
+      (k==="spec"&&gateN ? `<span style="color:#d97706">＋保留${gateN}</span>` : "") + `</button>`))
     .concat(c.human ? [`<button class="tab${chipK==="human"?" on":""}" style="border-color:#d97706;color:${chipK==="human"?"#fff":"#d97706"};${chipK==="human"?"background:#d97706;":""}"
         onclick="setChip('human')">人待ち ${c.human}</button>`] : [])
     .join("");
@@ -390,6 +392,7 @@ function rowHtml(it){
       act = `<a class="btn" href="/issues/${esc(it.issue||"")}.html" target="_blank">${esc(it.issue||"ISSUE")}</a>`;
     } else if(it.kind === "dict-gate"){
       if(it.unapproved) label += `：未承認 ${it.unapproved} 件`;
+      tag = ` <span class="tag wait">保留</span>`;   // 人待ちではなく①の保留として見せる
       act = `<a class="btn" href="/variables.html" target="_blank">辞書を開く（返答方法はページ先頭の案内）</a>`;
     } else {
       const openHref = it.kind === "approve-testspec" ? `/test-specs/${esc(it.func_id)}.html` : specHref;

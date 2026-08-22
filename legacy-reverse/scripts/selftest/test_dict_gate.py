@@ -430,7 +430,12 @@ def test_batch_queue_shows_dict_gate():
     gated = [e for e in d["items"] if e["kind"] == "dict-gate"]
     assert gated, d["items"]
     assert all(e["auto"] is False and e["unapproved"] > 0 for e in gated), gated
-    assert d["counts"].get("human", 0) >= len(gated), d["counts"]
+    # 人待ち（承認・裁定）とは別立てで数え、①のチップから辿れる
+    assert d["counts"].get("dict-gate") == len(gated), d["counts"]
+    assert "dict-gate" not in [e["kind"] for e in pipeline.batch_queue(
+        str(root), chip="human")["items"]]
+    chip1 = pipeline.batch_queue(str(root), chip="spec")["items"]
+    assert all(e["func_id"] in {g["func_id"] for g in gated} for e in chip1), chip1
 
     # 承認すれば自動実行待ち（①の作成）へ移る
     fid = gated[0]["func_id"]

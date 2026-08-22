@@ -742,13 +742,21 @@ def batch_queue(root: str, q: str = "", chip: str = "") -> dict:
         elif e["auto"]:
             pos += 1
             e["pos"] = pos
+    # dict-gate は「①が止まっている」話なので、人待ち（承認・裁定）に混ぜず
+    # 独立した件数にして①のチップから辿れるようにする（自動実行の残り件数にも
+    # 入れない＝ゲートを解除しない限り実行されないため）
     counts: dict = {}
     for e in entries:
-        k = e["kind"] if e["auto"] else "human"
+        k = "dict-gate" if e["kind"] == "dict-gate" else (e["kind"] if e["auto"] else "human")
         counts[k] = counts.get(k, 0) + 1
     lst = entries
     if chip == "human":
-        lst = [e for e in lst if not e["auto"]]
+        lst = [e for e in lst if not e["auto"] and e["kind"] != "dict-gate"]
+    elif chip == "spec":                   # ①のチップは「作成待ち＋dict-gate 保留」
+        lst = [e for e in lst
+               if (e["auto"] and e["kind"] == "spec") or e["kind"] == "dict-gate"]
+    elif chip == "dict-gate":
+        lst = [e for e in lst if e["kind"] == "dict-gate"]
     elif chip:
         lst = [e for e in lst if e["auto"] and e["kind"] == chip]
     if q:
