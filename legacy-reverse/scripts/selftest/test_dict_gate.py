@@ -15,10 +15,12 @@ scripts/selftest/fixture_vars/ を毎回テンポラリにコピーし、variabl
       承認後に desc を変えたときの dict_stale 検出
       （verify のメッセージと exit / WBS の ⚠ 表示）
   (e) 旧骨子（dict-hash 行が無い spec）は stale 扱いにしない
-  (f) pipeline._decide_kind のゲート（ledger 側の共通実装を参照していること）
+  (f) pipeline._decide_kind のゲートと `--no-dict-gate` での解除
+      （判定は ledger 側の共通実装を参照していること）
   (g) run_one が余分な起動引数を足さないこと（モデルは選ばない）と、
       応答ログのファイル名の正規化
 """
+import atexit
 import contextlib
 import io
 import json
@@ -40,6 +42,8 @@ import ledger        # noqa: E402
 import pipeline      # noqa: E402
 
 _TMPDIRS = []
+# 後方互換比較用に HEAD 版 ledger.py を置く場所（テスト中だけ存在）
+_HEAD_COPY = SCRIPTS_DIR / "_ledger_head_selftest.py"
 
 
 # ---------- 基盤 ----------
@@ -55,7 +59,11 @@ def make_project(with_dict: bool = True) -> Path:
 
 
 def _env() -> dict:
-    return {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # PYTHONPATH: 比較用に temp へ書き出した旧 ledger.py（_old_ledger）も
+    # 兄弟モジュール（graph.py 等）を import できるようにする。
+    # これが無いと旧コピーが ModuleNotFoundError で落ち、
+    # 後方互換の比較そのものが成立しない
+    return {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONPATH": str(SCRIPTS_DIR)}
 
 
 def run_ledger(root: Path, *args, script: Path = None):
@@ -180,12 +188,14 @@ def test_gate_exempts_draft_and_reviewed():
 
 # ---------- (c) variables.json 無しの後方互換（改修前の出力とバイト一致） ----------
 
-def _old_ledger(dest: Path) -> Path | None:
-    """git HEAD の scripts/ledger.py を取り出す（取れなければ None）。
+def _old_ledger() -> "Path | None":
+    """git HEAD の ledger.py を scripts/ の中に一時ファイルとして書き出す。
 
-    HEAD は M1〜M4（グラフ・辞書・フロー・hazards）より前の版なので、
-    「辞書を持たないプロジェクトなら**今の実装でも当時と同じ出力になる**」という
-    最も強い後方互換の基準として使える（骨子だけは M4 の節の分だけ差が出る）。
+    temp ディレクトリではなく scripts/ に置くのは、ledger.py が
+    兄弟モジュール（graph.py）と `__file__` 起点の assets/templates を
+    参照するため（temp から実行すると ModuleNotFoundError や
+    テンプレ不在で落ち、後方互換の比較そのものが成立しない）。
+    後始末は atexit で行う（途中で落ちてもリポジトリに残さない）。
     """
     try:
         prefix = subprocess.run(["git", "-C", str(SCRIPTS_DIR), "rev-parse", "--show-prefix"],
@@ -194,15 +204,20 @@ def _old_ledger(dest: Path) -> Path | None:
                               capture_output=True, text=True, encoding="utf-8", check=True).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
-    p = dest / "ledger_old.py"
-    p.write_text(blob, encoding="utf-8")
-    return p
+    _HEAD_COPY.write_text(blob, encoding="utf-8")
+    atexit.register(_rm_head_copy)
+    return _HEAD_COPY
+
+
+def _rm_head_copy() -> None:
+    try:
+        _HEAD_COPY.unlink()
+    except OSError:
+        pass
 
 
 def test_no_dict_backward_compat():
-    old_dir = Path(tempfile.mkdtemp(prefix="lr-oldledger-"))
-    _TMPDIRS.append(old_dir)
-    old = _old_ledger(old_dir)
+    old = _old_ledger()
     root_new = make_project(with_dict=False)
     root_old = make_project(with_dict=False)
     assert not (root_new / "data" / "variables.json").exists()
@@ -238,11 +253,17 @@ def test_no_dict_backward_compat():
              if l.startswith("+ ")]
     assert not any("dict" in l or "辞書" in l for l in added), added
 
-    # status --json も既存キーを壊していない（dict_stale が増えるだけ）
+    # status --json も既存キーを壊していない。dict_stale は辞書機能で
+    # 増えたキーなので両辺から落として比べる（機能が HEAD に入る前は
+    # 旧側に無く、入った後は両方にある―どちらでも成立させる）
     _, sj_new, _ = run_ledger(root_new, "status", "--json")
     _, sj_old, _ = run_ledger(root_old, "status", "--json", script=old)
     a, b = json.loads(sj_new), json.loads(sj_old)
-    assert [{k: v for k, v in s.items() if k != "dict_stale"} for s in a] == b
+
+    def _wo_dict(rows: list) -> list:
+        return [{k: v for k, v in row.items() if k != "dict_stale"} for row in rows]
+
+    assert _wo_dict(a) == _wo_dict(b)
     assert all(s["dict_stale"] is False for s in a)
     print("OK  (c) variables.json 無しは next / wbs / skeletons / status が改修前と完全一致")
 
@@ -373,6 +394,27 @@ def test_decide_kind_gate():
     print("OK  (f) _decide_kind の dict-gate（ledger 共通実装を参照）")
 
 
+def test_decide_kind_no_dict_gate():
+    """`pipeline.py spec|run --no-dict-gate` でゲートを解除できる。
+
+    辞書の整理を後回しにして①を先に進める運用（フラグはその1回の実行にだけ効き、
+    辞書の status は変えない）。`ledger next --no-dict-gate` と同じ意味。
+    """
+    root = make_project()
+    assert run_ledger(root, "skeletons")[0] == 0
+    pipeline._PROJECT_CACHE.clear()
+
+    assert pipeline._decide_kind(root, "F-0003") is None, "既定はゲート ON"
+    assert pipeline._decide_kind(root, "F-0003", dict_gate=False) == "spec"
+
+    # CLI にフラグが生えていて、既定は ON（＝ゲートが効く）
+    ap = pipeline.build_parser()
+    for cmd in ("spec", "run"):
+        assert ap.parse_args([cmd]).dict_gate is True, cmd
+        assert ap.parse_args([cmd, "--no-dict-gate"]).dict_gate is False, cmd
+    print("OK  (f) pipeline --no-dict-gate でゲートを解除できる")
+
+
 def test_decide_kind_without_dict():
     root = make_project(with_dict=False)
     assert run_ledger(root, "skeletons")[0] == 0
@@ -449,6 +491,7 @@ def main() -> None:
         test_dict_stale_detected_after_revision,
         test_old_spec_without_dict_hash_is_not_stale,
         test_decide_kind_gate,
+        test_decide_kind_no_dict_gate,
         test_decide_kind_without_dict,
         test_run_one_no_model_argument,
     ]

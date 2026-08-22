@@ -27,7 +27,8 @@ python -m pytest legacy-reverse/scripts/selftest -q
 ```
 
 `test_skill_docs.py` が上のチェックを回帰テストとして持っている（＝チェックを
-忘れても pytest で落ちる）。既知の失敗は `test_no_dict_backward_compat`（改修前から）。
+忘れても pytest で落ちる）。**現在は全件 pass（既知の失敗は無い）**なので、
+1件でも落ちたらそれは今回の変更が原因と思って調べること。
 
 ## 3. 生成物の作り直し
 
