@@ -91,7 +91,8 @@
   無い F77 暗黙メイン / C の `main`。判定はファイル名によらない）。
   候補が複数見つかった場合は最初の1件が F-0000、残りは通常採番＋警告（⓪で確認）。
   コールグラフの根になるため、推奨着手順では最後に回る
-- `test_file` は ⓪では省略可。③が確定させる
+- `test_file` は ⓪では省略可。③が確定させる（`ledger set-test-file <func-id> [<path>]`。
+  パス省略時は②のケースIDの `@pytest.mark.tc` から自動判定）
 - `unresolved_calls`（任意）— 抽出時に functions.json 内で解決できなかった呼び出し名。
   別言語の抽出（extract_c.py 等）が走った時点で自動解決されて calls に移る
   （Fortran↔C のアンダースコア規約 `foo`/`foo_` も突合される）。

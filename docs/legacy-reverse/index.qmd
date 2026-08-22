@@ -131,7 +131,7 @@ flowchart TB
   subgraph L5["画面層"]
     UI["serve_site.py<br/>WBS / 仕様書 / 変数辞書 / 一斉レビュー / バッチ実行状況"]
   end
-  L3["MCP 層<br/>legacy-reverse-mcp(44 ツール)"]
+  L3["MCP 層<br/>legacy-reverse-mcp(45 ツール)"]
   L4["hooks 層<br/>guard_tests.py(拒否)<br/>guard_json.py(差し戻し)"]
   L3 ~~~ L4
   L1 -->|呼ぶ| L2

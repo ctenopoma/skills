@@ -1,6 +1,6 @@
 ---
 title: "MCP サーバ仕様"
-subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 44 ツール"
+subtitle: "legacy-reverse-mcp — scripts を型付きツール化した 45 ツール"
 date: 2026-08-09
 ---
 
@@ -38,7 +38,7 @@ date: 2026-08-09
 | hooks/guard_tests.py・guard_json.py | ツール呼び出しの強制ガードは hook の役割のまま(MCP 化すると迂回可能になる) |
 : MCP 化から意図的に除外したスクリプトと理由 {#tbl-mcp-excluded}
 
-# ツールリファレンス(44)
+# ツールリファレンス(45)
 
 | 分類 | 数 | 対応スクリプト |
 |------|:--:|--------------|
@@ -49,10 +49,10 @@ date: 2026-08-09
 | **⓪拡張: 例外ポリシー** | **3** | hazards.py |
 | **⓪拡張: フロー** | **3** | ledger.py(flow) |
 | 機械レビュー | 4 | review_checks.py |
-| 台帳(書き込み) | 12 | ledger.py |
+| 台帳(書き込み) | 13 | ledger.py |
 | 実行系 | 3 | collect_results / check_stubs / profile_run |
 | 出力系 | 3 | render_site / pdf_book / build_viewer |
-: 44 ツールの内訳(太字は⓪拡張で追加した 14 個) {#tbl-mcp-count}
+: 45 ツールの内訳(太字は⓪拡張で追加した 14 個) {#tbl-mcp-count}
 
 ## 台帳(読み取り) — ledger.py
 
@@ -155,7 +155,8 @@ date: 2026-08-09
 | `include_function` | root, func_id | dict | 除外を取り消して対象に戻す |
 | `generate_wbs` | root | dict | functions.json+成果物フロントマターから docs/index.qmd(WBS)を再生成 |
 | `generate_skeletons` | root, force=False | dict | functions.json から仕様書骨子を生成(既存はスキップ)。辞書があるプロジェクトでは骨子に `dict-hash` と `flows` を書き、**①未着手の骨子の `dict-hash` は現在値へ自動同期**する |
-| `freeze_tests` | root, func_id | dict | ③完了時にテストコードのハッシュを台帳へ記録(以降の改変を検知可能に) |
+| `set_test_file` | root, func_id, path? | dict | ③のテストファイルを functions.json の `test_file` に登録。**path 省略時は②のケースIDの `@pytest.mark.tc` を持つファイルから自動判定**(未登録のままだと③が完了扱いにならず⑤も走らない) |
+| `freeze_tests` | root, func_id, path? | dict | ③完了時にテストコードのハッシュを台帳へ記録(以降の改変を検知可能に)。`test_file` 未設定なら path(省略時は自動判定)でその場で確定させる |
 | `block` | root, func_id, issue_id | dict | 関数を裁定待ち(⛔)にする |
 | `unblock` | root, func_id | dict | 人の裁定反映後にブロック解除し attempt をリセット |
 | `phase_start` | root, phase, func_id | dict | フェーズ開始を記録(4/5 の間は hook が tests/ 編集を拒否) |

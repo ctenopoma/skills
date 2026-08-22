@@ -167,6 +167,8 @@ flowchart TB
 - 入力は ②(approved)+規約のみ。**①もレガシーも読まない**
 - ②の全ケースを pytest 関数に実装し、TC マーカーで対応付ける
   (`pytest --collect-only`+マーカー突合で過不足を機械検知)
+- テストファイルは `ledger set-test-file <func-id> [<path>]` で functions.json に登録する
+  （省略時は②のケースIDの `@pytest.mark.tc` から自動判定）。
 - 完了時に `ledger freeze-tests` でテストファイルのハッシュを台帳に記録。
   以降の改変は「⚠改変」として機械検知される
 - ④⑤中の tests/ 編集は hook が物理的に拒否。テスト側の疑義は

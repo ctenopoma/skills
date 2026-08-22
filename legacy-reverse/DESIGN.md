@@ -164,7 +164,7 @@ LLM 成果物は人に届く前に決定的スクリプトの検証を通る。
 | scripts/collect_results.py | ⑤結果収集 → 報告書生成 | exit code が制御信号（0 pass / 1 fail / 2 blocked / 3 mismatch）。attempt 上限3で自動 block |
 | scripts/pdf_book.py | 種別ごとの合本PDF | quarto-typst-pdf skill に委譲 |
 | hooks/guard_tests.py | フェーズ4/5中の tests/ 編集拒否 | state.json（phase-start/end）を見て判定 |
-| mcp-servers/legacy-reverse-mcp | scripts の型付きツール化（44個） | 判断は持たない。構造化された戻り値で許可プロンプトとシェル事故を減らす |
+| mcp-servers/legacy-reverse-mcp | scripts の型付きツール化（45個） | 判断は持たない。構造化された戻り値で許可プロンプトとシェル事故を減らす |
 
 # 7. スケールと再開（2000関数級）
 

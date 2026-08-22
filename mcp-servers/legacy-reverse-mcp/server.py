@@ -469,9 +469,23 @@ def generate_skeletons(root: str = ".", force: bool = False) -> dict:
 
 
 @mcp.tool()
-def freeze_tests(root: str, func_id: str) -> dict:
-    """③完了時にテストコードのハッシュを台帳へ記録する（以降の改変を検知可能にする）。"""
-    return _ledger(root, "freeze-tests", func_id)
+def set_test_file(root: str, func_id: str, path: str = "") -> dict:
+    """③のテストファイルを functions.json の test_file に登録する。
+
+    path 省略時は②のケースIDの @pytest.mark.tc を持つファイルから自動判定する。
+    """
+    args = ["set-test-file", func_id] + ([path] if path else [])
+    return _ledger(root, *args)
+
+
+@mcp.tool()
+def freeze_tests(root: str, func_id: str, path: str = "") -> dict:
+    """③完了時にテストコードのハッシュを台帳へ記録する（以降の改変を検知可能にする）。
+
+    test_file 未設定なら path（省略時は自動判定）でその場で確定させる。
+    """
+    args = ["freeze-tests", func_id] + ([path] if path else [])
+    return _ledger(root, *args)
 
 
 @mcp.tool()

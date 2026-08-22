@@ -363,7 +363,7 @@ def verify_testcode(root: str, fid: str) -> tuple:
         return False, f"{fid} が functions.json に存在しない", []
     tf = f.get("test_file")
     if not tf:
-        return False, "functions.json に test_file が未設定", []
+        return False, "functions.json に test_file が未設定（ledger set-test-file で登録する）", []
     tf_p = rootp / tf
     if not tf_p.exists():
         return False, f"テストファイルが存在しない（{tf}）", []

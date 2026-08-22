@@ -31,21 +31,29 @@ WBS・骨子・完了検証を生成し、ハッシュ連鎖とブロック状�
   exclude <func-id>... [--dead] [--reason ...] / include <func-id>
                              移植対象から外す／復帰させる（物理削除はしない。複数指定可。
                              --dead でエントリから到達不能な関数を一括除外）
-  freeze-tests <func-id>     テストコードのハッシュを ledger.json に記録（③完了時）
+  set-test-file <func-id> [<path>]
+                             ③のテストファイルを functions.json に記録（省略時は
+                             @pytest.mark.tc のマーカーから自動判定）
+  freeze-tests <func-id> [<path>]
+                             テストコードのハッシュを ledger.json に記録（③完了時）。
+                             test_file 未設定なら path or 自動判定でその場で確定させる
   block <func-id> <issue-id> / unblock <func-id>
   phase-start <n> <func-id> / phase-end
   check                      ⑥完了検証 → docs/completion-check.md（不備ありなら exit 1）
 """
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 from pathlib import Path
 
 import graph  # noqa: E402 — scripts/graph.py（同ディレクトリ）。フロー到達集合の計算に使う
+import review_checks  # noqa: E402 — ②のケースID書式（CASE_HEAD）を1か所に保つため
 
 # ---------- 基盤 ----------
 
@@ -1595,11 +1603,118 @@ def cmd_include(p: Project, args) -> None:
     print(f"included: {args.func_id}（対象に復帰。ledger wbs で反映）")
 
 
+# ③のテストファイル解決（set-test-file / freeze-tests が共用）
+#
+# functions.json の test_file は⓪では空で、③が確定させる（references/schema.md）。
+# ここを人／AI の手編集に任せると「書き忘れたまま freeze・⑤へ進もうとして
+# 『test_file が未設定』で止まる」が起きるため、CLI から設定できるようにし、
+# 省略時は②のケースIDマーカーから機械が突き止める。
+_TEST_GLOBS = ("test_*.py", "*_test.py")
+_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", "env", "node_modules",
+              "legacy", ".quarto", "site-packages", ".pytest_cache"}
+
+
+def _case_ids(p: Project, fid: str) -> list:
+    """②のケースID一覧（テストファイル自動判定のマーカー照合に使う）。
+
+    ID の書式は review_checks の CASE_HEAD が正（機械レビューと同じ判定を使い、
+    片方だけ書式が変わってここが黙って何も見つけなくなるのを防ぐ）。
+    """
+    ts = p.docs / "test-specs" / f"{fid}.md"
+    if not ts.exists():
+        return []
+    return review_checks.CASE_HEAD.findall(ts.read_text(encoding="utf-8-sig"))
+
+
+def _find_test_files(p: Project, fid: str) -> list:
+    """②のケースIDを `@pytest.mark.tc` で持つテストファイルを root 配下から探す。"""
+    cases = _case_ids(p, fid)
+    if not cases:
+        return []
+    pat = re.compile(r"@pytest\.mark\.tc\(\s*[\"']("
+                     + "|".join(re.escape(c) for c in cases) + r")[\"']")
+    # 2000関数級のプロジェクトで .git / node_modules を舐めないよう、
+    # rglob ではなく os.walk で枝ごと刈る
+    hits = set()
+    for dirpath, dirnames, filenames in os.walk(p.root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for fn in filenames:
+            if not any(fnmatch.fnmatch(fn, g) for g in _TEST_GLOBS):
+                continue
+            path = Path(dirpath) / fn
+            try:
+                text = path.read_text(encoding="utf-8-sig")
+            except OSError:
+                continue
+            if pat.search(text):
+                hits.add(path.relative_to(p.root).as_posix())
+    return sorted(hits)
+
+
+def _rel_to_root(p: Project, path_str: str) -> str:
+    """入力パスをプロジェクトルート相対の POSIX 表記に正規化する。"""
+    q = Path(path_str)
+    q = q if q.is_absolute() else (p.root / q)
+    try:
+        return q.resolve().relative_to(p.root).as_posix()
+    except ValueError:
+        sys.exit(f"error: プロジェクトルート（{p.root}）の外を指している: {path_str}")
+
+
+def _resolve_test_file(p: Project, fid: str, path_arg: str) -> str:
+    """test_file を決める（明示パス優先、無ければマーカーから自動判定）。
+
+    既存の設定を優先するかは呼び出し側の判断（freeze-tests は優先し、
+    set-test-file は登録し直す指示なので毎回判定する）。
+    """
+    if path_arg:
+        return _rel_to_root(p, path_arg)
+    hits = _find_test_files(p, fid)
+    if len(hits) == 1:
+        print(f"note: @pytest.mark.tc のマーカーから自動判定: {hits[0]}")
+        return hits[0]
+    if len(hits) > 1:
+        sys.exit(f"error: {fid} のケースIDを持つテストファイルが複数ある: " + ", ".join(hits)
+                 + "\n  hint: 1関数=1テストファイルに寄せるか、使う方を明示する: "
+                 + f"ledger set-test-file {fid} <path>")
+    sys.exit("error: functions.json に test_file が未設定で、自動判定もできない"
+             "（②のケースIDを @pytest.mark.tc で持つテストファイルが見つからない）"
+             "\n  hint: テストコードを先に書き、パスを登録する: "
+             f"ledger set-test-file {fid} tests/test_xxx.py")
+
+
+def cmd_set_test_file(p: Project, args) -> None:
+    """③のテストファイルを functions.json に記録する（③手順2の機械化）。"""
+    f = p.func(args.func_id)
+    rel = _resolve_test_file(p, args.func_id, args.path)
+    if not (p.root / rel).exists():
+        sys.exit(f"error: テストファイルが存在しない: {rel}")
+    prev = f.get("test_file")
+    if prev == rel:
+        print(f"unchanged: {args.func_id} test_file = {rel}")
+        return
+    f["test_file"] = rel
+    save_json(p.data / "functions.json", p.functions)
+    print(f"set: {args.func_id} test_file = {rel}" + (f"（旧: {prev}）" if prev else ""))
+    if p.ledger.get(args.func_id, {}).get("test_code_hash"):
+        print(f"next: freeze をやり直す: ledger freeze-tests {args.func_id}")
+    else:
+        print(f"next: ledger freeze-tests {args.func_id}")
+
+
 def cmd_freeze(p: Project, args) -> None:
     f = p.func(args.func_id)
-    tf = f.get("test_file")
-    if not tf or not (p.root / tf).exists():
-        sys.exit(f"error: test_file が未設定か存在しない: {tf}")
+    tf = args.path or f.get("test_file")
+    if tf:
+        tf = _rel_to_root(p, tf)
+    else:
+        tf = _resolve_test_file(p, args.func_id, "")
+    if not (p.root / tf).exists():
+        sys.exit(f"error: test_file が存在しない: {tf}")
+    if f.get("test_file") != tf:
+        f["test_file"] = tf
+        save_json(p.data / "functions.json", p.functions)
+        print(f"set: {args.func_id} test_file = {tf}")
     p.ledger.setdefault(args.func_id, {})["test_code_hash"] = sha8(p.root / tf)
     save_json(p.ledger_path, p.ledger)
     print(f"frozen: {tf} = {p.ledger[args.func_id]['test_code_hash']}")
@@ -1771,7 +1886,12 @@ def main() -> None:
     s.add_argument("--reason", default="", help="対象外の理由（WBSに載る。--dead の既定は「到達不能」）")
     s = sub.add_parser("include", help="対象外にした関数を復帰させる")
     s.add_argument("func_id")
-    s = sub.add_parser("freeze-tests"); s.add_argument("func_id")
+    s = sub.add_parser("set-test-file", help="③のテストファイルを functions.json に記録（path 省略時は @pytest.mark.tc から自動判定）")
+    s.add_argument("func_id"); s.add_argument("path", nargs="?", default="",
+                                              help="テストファイル（例: tests/test_tax.py）")
+    s = sub.add_parser("freeze-tests", help="テストコードのハッシュを台帳に記録（test_file 未設定なら同時に確定させる）")
+    s.add_argument("func_id"); s.add_argument("path", nargs="?", default="",
+                                              help="テストファイル（test_file 未設定・変更時のみ指定）")
     s = sub.add_parser("block"); s.add_argument("func_id"); s.add_argument("issue_id")
     s = sub.add_parser("unblock"); s.add_argument("func_id")
     s = sub.add_parser("phase-start"); s.add_argument("phase"); s.add_argument("func_id")
@@ -1795,7 +1915,7 @@ def main() -> None:
      "status": cmd_status, "next": cmd_next, "audit": cmd_audit,
      "next-issue": cmd_next_issue,
      "add": cmd_add, "exclude": cmd_exclude, "include": cmd_include,
-     "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,
+     "set-test-file": cmd_set_test_file, "freeze-tests": cmd_freeze, "block": cmd_block, "unblock": cmd_unblock,
      "phase-start": cmd_phase_start, "phase-end": cmd_phase_end, "check": cmd_check,
      "sphinx-index": cmd_sphinx_index}[args.cmd](p, args)
 

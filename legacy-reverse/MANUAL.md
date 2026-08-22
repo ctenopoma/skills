@@ -107,7 +107,7 @@ skill が次の skill を自動的に呼ぶことはない。
 | `legacy-0-dict` | ⓪ 変数辞書 | `/legacy-0-dict` | `variables.py`（build / list-targets / verify-interp / approve / revise / propagate / page / conflicts） |
 | `legacy-1-spec` | ① 仕様書 | `/legacy-1-spec F-xxxx`／`pipeline.py spec`／spec-gap ISSUE を受けた**改訂** | `review_checks spec`・`hazards match`・`ledger skeletons` `verify` `wbs` |
 | `legacy-2-testspec` | ② テスト仕様 | `/legacy-2-testspec F-xxxx`／`pipeline.py testspec` | `review_checks testspec`・`ledger hash` `wbs` |
-| `legacy-3-testcode` | ③ テストコード | `/legacy-3-testcode F-xxxx`／`pipeline.py testcode` | `pytest`・`collect_results`・`ledger freeze-tests` |
+| `legacy-3-testcode` | ③ テストコード | `/legacy-3-testcode F-xxxx`／`pipeline.py testcode` | `pytest`・`collect_results`・`ledger set-test-file` `freeze-tests` |
 | `legacy-4-impl` | ④ 実装 | `/legacy-4-impl F-xxxx`／`pipeline.py impl` | `check_stubs`・`ledger phase-start` `phase-end` |
 | `legacy-5-test` | ⑤ テスト | `/legacy-5-test F-xxxx`／`pipeline.py test` | `pytest`・`collect_results`・`ledger verify` `unblock` |
 | `legacy-6-check` | ⑥ 完了検証 | `/legacy-6-check` | `ledger check`・`review_checks all`・`pdf_book` |

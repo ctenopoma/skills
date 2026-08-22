@@ -30,7 +30,13 @@ new.module を見てよい（機械情報のみ）。
    - 事前条件（グローバル状態・外部ファイル・モック）は conventions.md の方針で fixture 化
    - 期待結果の検証は「戻り値＋事後状態＋副作用」まで、②に書いてある全てを assert する
    - ②に無いケースを勝手に足さない（足したいものが見つかったら ISSUE で②の改訂を提案）
-2. functions.json の `test_file` を確定させる（未設定なら記入）
+2. テストファイルを functions.json に登録する（`test_file`。手編集ではなく CLI で）:
+   ```bash
+   ledger set-test-file <func-id> <テストファイル>
+   ```
+   パスを省略すると②のケースIDの `@pytest.mark.tc` から自動判定する
+   （候補が複数出たら明示する）。未登録のままだと③は「test_file が未設定」で
+   完了扱いにならず、⑤も走らない
 3. 検証:
    ```bash
    pytest <test_file> --collect-only -q      # 収集エラーがないこと
@@ -39,7 +45,7 @@ new.module を見てよい（機械情報のみ）。
    ケースIDとマーカーの過不足は `collect_results.py` が exit 3 で教えてくれる
 4. freeze してWBS更新:
    ```bash
-   ledger freeze-tests <func-id>
+   ledger freeze-tests <func-id>   # test_file 未登録なら第2引数でパスを渡せる
    ledger wbs
    ```
    freeze 以降、④⑤中のテスト編集は hook に拒否される。修正が必要になったら

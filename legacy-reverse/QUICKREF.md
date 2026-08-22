@@ -51,6 +51,8 @@ ledger status [F-xxxx] [--json|--summary]   # 状況（--summary は要約JSON�
 ledger next [--all --limit N]               # 次の一手（--all で一覧）
 ledger next --flow 月次バッチ                # フロー到達集合だけに絞る
 ledger next --no-dict-gate                  # 変数辞書のゲートを解除（既定は ON。その1回だけ効く）
+ledger set-test-file F-xxxx [PATH]          # ③のテストファイルを登録（省略時は @pytest.mark.tc から自動判定）
+ledger freeze-tests F-xxxx [PATH]           # ③のテストコードを freeze（test_file 未設定ならその場で確定）
 ledger verify F-xxxx                        # ハッシュ連鎖検証（②stale・③改変・辞書stale・blocked）
 ledger wbs                                  # WBS再生成（200関数超は自動でページ分割）
 ledger audit [--flow N] [--no-dict-gate] [--json]   # ①の対象件数が WBS と合わないときの内訳
@@ -206,7 +208,7 @@ add_function・exclude_function・include_function=関数リストの後追い�
 graph_query=コールグラフ照会（summary/dead/reachable/callers/between/cycles）/
 dict_build・dict_list_targets・dict_verify_interp・dict_approve・dict_propagate・dict_page・dict_conflicts=変数辞書 /
 hazard_status・hazard_match・hazard_add_policy=例外ポリシー / flow_add・flow_list・flow_remove=作業スコープ /
-generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全44。
+generate_wbs / render_site / completion_check / freeze_tests / block / unblock ほか全45。
 
 ## 画面の記号
 
